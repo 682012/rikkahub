@@ -1,3 +1,5 @@
+> **个人改版 / Personal Fork**：本仓库是 RikkaHub 的非官方个人修改版，仅供自用，不提供 APK、安装教程或技术支持，与原作者无关。详见 [DISCLAIMER.md](../DISCLAIMER.md) 与 [NOTICE.md](../NOTICE.md)。
+
 # RikkaHub Fork（基于 3.0.x）
 
 个人维护分支。在官方 3.0.x 上补：子代理、工作区长任务与远程执行、单会话用量、自动上下文压缩。
