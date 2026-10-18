@@ -77,6 +77,9 @@ import me.rerere.rikkahub.data.model.withoutConversationFields
 import me.rerere.rikkahub.data.model.withoutUnresumableToolCalls
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
+import me.rerere.rikkahub.data.db.dao.UsageRecordDAO
+import me.rerere.rikkahub.data.db.entity.UsageRecordEntity
+import org.koin.java.KoinJavaComponent.getKoin
 import me.rerere.rikkahub.web.BadRequestException
 import me.rerere.rikkahub.web.NotFoundException
 import java.net.ConnectException
@@ -572,8 +575,13 @@ class ChatService(
         val conversationId = session.id
         // 生成开始前失败时通知只用来取消 Live Update，用不到发送者名称
         var senderName = ""
+        // fork: 用量流水所需，try 块外保存以便 finally 写入
+        var usageModelId: Uuid? = null
+        var usageNodeId: Uuid? = null
         try {
             val settings = settingsStore.awaitLoaded()
+            // fork: 上下文到阈值时先插入摘要检查点，不删除历史
+            maybeAutoCompress(session, settings)
             // 清掉上一轮的建议；没法继续执行的工具调用发给模型会被拒绝，先去掉。
             // 重新生成时只清理要发给模型的节点，被重新生成的节点保持原样，旧回复留作分支
             val conversation = session.update { latest ->
@@ -584,6 +592,7 @@ class ChatService(
                 latest.copy(chatSuggestions = emptyList()).withoutUnresumableToolCalls(untilNode)
             }
             val turn = requestFactory.createContext(settings, conversation)
+            usageModelId = turn.model.id
             senderName = if (turn.assistant.useAssistantAvatar) {
                 turn.assistant.name.ifEmpty { context.getString(R.string.assistant_page_default_assistant) }
             } else {
@@ -606,6 +615,7 @@ class ChatService(
             }
 
             val (request, hooks) = requestFactory.createAgent(turn, history, session.processingStatus)
+            usageNodeId = replyNodeId
             var finishReason: AgentFinishReason? = null
             try {
                 runAgent(request, hooks).flowOn(Dispatchers.IO).collect { event ->
@@ -637,6 +647,27 @@ class ChatService(
                     session.processingStatus.value = null
                     // 可能被取消了，或者意外结束，兜底保存
                     val finished = session.finishGeneration()
+                    // fork: 记录本轮用量，单独成表，避免解析 message_node 的 JSON
+                    runCatching {
+                        val usage = finished.currentMessages.lastOrNull()?.usage
+                        val modelId = usageModelId
+                        if (usage != null && modelId != null && usage.totalTokens > 0) {
+                            getKoin().get<UsageRecordDAO>().insert(
+                                UsageRecordEntity(
+                                    id = Uuid.random().toString(),
+                                    conversationId = conversationId.toString(),
+                                    nodeId = usageNodeId?.toString(),
+                                    modelId = modelId.toString(),
+                                    source = "chat",
+                                    promptTokens = usage.promptTokens,
+                                    completionTokens = usage.completionTokens,
+                                    cachedTokens = usage.cachedTokens,
+                                    totalTokens = usage.totalTokens,
+                                    createdAt = System.currentTimeMillis(),
+                                )
+                            )
+                        }
+                    }.onFailure { Log.w(TAG, "record usage failed", it) }
                     // 生成结束：取消 Live Update 通知，后台时发送完成通知
                     appEventBus.emit(
                         AppEvent.ChatGenerationEnded(
@@ -782,6 +813,54 @@ class ChatService(
             }.onFailure {
                 it.printStackTrace()
             }
+        }
+    }
+
+    /**
+     * 自动压缩：上下文占用达到模型窗口的阈值时，插入一条摘要检查点。
+     *
+     * 摘要不删除原始消息，模型后续只看到检查点；失败时静默继续，不阻塞发送。
+     */
+    private suspend fun maybeAutoCompress(
+        session: ConversationSession,
+        settings: me.rerere.rikkahub.data.datastore.Settings,
+    ) {
+        val config = settings.autoCompress
+        if (!config.enabled) return
+        val conversation = session.state.value
+        val nodes = conversation.messageNodes
+        if (nodes.isEmpty()) return
+        if (nodes.last().currentMessage.isContextCheckpoint) return
+        val used = conversation.currentMessages.lastOrNull()?.contextTokens ?: return
+        if (used <= 0) return
+        val turn = runCatching { requestFactory.createContext(settings, conversation) }.getOrNull() ?: return
+        val limit = turn.model.contextLength
+        if (limit <= 0) return
+        val threshold = config.thresholdPercent.coerceIn(10, 100)
+        if (used.toLong() * 100L < limit.toLong() * threshold) return
+        if (nodes.any { node ->
+                node.currentMessage.getTools().any { tool -> tool.isPending || tool.canResumeExecution }
+            }
+        ) return
+
+        session.processingStatus.value = "正在压缩上下文…"
+        try {
+            val summary = runCatching {
+                requestFactory.generateCompressionSummary(
+                    turn = turn,
+                    messages = conversation.currentMessages,
+                    compressPrompt = buildCompressPrompt(
+                        additionalPrompt = "",
+                        locale = Locale.getDefault().displayName,
+                    ),
+                )
+            }.onFailure { Log.w(TAG, "auto compress failed", it) }.getOrNull() ?: return
+            session.update { latest ->
+                latest.insertContextCheckpoint(afterNodeId = nodes.last().id, summary = summary) ?: latest
+            }
+            session.flush()
+        } finally {
+            session.processingStatus.value = null
         }
     }
 

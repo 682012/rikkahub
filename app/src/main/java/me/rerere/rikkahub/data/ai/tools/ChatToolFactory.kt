@@ -44,14 +44,20 @@ class ChatToolFactory(
     private val mcpManager: McpManager,
     private val skillManager: SkillManager,
     private val workspaceRepository: WorkspaceRepository,
+    private val subagentRunner: me.rerere.rikkahub.data.ai.subagent.SubagentRunner,
 ) {
     suspend fun createTools(
         settings: Settings,
         assistant: Assistant,
         model: Model,
         workspaceCwd: String? = null,
+        conversationId: Uuid? = null,
     ): List<Tool> {
-        val workspaceTools = createWorkspaceToolsIfReady(assistant.workspaceId?.toString(), workspaceCwd)
+        val workspaceTools = createWorkspaceToolsIfReady(
+            assistant.workspaceId?.toString(),
+            workspaceCwd,
+            settings.workspaceRuntime,
+        )
         val tools = buildList {
             if (assistant.enableMemory) {
                 addAll(buildMemoryTools(memoryRepository, assistant.memoryId))
@@ -93,8 +99,26 @@ class ChatToolFactory(
                 )
             }
         }
+        // fork: 子代理工具。childTools 里不含 subagent_*，避免无限嵌套。
+        // 子代理可以额外拿到会话检索/读取工具，用来参考其他聊天。
+        val childTools = if (settings.subagent.includeChatHistory) {
+            (tools +
+                createConversationReadTool(conversationRepository) +
+                createConversationTools(conversationRepository, assistant.id))
+                .distinctBy { it.name }
+        } else tools
+        val withSubagent = if (settings.subagent.enabled) {
+            val allModelIds = settings.providers.flatMap { provider -> provider.models.map { it.id } }
+            tools + createSubagentTools(
+                runner = subagentRunner,
+                childTools = childTools,
+                settings = settings.subagent,
+                allModelIds = allModelIds,
+                conversationId = conversationId,
+            )
+        } else tools
         // 过长的输出存成文件让模型用 shell 按需读取；没有 shell 时模型读不到文件，只能原样返回
-        return if (workspaceTools.isEmpty()) tools else tools.map(::withOutputTruncation)
+        return if (workspaceTools.isEmpty()) withSubagent else withSubagent.map(::withOutputTruncation)
     }
 
     private fun withOutputTruncation(tool: Tool): Tool {
@@ -128,7 +152,11 @@ class ChatToolFactory(
         ) + output.filter { it !is UIMessagePart.Text }
     }
 
-    private suspend fun createWorkspaceToolsIfReady(workspaceId: String?, cwd: String?): List<Tool> {
+    private suspend fun createWorkspaceToolsIfReady(
+        workspaceId: String?,
+        cwd: String?,
+        runtime: me.rerere.rikkahub.data.datastore.WorkspaceRuntimeSettings,
+    ): List<Tool> {
         if (workspaceId.isNullOrBlank()) return emptyList()
         val workspace = workspaceRepository.getById(workspaceId) ?: return emptyList()
         if (workspace.shellStatus != WorkspaceShellStatus.READY.name) {
@@ -138,6 +166,6 @@ class ChatToolFactory(
             )
             return emptyList()
         }
-        return createWorkspaceTools(workspaceId, workspaceRepository, cwd)
+        return createWorkspaceTools(workspaceId, workspaceRepository, cwd, runtime)
     }
 }

@@ -13,6 +13,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.toMetadata
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.datastore.WorkspaceRuntimeSettings
 import me.rerere.rikkahub.utils.generateUnifiedDiff
 import me.rerere.workspace.WorkspaceCommandResult
 import me.rerere.workspace.WorkspaceFileEntry
@@ -20,6 +21,7 @@ import me.rerere.workspace.WorkspaceManager
 import org.koin.java.KoinJavaComponent.getKoin
 import java.io.ByteArrayOutputStream
 
+// fork: 仅作为设置缺失时的兜底；实际上限由 WorkspaceRuntimeSettings.maxTimeoutSec 决定
 private const val SHELL_TIMEOUT_MAX_SECONDS = 600L
 private const val MAX_READ_FILE_BYTES = 8L * 1024 * 1024
 
@@ -37,6 +39,7 @@ suspend fun createWorkspaceTools(
     workspaceId: String?,
     workspaceRepository: WorkspaceRepository,
     cwd: String? = null,
+    runtime: WorkspaceRuntimeSettings = WorkspaceRuntimeSettings(),
 ): List<Tool> {
     if (workspaceId.isNullOrBlank()) return emptyList()
     val approvalOverrides = workspaceRepository.getById(workspaceId)?.toolApprovalOverrides().orEmpty()
@@ -48,7 +51,10 @@ suspend fun createWorkspaceTools(
         createReadFileTool(workspaceId, ::needsApproval, workspaceRepository),
         createWriteFileTool(workspaceId, ::needsApproval, workspaceRepository),
         createEditFileTool(workspaceId, ::needsApproval, workspaceRepository),
-        createShellTool(workspaceId, ::needsApproval, workspaceRepository, shellCwd),
+        createShellTool(workspaceId, ::needsApproval, workspaceRepository, shellCwd, runtime),
+        createJobStartTool(workspaceId, ::needsApproval, workspaceRepository, shellCwd, runtime),
+        createJobStatusTool(workspaceId, ::needsApproval, workspaceRepository),
+        createJobKillTool(workspaceId, ::needsApproval, workspaceRepository),
     )
 }
 
@@ -200,11 +206,22 @@ private fun createEditFileTool(
     },
 )
 
+private fun resolveTimeoutMillis(
+    requestedSec: Long?,
+    runtime: WorkspaceRuntimeSettings,
+): Long {
+    val maxSec = runtime.maxTimeoutSec.toLong()
+    val sec = requestedSec ?: runtime.commandTimeoutSec.toLong()
+    if (sec <= 0L) return 0L
+    return (if (maxSec > 0L) sec.coerceIn(1L, maxSec) else sec) * 1_000L
+}
+
 private fun createShellTool(
     workspaceId: String,
     needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
     defaultCwd: String? = null,
+    runtime: WorkspaceRuntimeSettings = WorkspaceRuntimeSettings(),
 ) = Tool(
     name = "workspace_shell",
     description = buildString {
@@ -213,7 +230,10 @@ private fun createShellTool(
         if (!defaultCwd.isNullOrBlank()) {
             append("Defaults to '$defaultCwd'. ")
         }
-        append("Requires Rootfs to be installed and ready.")
+        append("Timeout defaults to ${runtime.commandTimeoutSec}s")
+        if (runtime.maxTimeoutSec > 0) append(", max ${runtime.maxTimeoutSec}s") else append(", 0 means no limit")
+        append(". For anything that may outlive the timeout use workspace_job_start instead.")
+        append(" Requires Rootfs to be installed and ready.")
     },
     parameters = {
         InputSchema.Obj(
@@ -237,7 +257,11 @@ private fun createShellTool(
                     put("type", "integer")
                     put(
                         "description",
-                        "Command timeout in seconds. Defaults to 30, max $SHELL_TIMEOUT_MAX_SECONDS."
+                        buildString {
+                            append("Command timeout in seconds. Defaults to ${runtime.commandTimeoutSec}. ")
+                            if (runtime.maxTimeoutSec > 0) append("Max ${runtime.maxTimeoutSec}. ") else append("0 means no limit. ")
+                            append("The process is killed when the timeout is reached.")
+                        }
                     )
                 })
             },
@@ -250,10 +274,7 @@ private fun createShellTool(
         val command = params.string("command") ?: error("command is required")
         val cwd = (params.string("cwd") ?: defaultCwd.orEmpty())
             .removePrefix("/workspace/").removePrefix("/workspace")
-        val timeoutMillis = params.string("timeout")?.toLongOrNull()
-            ?.coerceIn(1L, SHELL_TIMEOUT_MAX_SECONDS)
-            ?.times(1_000L)
-            ?: WorkspaceManager.DEFAULT_COMMAND_TIMEOUT_MS
+        val timeoutMillis = resolveTimeoutMillis(params.string("timeout")?.toLongOrNull(), runtime)
         val result = workspaceRepository.executeCommand(workspaceId, command, cwd, timeoutMillis)
         listOf(
             UIMessagePart.Text(
@@ -268,6 +289,126 @@ private fun createShellTool(
         )
     },
 )
+
+private fun createJobStartTool(
+    workspaceId: String,
+    needsApproval: (String) -> Boolean,
+    workspaceRepository: WorkspaceRepository,
+    defaultCwd: String? = null,
+    runtime: WorkspaceRuntimeSettings = WorkspaceRuntimeSettings(),
+) = Tool(
+    name = "workspace_job_start",
+    description = buildString {
+        append("Start a long-running command in the workspace Rootfs and return immediately. ")
+        append("Use this for builds, installs and scripts that must not be killed by a tool timeout. ")
+        append("Check progress with workspace_job_status and stop it with workspace_job_kill. ")
+        append("Output is written to a per-job log; job files are kept for ${runtime.keepJobsDays} days.")
+    },
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                put("command", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Shell command to run in the background")
+                })
+                put("cwd", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Working directory relative to the workspace files root")
+                })
+            },
+            required = listOf("command"),
+        )
+    },
+    needsApproval = { needsApproval("workspace_shell") },
+    execute = {
+        val params = it.jsonObject
+        val command = params.string("command") ?: error("command is required")
+        val cwd = (params.string("cwd") ?: defaultCwd.orEmpty())
+            .removePrefix("/workspace/").removePrefix("/workspace")
+        val info = workspaceRepository.startJob(workspaceId, command, cwd)
+        listOf(
+            UIMessagePart.Text(
+                buildJsonObject {
+                    put("jobId", info.id)
+                    put("pid", info.pid)
+                    put("logPath", info.logPath)
+                    put("startedAt", info.startedAt)
+                }.toString()
+            )
+        )
+    },
+)
+
+private fun createJobStatusTool(
+    workspaceId: String,
+    needsApproval: (String) -> Boolean,
+    workspaceRepository: WorkspaceRepository,
+) = Tool(
+    name = "workspace_job_status",
+    description = "Show whether a workspace job is still running and return the tail of its log.",
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                put("jobId", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Job id returned by workspace_job_start")
+                })
+                put("tailLines", buildJsonObject {
+                    put("type", "integer")
+                    put("description", "Number of log lines to return, default 80, max 400")
+                })
+            },
+            required = listOf("jobId"),
+        )
+    },
+    needsApproval = { needsApproval("workspace_shell") },
+    execute = {
+        val params = it.jsonObject
+        val jobId = params.string("jobId") ?: error("jobId is required")
+        val tailLines = params.string("tailLines")?.toIntOrNull() ?: 80
+        val status = workspaceRepository.jobStatus(workspaceId, jobId, tailLines)
+        listOf(
+            UIMessagePart.Text(
+                buildJsonObject {
+                    put("jobId", status.info.id)
+                    put("running", status.running)
+                    put("command", status.info.command)
+                    put("startedAt", status.info.startedAt)
+                    put("logTail", status.logTail)
+                    if (status.logTruncated) put("logTruncated", true)
+                }.toString()
+            )
+        )
+    },
+)
+
+private fun createJobKillTool(
+    workspaceId: String,
+    needsApproval: (String) -> Boolean,
+    workspaceRepository: WorkspaceRepository,
+) = Tool(
+    name = "workspace_job_kill",
+    description = "Stop a running workspace job and its process group.",
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                put("jobId", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Job id returned by workspace_job_start")
+                })
+            },
+            required = listOf("jobId"),
+        )
+    },
+    needsApproval = { needsApproval("workspace_shell") },
+    execute = {
+        val params = it.jsonObject
+        val jobId = params.string("jobId") ?: error("jobId is required")
+        val ok = workspaceRepository.killJob(workspaceId, jobId)
+        listOf(UIMessagePart.Text(buildJsonObject { put("ok", ok) }.toString()))
+    },
+)
+
 
 private fun kotlinx.serialization.json.JsonObject.string(name: String): String? =
     this[name]?.jsonPrimitive?.contentOrNull

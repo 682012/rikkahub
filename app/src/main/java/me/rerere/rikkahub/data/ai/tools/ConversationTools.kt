@@ -188,3 +188,48 @@ fun createMemoryConversationTools(
 /** 当前分支上用户和助手的消息，位置编号以这个列表为准 */
 internal fun Conversation.dialogueMessages(): List<UIMessage> =
     currentMessages.filter { it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT }
+
+/** 让子代理按会话 id 读取另一段聊天的尾部内容。 */
+fun createConversationReadTool(conversationRepo: ConversationRepository): Tool = Tool(
+    name = "conversation_read",
+    description = """
+        Read the most recent messages of another conversation by its id.
+        Use `recent_chats` or `conversation_search` first to find the id, then read it here.
+        Returns role and text for each message, oldest first, truncated to keep the result small.
+    """.trimIndent(),
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                put("conversation_id", buildJsonObject {
+                    put("type", "string")
+                    put("description", "Conversation id from recent_chats or conversation_search")
+                })
+                put("limit", buildJsonObject {
+                    put("type", "integer")
+                    put("description", "How many recent messages to read, default 20, max 100")
+                })
+            },
+            required = listOf("conversation_id"),
+        )
+    },
+    execute = {
+        val params = it.jsonObject
+        val id = params["conversation_id"]?.jsonPrimitive?.contentOrNull
+            ?: error("conversation_id is required")
+        val limit = (params["limit"]?.jsonPrimitive?.intOrNull ?: 20).coerceIn(1, 100)
+        val messages = conversationRepo.readConversationTail(id, limit)
+        var budget = 24_000
+        val payload = buildJsonArray {
+            for ((role, text) in messages) {
+                if (budget <= 0) break
+                val clipped = text.take(minOf(4_000, budget))
+                budget -= clipped.length
+                add(buildJsonObject {
+                    put("role", role)
+                    put("text", clipped)
+                })
+            }
+        }
+        listOf(UIMessagePart.Text(JsonInstantPretty.encodeToString(payload)))
+    },
+)

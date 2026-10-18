@@ -35,6 +35,18 @@ val Migration_27_28 = object : Migration(27, 28) {
                     "INSERT INTO memory_file (assistant_id, path, content, updated_at) VALUES (?, ?, ?, ?)",
                     arrayOf<Any?>(assistantId, MemoryFile.PROFILE_PATH, profile, now)
                 )
+                // fork: 原始条目另存一份，迁移后可回退，不再只能依赖备份
+                runCatching {
+                    db.execSQL(
+                        "INSERT OR REPLACE INTO memory_file (assistant_id, path, content, updated_at) VALUES (?, ?, ?, ?)",
+                        arrayOf<Any?>(
+                            assistantId,
+                            "_legacy/raw_memories.md",
+                            contents.joinToString("\n"),
+                            now,
+                        )
+                    )
+                }
                 migratedCount++
             }
 

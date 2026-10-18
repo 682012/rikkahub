@@ -53,7 +53,13 @@ fun Process.readResult(timeoutMillis: Long, stdin: ByteArray? = null): Workspace
         }
     }
     try {
-        val finished = waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
+        // fork: timeoutMillis <= 0 表示不限制，此时阻塞等待进程自然结束
+        val finished = if (timeoutMillis <= 0L) {
+            waitFor()
+            true
+        } else {
+            waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
+        }
         if (!finished) {
             destroyForcibly()
         }

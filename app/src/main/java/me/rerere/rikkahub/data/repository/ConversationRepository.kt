@@ -8,10 +8,13 @@ import androidx.paging.PagingSource
 import androidx.paging.map
 import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.datastore.ConversationSortOrder
 import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.fts.MessageFtsManager
@@ -487,6 +490,24 @@ class ConversationRepository(
         )
     }
 
+    /** 读取会话尾部消息，供子代理按会话 id 查阅其他聊天。 */
+    suspend fun readConversationTail(
+        conversationId: String,
+        limit: Int = 20,
+    ): List<Pair<String, String>> {
+        val nodes = messageNodeDAO.getLastNodes(conversationId, limit.coerceIn(1, 100)).reversed()
+        val result = mutableListOf<Pair<String, String>>()
+        for (node in nodes) {
+            val messages = runCatching {
+                JsonInstant.decodeFromString<List<UIMessage>>(node.messages)
+            }.getOrNull() ?: continue
+            val selected = messages.getOrNull(node.selectIndex) ?: messages.lastOrNull() ?: continue
+            val text = selected.toText().trim()
+            if (text.isNotEmpty()) result += selected.role.name.lowercase() to text
+        }
+        return result
+    }
+
     private suspend fun loadMessageNodes(conversationId: String): List<MessageNode> {
         val favoriteNodeIds = favoriteDAO
             .getFavoriteNodeIdsOfConversation(conversationId)
@@ -514,7 +535,7 @@ class ConversationRepository(
                 }
                 if (page.isEmpty()) break
                 page.forEach { entity ->
-                    val messages = JsonInstant.decodeFromString<List<UIMessage>>(entity.messages)
+                    val messages = JsonInstant.decodeFromString<List<UIMessage>>(entity.messages).externalizeLargeParts(filesManager)
                     val nodeId = Uuid.parse(entity.id)
                     nodes.add(
                         MessageNode(
@@ -562,3 +583,76 @@ data class ConversationPageResult(
     val items: List<Conversation>,
     val nextOffset: Int?,
 )
+
+private const val MAX_INLINE_TEXT_CHARS = 48_000
+private const val MAX_INLINE_MEDIA_CHARS = 512_000
+private const val PREVIEW_TEXT_CHARS = 2_000
+
+/**
+ * 历史消息里的大块内容外置到磁盘，消息本身只保留引用。
+ *
+ * 图片/视频/音频/文档换成 file:// 路径后仍能正常显示；超长文本保留预览和文件路径。
+ * 这样几十 MB 的会话不会在解码 JSON 时把 512MB 堆打满，也不会丢内容。
+ */
+private suspend fun List<UIMessage>.externalizeLargeParts(
+    filesManager: FilesManager,
+): List<UIMessage> = withContext(Dispatchers.IO) {
+    map { message ->
+        val parts = message.parts.map { it.externalizePart(filesManager, insideTool = false) }
+        if (parts == message.parts) message else message.copy(parts = parts)
+    }
+}
+
+private fun UIMessagePart.externalizePart(
+    filesManager: FilesManager,
+    insideTool: Boolean,
+): UIMessagePart = when (this) {
+    // 普通正文不外置：模型需要原文，预览会丢上下文
+    is UIMessagePart.Text ->
+        if (insideTool) externalizeText(text, filesManager)?.let { copy(text = it) } ?: this else this
+
+    is UIMessagePart.Tool -> {
+        val newInput = externalizeText(input, filesManager) ?: input
+        val newOutput = output.map { it.externalizePart(filesManager, insideTool = true) }
+        if (newInput == input && newOutput == output) this else copy(input = newInput, output = newOutput)
+    }
+
+    is UIMessagePart.Image -> externalizeMedia(url, "image", filesManager)?.let { copy(url = it) } ?: this
+    is UIMessagePart.Video -> externalizeMedia(url, "video", filesManager)?.let { copy(url = it) } ?: this
+    is UIMessagePart.Audio -> externalizeMedia(url, "audio", filesManager)?.let { copy(url = it) } ?: this
+    is UIMessagePart.Document -> externalizeMedia(url, "document", filesManager)?.let { copy(url = it) } ?: this
+    else -> this
+}
+
+private fun externalizeText(text: String, filesManager: FilesManager): String? {
+    if (text.length <= MAX_INLINE_TEXT_CHARS) return null
+    return runCatching {
+        val file = filesManager.cacheTransient(text.toByteArray(), "txt")
+        text.take(PREVIEW_TEXT_CHARS) + "\n…[full text: ${file.absolutePath}]"
+    }.getOrNull()
+}
+
+private fun externalizeMedia(
+    url: String,
+    kind: String,
+    filesManager: FilesManager,
+): String? {
+    if (!url.startsWith("data:") || url.length <= MAX_INLINE_MEDIA_CHARS) return null
+    val header = url.substringAfter("data:", "").substringBefore(",")
+    val payload = url.substringAfter(",", "")
+    if (payload.isEmpty()) return null
+    val extension = when {
+        header.contains("png") -> "png"
+        header.contains("jpeg") || header.contains("jpg") -> "jpg"
+        header.contains("webp") -> "webp"
+        header.contains("gif") -> "gif"
+        header.contains("mp4") -> "mp4"
+        header.contains("mpeg") || header.contains("mp3") -> "mp3"
+        header.contains("pdf") -> "pdf"
+        else -> "bin"
+    }
+    return runCatching {
+        val bytes = android.util.Base64.decode(payload, android.util.Base64.DEFAULT)
+        "file://" + filesManager.cacheTransient(bytes, extension).absolutePath
+    }.getOrNull()
+}

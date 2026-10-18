@@ -103,6 +103,7 @@ val dataSourceModule = module {
     }
 
     single {
+        get<AppDatabase>().usageRecordDao()
         get<AppDatabase>().favoriteDao()
     }
 

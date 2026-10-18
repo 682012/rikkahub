@@ -575,6 +575,7 @@ private fun TopBar(
     val titleState = useEditState<String> {
         onUpdateTitle(it)
     }
+    var showUsage by remember { mutableStateOf(false) }
 
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
@@ -624,6 +625,10 @@ private fun TopBar(
             }
         },
         actions = {
+            TextButton(onClick = { showUsage = true }) {
+                Text("用量", style = MaterialTheme.typography.labelMedium)
+            }
+
             IconButton(
                 onClick = {
                     onClickMenu()
@@ -641,6 +646,10 @@ private fun TopBar(
             }
         },
     )
+    if (showUsage) {
+        UsageSheet(conversationId = conversation.id.toString()) { showUsage = false }
+    }
+
     titleState.EditStateContent { title, onUpdate ->
         AlertDialog(
             onDismissRequest = {

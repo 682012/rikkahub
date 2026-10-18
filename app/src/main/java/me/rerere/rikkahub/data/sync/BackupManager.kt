@@ -41,6 +41,13 @@ class BackupManager(
 ) {
     private val restoreMutex = Mutex()
 
+    // fork: 其他分支的备份可能把非空字段写成 null，coerce 后回落到默认值
+    private val restoreJson = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        coerceInputValues = true
+    }
+
     suspend fun createBackup(includeDatabase: Boolean, includeFiles: Boolean): File = withContext(Dispatchers.IO) {
         val timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
         val archive = File.createTempFile("backup_${timestamp}_", ".zip", context.cacheDir)
@@ -125,6 +132,8 @@ class BackupManager(
                     require(!stagedWal.exists() || stagedDatabase.exists()) { "Backup WAL has no matching database" }
                     if (stagedDatabase.exists()) {
                         DatabaseBackup.normalize(context, stagedDatabase)
+                        // fork: 同版本不同分支的库（如 excp schema 31）先对齐结构再交给 Room
+                        DatabaseBackup.alignToTarget(context, stagedDatabase)
                         // Reject unsupported schemas before publishing; run supported old migrations on the copy.
                         val room = AppDatabaseFactory.create(context, stagedDatabase.absolutePath)
                         try {
@@ -138,7 +147,7 @@ class BackupManager(
                     val settingsFile = File(staging, "settings.json")
                     if (settingsFile.exists()) {
                         val migrated = SettingsJsonMigrator.migrate(settingsFile.readText())
-                        val settings = json.decodeFromString<Settings>(migrated)
+                        val settings = restoreJson.decodeFromString<Settings>(migrated)
                         require(!settings.init) { "Backup contains uninitialized settings" }
                         // Persist the migrated value once, including generated IDs, for restart/retry consistency.
                         PendingRestore.writeDurably(settingsFile, json.encodeSettings(settings, json.launchCountOf(migrated)))
