@@ -104,6 +104,9 @@ val dataSourceModule = module {
 
     single {
         get<AppDatabase>().usageRecordDao()
+    }
+
+    single {
         get<AppDatabase>().favoriteDao()
     }
 

@@ -26,8 +26,8 @@ android {
         applicationId = "me.rerere.rikkahub.fork"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3000012
-        versionName = "3.0.0-fork.12"
+        versionCode = 3000013
+        versionName = "3.0.0-fork.13"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

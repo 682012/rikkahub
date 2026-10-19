@@ -34,11 +34,12 @@ fun UsageSheet(
     conversationId: String,
     onDismiss: () -> Unit,
 ) {
-    val dao = remember { getKoin().get<UsageRecordDAO>() }
+    val dao = remember { runCatching { getKoin().get<UsageRecordDAO>() }.getOrNull() }
     var totals by remember { mutableStateOf<UsageTotals?>(null) }
     var byModel by remember { mutableStateOf<List<UsageByModel>>(emptyList()) }
 
-    LaunchedEffect(conversationId) {
+    LaunchedEffect(conversationId, dao) {
+        if (dao == null) return@LaunchedEffect
         runCatching {
             totals = dao.totals(conversationId, includeSubagents = true)
             byModel = dao.byModel(conversationId, includeSubagents = true)
@@ -55,7 +56,9 @@ fun UsageSheet(
         ) {
             Text("本会话用量", style = MaterialTheme.typography.titleMedium)
             val t = totals
-            if (t == null || t.requests == 0L) {
+            if (dao == null) {
+                Text("统计服务未初始化", style = MaterialTheme.typography.bodySmall)
+            } else if (t == null || t.requests == 0L) {
                 Text(
                     "还没有记录。这版之前产生的消息不会补记，之后的新请求会开始统计。",
                     style = MaterialTheme.typography.bodySmall,
