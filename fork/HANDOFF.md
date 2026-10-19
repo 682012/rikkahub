@@ -166,11 +166,11 @@ created_at INTEGER NOT NULL
 
 ### 5.5 大会话加载 `ConversationRepository.externalizeLargeParts`
 
-- 只处理工具输出与媒体，**正文不截断**
-- 工具输出 > 48k 字符 → 写 `filesDir/msg_cache/<md5>.txt`，消息保留前 2k + `[full text: 路径]`
-- base64 媒体 > 512k 字符 → 解码写文件，消息换成 `file://`
-- 缓存按 MD5 去重，7 天 / 300MB 清理
-- 工具卡片提供“查看完整输出”，点开才读文件（最大 1MB）
+- 新数据不再外置或截断工具输入/输出；正文和工具结果原样入库
+- 加载 fork.14 旧消息时，识别 `…[full text: …/msg_cache/<md5>.txt]`，校验前缀后恢复完整正文
+- 旧 `msg_cache` 视为持久数据：不再自动清理，随备份导出/恢复
+- base64 媒体 > 512k 字符 → 解码写文件，消息换成 `file://`（旧 `msg_cache` 媒体也会转存为普通上传文件）
+- 工具卡片提供“查看完整输出”，点开才读文件（最大 100 万字符，分段渲染）
 
 ## 6. 已知风险与未验证项
 
@@ -190,9 +190,9 @@ created_at INTEGER NOT NULL
 
 **设计上的已知限制：**
 
-1. 远程服务端没有并发限制、没有目录隔离，所有任务共享 `RK_EXEC_ROOT`
+1. 远程服务端有并发槽限制，但没有目录隔离，所有任务共享 `RK_EXEC_ROOT`
 2. 远程 token 明文存在 `settings.json`，会随备份导出
-3. 子代理结果文件、`msg_cache` 都没有 UI 清理入口，只靠定时策略
+3. 子代理结果文件有保留期；`msg_cache` 作为旧数据恢复源保留，没有 UI 清理入口
 4. `SubagentTask.steps` 存的是工具调用次数，不是模型步数
 5. 自动压缩依赖模型 `contextLength` 准确，默认 1,000,000 会让阈值形同虚设
 6. 消息分页未实现，超大会话靠外置缓解
