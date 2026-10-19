@@ -251,7 +251,8 @@ class SubagentRunner(
             val current = active.get()
             if (current < limit && active.compareAndSet(current, current + 1)) return
             val version = released.value
-            released.first { it > version }
+            // 最多等 5 秒再重新检查，避免通知丢失时永久挂起
+            withTimeoutOrNull(5_000) { released.first { it > version } }
         }
     }
 

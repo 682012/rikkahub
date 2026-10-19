@@ -59,13 +59,13 @@ class WorkspaceJobManager(
         // setsid 不存在时退化为 nohup + 普通后台进程。
         val inner = buildString {
             append("cd ").append(shellQuote(cwd.ifBlank { "/workspace" })).append(" && ")
-            append("{ command -v setsid >/dev/null 2>&1 && setsid sh -c ")
-            append(shellQuote(command))
-            append(" > ").append(shellQuote(log.absolutePath)).append(" 2>&1 & echo \$! > ")
-            append(shellQuote(pidFile.absolutePath))
-            append(" || { nohup sh -c ").append(shellQuote(command))
-            append(" > ").append(shellQuote(log.absolutePath)).append(" 2>&1 & echo \$! > ")
-            append(shellQuote(pidFile.absolutePath)).append("; } }")
+            append("if command -v setsid >/dev/null 2>&1; then ")
+            append("setsid sh -c ").append(shellQuote(command))
+            append(" > ").append(shellQuote(log.absolutePath)).append(" 2>&1 & ")
+            append("else ")
+            append("nohup sh -c ").append(shellQuote(command))
+            append(" > ").append(shellQuote(log.absolutePath)).append(" 2>&1 & ")
+            append("fi; echo \$! > ").append(shellQuote(pidFile.absolutePath))
         }
 
         val result = manager.executeCommand(

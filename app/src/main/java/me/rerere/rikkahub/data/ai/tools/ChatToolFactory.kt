@@ -101,12 +101,17 @@ class ChatToolFactory(
         }
         // fork: 子代理工具。childTools 里不含 subagent_*，避免无限嵌套。
         // 子代理可以额外拿到会话检索/读取工具，用来参考其他聊天。
-        val childTools = if (settings.subagent.includeChatHistory) {
+        val childTools = (if (settings.subagent.includeChatHistory) {
             (tools +
                 createConversationReadTool(conversationRepository) +
                 createConversationTools(conversationRepository, assistant.id))
                 .distinctBy { it.name }
-        } else tools
+        } else tools).filter { tool ->
+            // 子代理的工具可见性遵循设置，避免开关是摆设
+            (settings.subagent.includeWorkspace || !tool.name.startsWith("workspace_")) &&
+                (settings.subagent.includeMcp || !tool.name.startsWith("mcp__")) &&
+                (settings.subagent.includeSearch || !tool.name.startsWith("search_"))
+        }
         val withSubagent = if (settings.subagent.enabled) {
             val allModelIds = settings.providers.flatMap { provider -> provider.models.map { it.id } }
             tools + createSubagentTools(

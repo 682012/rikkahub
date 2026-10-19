@@ -63,10 +63,12 @@ class WorkspaceJobForegroundService : Service() {
         super.onCreate()
         createChannel()
         val power = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "rikkahub:workspace_job").apply {
-            setReferenceCounted(false)
-            acquire(6 * 60 * 60 * 1000L)
-        }
+        runCatching {
+            wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "rikkahub:workspace_job").apply {
+                setReferenceCounted(false)
+                acquire(6 * 60 * 60 * 1000L)
+            }
+        }.onFailure { Log.e(TAG, "acquire wake lock failed", it) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

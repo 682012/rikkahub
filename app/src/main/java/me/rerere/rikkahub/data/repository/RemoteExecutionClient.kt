@@ -3,6 +3,7 @@ package me.rerere.rikkahub.data.repository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
@@ -110,7 +111,7 @@ class RemoteExecutionClient {
         WorkspaceJobStatus(
             info = info,
             running = obj["running"]?.jsonPrimitive?.booleanOrNull ?: false,
-            exitCode = obj["exitCode"]?.jsonPrimitive?.intOrNull,
+            exitCode = (obj["exitCode"] as? kotlinx.serialization.json.JsonPrimitive)?.intOrNull,
             logTail = obj["logTail"]?.jsonPrimitive?.contentOrNull.orEmpty(),
             logTruncated = obj["truncated"]?.jsonPrimitive?.booleanOrNull ?: false,
         )
