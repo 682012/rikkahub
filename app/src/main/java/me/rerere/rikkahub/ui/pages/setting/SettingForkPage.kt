@@ -157,6 +157,7 @@ fun SettingForkPage(vm: SettingVM = koinViewModel()) {
                             },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
+                            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
                         )
                     }
                     formItem(headlineContent = { Text("远程工作目录") }) {

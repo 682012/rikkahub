@@ -35,13 +35,13 @@ class WorkspaceJobForegroundService : Service() {
         private const val ACTION_RELEASE = "me.rerere.rikkahub.action.WORKSPACE_JOB_RELEASE"
         private const val EXTRA_JOB_ID = "job_id"
 
-        fun acquire(context: Context, jobId: String) {
+        fun acquire(context: Context, jobId: String): Boolean {
             val intent = Intent(context, WorkspaceJobForegroundService::class.java).apply {
                 action = ACTION_ACQUIRE
                 putExtra(EXTRA_JOB_ID, jobId)
             }
-            runCatching { ContextCompat.startForegroundService(context, intent) }
-                .onFailure { Log.e(TAG, "acquire failed", it) }
+            return runCatching { ContextCompat.startForegroundService(context, intent); true }
+                .onFailure { Log.e(TAG, "acquire failed", it) }.getOrDefault(false)
         }
 
         fun release(context: Context, jobId: String) {
@@ -66,7 +66,7 @@ class WorkspaceJobForegroundService : Service() {
         runCatching {
             wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "rikkahub:workspace_job").apply {
                 setReferenceCounted(false)
-                acquire(6 * 60 * 60 * 1000L)
+                acquire() // Released when the final owned job finishes or the service is destroyed.
             }
         }.onFailure { Log.e(TAG, "acquire wake lock failed", it) }
     }
@@ -81,12 +81,12 @@ class WorkspaceJobForegroundService : Service() {
             ACTION_RELEASE -> {
                 if (jobId != null) jobs.remove(jobId)
                 if (jobs.isEmpty()) {
-                    stopSelf()
+                    stopSelf(startId)
                 } else {
                     startAsForeground(jobs.size)
                 }
             }
-            else -> stopSelf()
+            else -> stopSelf(startId)
         }
         return START_NOT_STICKY
     }

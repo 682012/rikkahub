@@ -3,7 +3,10 @@ package me.rerere.workspace
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.RandomAccessFile
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 @Serializable
 private data class JobMeta(
@@ -15,160 +18,115 @@ private data class JobMeta(
     val startedAt: Long,
 )
 
-/**
- * 在 Rootfs 内启动并跟踪后台任务。
- *
- * 设计取舍：
- * - 进程优先用 setsid 启动，脱离当前 shell 的进程组，工具返回后不会被回收；
- * - pid 与日志落在 job 目录，App 重启后还能查；
- * - 所有状态判断都走 Rootfs 内的 shell，避免宿主与 proot 的 PID 命名空间不一致。
- */
-class WorkspaceJobManager(
-    private val manager: WorkspaceManager,
-) {
-    companion object {
-        private const val JOBS_DIR = ".jobs"
-        private const val MAX_LOG_TAIL_CHARS = 16 * 1024
-        private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+/** The parent process owns the tracer. A detached guest is killed by PRoot --kill-on-exit. */
+class WorkspaceJobManager(private val manager: WorkspaceManager) {
+    private val processes = ConcurrentHashMap<String, Process>()
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+
+    fun jobsDir(root: String) = File(manager.filesDir(root), ".jobs").apply { mkdirs() }
+    private fun directory(root: String, id: String): File {
+        require(id.matches(Regex("[a-fA-F0-9-]{8,36}"))) { "Invalid job id" }
+        return File(jobsDir(root), id)
     }
+    private fun key(root: String, id: String) = "$root/$id"
 
-    fun jobsDir(root: String): File = File(manager.workspaceDir(root), JOBS_DIR)
+    fun list(root: String): List<WorkspaceJobInfo> = jobsDir(root).listFiles().orEmpty()
+        .filter { it.isDirectory }.mapNotNull { runCatching { readInfo(root, it.name) }.getOrNull() }
+        .sortedByDescending { it.startedAt }
 
-    fun list(root: String): List<WorkspaceJobInfo> {
-        val dir = jobsDir(root)
-        if (!dir.isDirectory) return emptyList()
-        return dir.listFiles().orEmpty()
-            .filter { it.isDirectory }
-            .mapNotNull { readInfo(root, it.name) }
-            .sortedByDescending { it.startedAt }
-    }
-
-    fun start(
-        root: String,
-        command: String,
-        cwd: String = "",
-        timeoutMillis: Long = 0L,
-    ): WorkspaceJobInfo {
-        val id = UUID.randomUUID().toString().take(8)
-        val jobDir = File(jobsDir(root), id)
-        check(jobDir.mkdirs()) { "Cannot create job directory" }
-        val log = File(jobDir, "job.log")
-        val pidFile = File(jobDir, "job.pid")
-
-        // 用 sh -c 包一层，保证重定向和 pid 记录都在 Rootfs 内完成。
-        // setsid 不存在时退化为 nohup + 普通后台进程。
-        val inner = buildString {
-            append("cd ").append(shellQuote(cwd.ifBlank { "/workspace" })).append(" && ")
-            append("if command -v setsid >/dev/null 2>&1; then ")
-            append("setsid sh -c ").append(shellQuote(command))
-            append(" > ").append(shellQuote(log.absolutePath)).append(" 2>&1 & ")
-            append("else ")
-            append("nohup sh -c ").append(shellQuote(command))
-            append(" > ").append(shellQuote(log.absolutePath)).append(" 2>&1 & ")
-            append("fi; echo \$! > ").append(shellQuote(pidFile.absolutePath))
+    fun start(root: String, command: String, cwd: String = "", timeoutMillis: Long = 0,
+        shellCompatibilityMode: Boolean = false): WorkspaceJobInfo {
+        require(command.isNotBlank())
+        val id = UUID.randomUUID().toString()
+        val dir = directory(root, id)
+        check(dir.mkdirs())
+        val log = File(dir, "job.log")
+        val exitFile = File(dir, "exit.code")
+        val info = WorkspaceJobInfo(id, command, cwd, null, log.absolutePath, System.currentTimeMillis())
+        File(dir, "job.json").writeText(json.encodeToString(JobMeta.serializer(),
+            JobMeta(id, command, cwd, null, log.absolutePath, info.startedAt)))
+        val process = try {
+            manager.startCommand(root, command, cwd, log, shellCompatibilityMode)
+        } catch (e: Exception) {
+            exitFile.writeText("127")
+            log.appendText("Start failed: ${e.message}\n")
+            throw e
         }
-
-        val result = manager.executeCommand(
-            root = root,
-            command = inner,
-            cwd = cwd,
-            timeoutMillis = 30_000L,
-        )
-        check(result.exitCode == 0) {
-            "Failed to start job: ${result.stderr.ifBlank { result.stdout }}"
-        }
-        val pid = runCatching { pidFile.readText().trim().toLong() }.getOrNull()
-        val info = WorkspaceJobInfo(
-            id = id,
-            command = command,
-            cwd = cwd,
-            pid = pid,
-            logPath = log.absolutePath,
-            startedAt = System.currentTimeMillis(),
-        )
-        writeInfo(jobDir, info)
+        processes[key(root, id)] = process
+        Thread({
+            try {
+                val finished = if (timeoutMillis <= 0) { process.waitFor(); true }
+                    else process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
+                if (!finished) terminate(process)
+                val code = if (finished) process.exitValue() else -1
+                exitFile.writeText(code.toString())
+            } catch (e: InterruptedException) {
+                terminate(process)
+                exitFile.writeText("-1")
+                Thread.currentThread().interrupt()
+            } finally {
+                processes.remove(key(root, id), process)
+            }
+        }, "workspace-job-$id").apply { isDaemon = true; start() }
         return info
     }
 
     fun status(root: String, jobId: String, tailLines: Int = 80): WorkspaceJobStatus {
         val info = readInfo(root, jobId) ?: error("Job not found: $jobId")
-        val pid = info.pid
-        val running = if (pid == null) false else {
-            manager.executeCommand(
-                root = root,
-                command = "kill -0 $pid 2>/dev/null && echo running || echo stopped",
-                timeoutMillis = 10_000L,
-            ).stdout.trim() == "running"
-        }
+        val process = processes[key(root, jobId)]
+        val running = process?.isAlive == true
+        val exitFile = File(directory(root, jobId), "exit.code")
+        val exitCode = if (running) null else runCatching {
+            if (exitFile.isFile) exitFile.readText().trim().toInt() else process?.exitValue()
+        }.getOrNull()
         val log = File(info.logPath)
-        val text = if (log.isFile) readTail(log, tailLines.coerceIn(1, 400)) else ""
-        val truncated = text.length > MAX_LOG_TAIL_CHARS
-        return WorkspaceJobStatus(
-            info = info,
-            running = running,
-            exitCode = null,
-            logTail = if (truncated) text.takeLast(MAX_LOG_TAIL_CHARS) else text,
-            logTruncated = truncated,
-        )
+        val text = readTail(log, tailLines.coerceIn(1, 400))
+        val suffix = if (!running && exitCode == null) "\n[Task owner was restarted; this task is no longer managed. Do not trust or signal its old PID.]" else ""
+        return WorkspaceJobStatus(info, running, exitCode, text.takeLast(16 * 1024) + suffix,
+            log.length() > 256 * 1024 || text.length > 16 * 1024)
     }
 
     fun kill(root: String, jobId: String): Boolean {
-        val info = readInfo(root, jobId) ?: error("Job not found: $jobId")
-        val pid = info.pid ?: return false
-        // 先杀进程组，再兜底杀进程本身
-        val result = manager.executeCommand(
-            root = root,
-            command = "kill -TERM -$pid 2>/dev/null || kill -TERM $pid 2>/dev/null; sleep 0.2; kill -0 $pid 2>/dev/null && kill -KILL -$pid 2>/dev/null; true",
-            timeoutMillis = 10_000L,
-        )
-        return result.exitCode == 0
+        checkNotNull(readInfo(root, jobId)) { "Job not found: $jobId" }
+        // Never kill a persisted PID: it may have been recycled by the operating system.
+        val process = processes[key(root, jobId)] ?: return false
+        terminate(process)
+        return !process.isAlive
     }
 
-    fun readTail(file: File, lines: Int): String {
-        if (!file.isFile) return ""
-        // 只读文件尾部，日志涨到几百 MB 时也不会把整份读进内存
-        val maxBytes = 256 * 1024
-        return runCatching {
-            java.io.RandomAccessFile(file, "r").use { raf ->
-                val length = raf.length()
-                val start = maxOf(0L, length - maxBytes)
-                raf.seek(start)
-                val bytes = ByteArray((length - start).toInt())
-                raf.readFully(bytes)
-                val text = String(bytes, Charsets.UTF_8)
-                text.lineSequence().toList().takeLast(lines).joinToString("\n")
-            }
-        }.getOrDefault("")
+    private fun terminate(process: Process) {
+        process.destroy()
+        if (!process.waitFor(2, TimeUnit.SECONDS)) {
+            process.destroyForcibly()
+            process.waitFor(2, TimeUnit.SECONDS)
+        }
     }
 
-    private fun readInfo(root: String, jobId: String): WorkspaceJobInfo? {
-        val dir = File(jobsDir(root), jobId)
-        val meta = File(dir, "job.json")
-        if (!meta.isFile) return null
+    fun prune(root: String, keepDays: Int) {
+        if (keepDays <= 0) return
+        val cutoff = System.currentTimeMillis() - keepDays * 86_400_000L
+        list(root).filter { it.startedAt < cutoff && processes[key(root, it.id)] == null }
+            .forEach { directory(root, it.id).deleteRecursively() }
+    }
+
+    fun readTail(file: File, lines: Int): String = if (!file.isFile) "" else runCatching {
+        RandomAccessFile(file, "r").use { raf ->
+            val count = minOf(raf.length(), 256 * 1024L).toInt()
+            raf.seek(raf.length() - count)
+            val bytes = ByteArray(count)
+            raf.readFully(bytes)
+            String(bytes, Charsets.UTF_8).lineSequence().toList().takeLast(lines).joinToString("\n")
+        }
+    }.getOrDefault("")
+
+    private fun readInfo(root: String, id: String): WorkspaceJobInfo? {
+        val dir = directory(root, id)
+        val file = File(dir, "job.json")
+        if (!file.isFile) return null
         return runCatching {
-            val m = json.decodeFromString<JobMeta>(meta.readText())
-            WorkspaceJobInfo(
-                id = m.id,
-                command = m.command,
-                cwd = m.cwd,
-                pid = m.pid,
-                logPath = m.logPath,
-                startedAt = m.startedAt,
-            )
+            val meta = json.decodeFromString<JobMeta>(file.readText())
+            require(meta.id == id)
+            WorkspaceJobInfo(id, meta.command, meta.cwd, null, File(dir, "job.log").absolutePath, meta.startedAt)
         }.getOrNull()
     }
-
-    private fun writeInfo(dir: File, info: WorkspaceJobInfo) {
-        val meta = JobMeta(
-            id = info.id,
-            command = info.command,
-            cwd = info.cwd,
-            pid = info.pid,
-            logPath = info.logPath,
-            startedAt = info.startedAt,
-        )
-        File(dir, "job.json").writeText(json.encodeToString(JobMeta.serializer(), meta))
-    }
-
-    private fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 }

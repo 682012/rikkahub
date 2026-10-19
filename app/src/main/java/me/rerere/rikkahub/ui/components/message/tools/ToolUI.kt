@@ -203,48 +203,45 @@ private const val FULL_TEXT_PREFIX = "…[full text: "
  */
 @Composable
 private fun ToolOutputText(text: String) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by remember(text) { mutableStateOf(false) }
     val markerIndex = text.lastIndexOf(FULL_TEXT_PREFIX)
-    val pretty = if (markerIndex < 0) {
-        runCatching { JsonInstantPretty.encodeToString(JsonInstant.parseToJsonElement(text)) }.getOrElse { text }
-    } else {
-        text.substring(0, markerIndex)
+    val hasFullText = markerIndex >= 0 || text.length > 48_000
+    val pretty = remember(text) {
+        val preview = if (markerIndex >= 0) text.substring(0, markerIndex) else text.take(48_000)
+        if (hasFullText) preview else
+            runCatching { JsonInstantPretty.encodeToString(JsonInstant.parseToJsonElement(preview)) }.getOrElse { preview }
     }
-
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        HighlightCodeBlock(
-            code = pretty,
-            language = if (markerIndex < 0) "json" else "text",
-            style = TextStyle(fontSize = 10.sp, lineHeight = 12.sp),
-        )
-        if (markerIndex >= 0) {
-            val path = text.substring(markerIndex + FULL_TEXT_PREFIX.length).substringBefore(']').trim()
-            TextButton(onClick = { expanded = true }) {
-                Text("查看完整输出")
-            }
+        HighlightCodeBlock(code = pretty, language = if (hasFullText) "text" else "json",
+            style = TextStyle(fontSize = 10.sp, lineHeight = 12.sp))
+        if (hasFullText) {
+            TextButton(onClick = { expanded = true }) { Text("查看完整输出") }
             if (expanded) {
-                val content = remember(path) {
-                    runCatching { java.io.File(path).readText().take(1_000_000) }.getOrNull()
+                var content by remember(text) { mutableStateOf<String?>(null) }
+                androidx.compose.runtime.LaunchedEffect(text) {
+                    content = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        if (markerIndex >= 0) runCatching {
+                            org.koin.java.KoinJavaComponent.getKoin()
+                                .get<me.rerere.rikkahub.data.files.FilesManager>()
+                                .readLegacyTextPreview(text, 1_000_000)
+                        }.getOrNull() ?: "历史缓存已不存在；可从旧备份恢复。"
+                        else text.take(1_000_000)
+                    }
                 }
-                AlertDialog(
-                    onDismissRequest = { expanded = false },
-                    confirmButton = {
-                        TextButton(onClick = { expanded = false }) { Text("关闭") }
-                    },
-                    title = { Text("完整输出") },
+                AlertDialog(onDismissRequest = { expanded = false },
+                    confirmButton = { TextButton(onClick = { expanded = false }) { Text("关闭") } },
+                    title = { Text("输出预览（最多 100 万字符）") },
                     text = {
-                        SelectionContainer {
-                            LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
-                                item {
-                                    Text(
-                                        content ?: "文件不存在或无法读取",
-                                        style = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace),
-                                    )
+                        val chunks = remember(content) { (content ?: "正在读取…").chunked(4_000) }
+                        LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
+                            items(chunks.size) { index ->
+                                SelectionContainer {
+                                    Text(chunks[index], style = TextStyle(fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace))
                                 }
                             }
                         }
-                    },
-                )
+                    })
             }
         }
     }

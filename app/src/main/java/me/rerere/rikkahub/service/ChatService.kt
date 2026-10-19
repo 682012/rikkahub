@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.core.net.toUri
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
@@ -578,10 +579,12 @@ class ChatService(
         // fork: 用量流水所需，try 块外保存以便 finally 写入
         var usageModelId: Uuid? = null
         var usageNodeId: Uuid? = null
+        var runMessage: UIMessage? = null
+        var initialUsage: me.rerere.ai.core.TokenUsage? = null
         try {
             val settings = settingsStore.awaitLoaded()
             // fork: 上下文到阈值时先插入摘要检查点，不删除历史
-            maybeAutoCompress(session, settings)
+            if (regenerateNodeId == null) maybeAutoCompress(session, settings)
             // 清掉上一轮的建议；没法继续执行的工具调用发给模型会被拒绝，先去掉。
             // 重新生成时只清理要发给模型的节点，被重新生成的节点保持原样，旧回复留作分支
             val conversation = session.update { latest ->
@@ -616,11 +619,13 @@ class ChatService(
 
             val (request, hooks) = requestFactory.createAgent(turn, history, session.processingStatus)
             usageNodeId = replyNodeId
+            initialUsage = history.lastOrNull()?.takeIf { it.role == MessageRole.ASSISTANT }?.usage
             var finishReason: AgentFinishReason? = null
             try {
                 runAgent(request, hooks).flowOn(Dispatchers.IO).collect { event ->
                     when (event) {
                         is AgentEvent.MessageUpdated -> {
+                            runMessage = event.message
                             // 生成过程中只有网络重试的提示会留着，收到新内容说明重试已经成功
                             session.processingStatus.value = null
                             session.update { it.upsertMessage(replyNodeId, event.message) }
@@ -649,7 +654,7 @@ class ChatService(
                     val finished = session.finishGeneration()
                     // fork: 记录本轮用量，单独成表，避免解析 message_node 的 JSON
                     runCatching {
-                        val usage = finished.currentMessages.lastOrNull()?.usage
+                        val usage = me.rerere.rikkahub.data.ai.usageDelta(runMessage?.usage, initialUsage)
                         val modelId = usageModelId
                         if (usage != null && modelId != null && usage.totalTokens > 0) {
                             getKoin().get<UsageRecordDAO>().insert(
@@ -825,40 +830,27 @@ class ChatService(
         session: ConversationSession,
         settings: me.rerere.rikkahub.data.datastore.Settings,
     ) {
-        val config = settings.autoCompress
-        if (!config.enabled) return
-        val conversation = session.state.value
-        val nodes = conversation.messageNodes
-        if (nodes.isEmpty()) return
-        if (nodes.last().currentMessage.isContextCheckpoint) return
-        val used = conversation.currentMessages.lastOrNull()?.contextTokens ?: return
-        if (used <= 0) return
-        val turn = runCatching { requestFactory.createContext(settings, conversation) }.getOrNull() ?: return
-        val limit = turn.model.contextLength
-        if (limit <= 0) return
-        val threshold = config.thresholdPercent.coerceIn(10, 100)
-        if (used.toLong() * 100L < limit.toLong() * threshold) return
-        if (nodes.any { node ->
-                node.currentMessage.getTools().any { tool -> tool.isPending || tool.canResumeExecution }
-            }
-        ) return
-
+        val snapshot = session.state.value
+        val plan = autoCompressionPlan(snapshot, settings.autoCompress) ?: return
+        val turn = requestFactory.createContext(settings, snapshot)
+        if (!plan.exceedsThreshold(turn.model.contextLength, settings.autoCompress.thresholdPercent)) return
         session.processingStatus.value = "正在压缩上下文…"
         try {
-            val summary = runCatching {
-                requestFactory.generateCompressionSummary(
-                    turn = turn,
-                    messages = conversation.currentMessages,
-                    compressPrompt = buildCompressPrompt(
-                        additionalPrompt = "",
-                        locale = Locale.getDefault().displayName,
-                    ),
-                )
-            }.onFailure { Log.w(TAG, "auto compress failed", it) }.getOrNull() ?: return
-            session.update { latest ->
-                latest.insertContextCheckpoint(afterNodeId = nodes.last().id, summary = summary) ?: latest
-            }
-            session.flush()
+            val summary = requestFactory.generateCompressionSummary(
+                turn = turn,
+                messages = plan.messages,
+                compressPrompt = buildCompressPrompt("", Locale.getDefault().displayName),
+            )
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            session.tryUpdate { latest ->
+                // Edits while summarizing invalidate this snapshot; never insert a stale checkpoint.
+                if (latest.messageNodes != snapshot.messageNodes) null
+                else latest.insertContextCheckpoint(plan.afterNodeId, summary)
+            }?.let { session.flush() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "auto compress failed; continuing with original history", e)
         } finally {
             session.processingStatus.value = null
         }

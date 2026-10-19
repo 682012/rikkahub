@@ -10,8 +10,8 @@
 | 大小 | 69,828,592 字节（约 67MB） |
 | MD5 | `ae204b0e5e35e3c8e5e80a3eac55097a` |
 | 包名 | `me.rerere.rikkahub.fork` |
-| versionName | `3.0.0-fork.14` |
-| versionCode | `3000014` |
+| versionName | `3.0.0-fork.15` |
+| versionCode | `3000015` |
 | 签名 | V2，证书 SHA-256 `cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89` |
 | 构建类型 | release **未跑 R8**（`-PfastBuild`），体积偏大，功能与正式包一致 |
 | 基线 | RikkaHub 官方 `3.0.0`，commit `55a108a4` |
@@ -174,7 +174,13 @@ created_at INTEGER NOT NULL
 
 ## 6. 已知风险与未验证项
 
-**未在真机验证：**
+**fork.15 修复后仍需真机验证：**
+
+1. 本地 job 在锁屏/切后台后的存活与通知释放
+2. 远程同步命令在“停止生成”后是否及时终止
+3. fork.14 旧会话首次加载恢复耗时与内存峰值
+
+**仍未在真机验证：**
 
 1. 本地 `workspace_job_start` 的完整链路（启动 / pid / status / kill / App 重启后查询）
 2. 前台服务锁屏后的实际存活时长，以及 Android 15 `onTimeout` 回调（未实现兜底）

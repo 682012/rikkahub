@@ -78,65 +78,72 @@ internal object DatabaseBackup {
         try {
             val targetTables = tableSql(target)
             val stagedTables = tableSql(staged)
-
-            // 旧版逐条记忆：目标结构里已经没有 MemoryEntity，先转换成 profile 文件再删表
-            if ("MemoryEntity" in stagedTables && "MemoryEntity" !in targetTables) {
-                migrateLegacyMemory(staged)
-            }
-            for (name in stagedTables.keys - targetTables.keys) {
-                if (name.isManagedTable()) staged.execSQL("DROP TABLE IF EXISTS `$name`")
-            }
-            for ((name, sql) in targetTables) {
-                if (name !in stagedTables) staged.execSQL(sql)
-            }
-            for (name in targetTables.keys intersect stagedTables.keys) {
-                val stagedColumns = columns(staged, name).mapTo(mutableSetOf()) { it.name }
-                for (column in columns(target, name)) {
-                    if (column.name in stagedColumns) continue
-                    val definition = buildString {
-                        append('`').append(column.name).append("` ").append(column.type)
-                        if (column.notNull) append(" NOT NULL")
-                        if (column.defaultValue != null) append(" DEFAULT ").append(column.defaultValue)
-                    }
-                    runCatching { staged.execSQL("ALTER TABLE `$name` ADD COLUMN $definition") }
+            val common = targetTables.keys intersect stagedTables.keys
+            // Rebuild with the real target DDL rather than blessing a column-name-only approximation.
+            // All writes are confined to the staged file and one transaction.
+            staged.execSQL("PRAGMA foreign_keys=OFF")
+            staged.beginTransaction()
+            try {
+                for (name in common + listOf("MemoryEntity").filter { it in stagedTables }) {
+                    staged.execSQL("CREATE TEMP TABLE ${quote("fork_restore_$name")} AS SELECT * FROM ${quote(name)}")
                 }
+                for (name in stagedTables.keys) staged.execSQL("DROP TABLE ${quote(name)}")
+                for ((_, sql) in targetTables) staged.execSQL(sql)
+                for (name in common) {
+                    val saved = "fork_restore_$name"
+                    val originalColumns = columns(staged, saved).map { it.name }.toSet()
+                    val shared = columns(target, name).map { it.name }.filter { it in originalColumns }
+                    val before = rowCount(staged, saved)
+                    if (before > 0) {
+                        check(shared.isNotEmpty()) { "No compatible columns for $name" }
+                        val names = shared.joinToString(",") { quote(it) }
+                        // Missing NOT NULL/no-default columns, duplicate keys, and incompatible values fail here.
+                        staged.execSQL("INSERT INTO ${quote(name)} ($names) SELECT $names FROM ${quote(saved)}")
+                    }
+                    check(rowCount(staged, name) == before) { "Row count changed for $name" }
+                }
+                if ("MemoryEntity" in stagedTables && "MemoryEntity" !in targetTables) {
+                    migrateLegacyMemory(staged, "fork_restore_MemoryEntity")
+                }
+                for ((_, sql) in indexSql(target)) staged.execSQL(sql)
+                for (name in targetTables.keys) {
+                    check(columns(staged, name) == columns(target, name)) { "Column/key mismatch for $name" }
+                    staged.rawQuery("PRAGMA foreign_key_check(${quote(name)})", null).use { cursor ->
+                        check(!cursor.moveToFirst()) { "Foreign key violation in $name" }
+                    }
+                }
+                // FTS is not managed by Room: do not silently keep an incompatible foreign branch index.
+                val targetFts = ftsColumns(target)
+                val stagedFts = ftsColumns(staged)
+                check(stagedFts.isEmpty() || stagedFts == targetFts) { "Incompatible message_fts schema" }
+                staged.execSQL("INSERT OR REPLACE INTO room_master_table (id, identity_hash) VALUES (42, ?)", arrayOf<Any?>(targetHash))
+                staged.version = targetVersion
+                staged.setTransactionSuccessful()
+            } finally {
+                staged.endTransaction()
             }
-            val stagedIndexes = indexSql(staged).keys
-            for ((name, sql) in indexSql(target)) {
-                if (name !in stagedIndexes) runCatching { staged.execSQL(sql) }
-            }
-
-            // 对齐后再校验一次，避免带着缺列/缺表继续打开
-            val afterTables = tableSql(staged)
-            val missingTables = targetTables.keys - afterTables.keys
-            val missingColumns = targetTables.keys.flatMap { table ->
-                val stagedColumnNames = columns(staged, table).mapTo(mutableSetOf()) { it.name }
-                columns(target, table)
-                    .map { it.name }
-                    .filterNot { it in stagedColumnNames }
-                    .map { "$table.$it" }
-            }
-            check(missingTables.isEmpty() && missingColumns.isEmpty()) {
-                "Backup structure mismatch after alignment: tables=$missingTables columns=$missingColumns"
-            }
-
-            staged.execSQL(
-                "UPDATE room_master_table SET identity_hash = ?",
-                arrayOf<Any?>(targetHash),
-            )
-            staged.version = targetVersion
             return true
         } finally {
-            runCatching { staged.close() }
-            runCatching { target.close() }
+            staged.close()
+            target.close()
         }
     }
+
+    private fun quote(name: String): String = "\"" + name.replace("\"", "\"\"") + "\""
+
+    private fun rowCount(db: SQLiteDatabase, table: String): Long =
+        db.rawQuery("SELECT COUNT(*) FROM ${quote(table)}", null).use { cursor ->
+            check(cursor.moveToFirst()); cursor.getLong(0)
+        }
+
+    private fun ftsColumns(db: SQLiteDatabase): List<String> = columns(db, "message_fts").map { it.name }
 
     private data class ColumnInfo(
         val name: String,
         val type: String,
         val notNull: Boolean,
         val defaultValue: String?,
+        val primaryKeyPosition: Int,
     )
 
     private fun open(context: Context, file: File, flags: Int): SQLiteDatabase {
@@ -199,13 +206,13 @@ internal object DatabaseBackup {
 
     private fun columns(database: SQLiteDatabase, table: String): List<ColumnInfo> {
         val result = mutableListOf<ColumnInfo>()
-        database.rawQuery("PRAGMA table_info(`$table`)", null).use { cursor ->
+        database.rawQuery("PRAGMA table_info(${quote(table)})", null).use { cursor ->
             while (cursor.moveToNext()) {
                 val name = cursor.getString(1) ?: continue
                 val type = cursor.getString(2) ?: ""
                 val notNull = cursor.getInt(3) != 0
                 val defaultValue = if (cursor.isNull(4)) null else cursor.getString(4)
-                result += ColumnInfo(name, type, notNull, defaultValue)
+                result += ColumnInfo(name, type, notNull, defaultValue, cursor.getInt(5))
             }
         }
         return result
@@ -220,26 +227,31 @@ internal object DatabaseBackup {
     }
 
 
-    private fun migrateLegacyMemory(database: SQLiteDatabase) {
+    private fun migrateLegacyMemory(database: SQLiteDatabase, sourceTable: String) {
         val grouped = linkedMapOf<String, MutableList<String>>()
-        runCatching {
-            database.rawQuery("SELECT assistant_id, content FROM MemoryEntity ORDER BY id", null).use { cursor ->
-                while (cursor.moveToNext()) {
-                    val assistantId = cursor.getString(0) ?: continue
-                    val content = cursor.getString(1) ?: continue
-                    grouped.getOrPut(assistantId) { mutableListOf() }.add(content)
-                }
+        database.rawQuery("SELECT assistant_id, content FROM ${quote(sourceTable)} ORDER BY id", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                val assistantId = cursor.getString(0) ?: error("Legacy memory has no assistant")
+                val content = cursor.getString(1) ?: error("Legacy memory has null content")
+                grouped.getOrPut(assistantId) { mutableListOf() }.add(content)
             }
         }
         val now = System.currentTimeMillis()
         for ((assistantId, contents) in grouped) {
             val profile = legacyMemoriesToProfile(contents) ?: continue
-            runCatching {
-                database.execSQL(
-                    "INSERT OR REPLACE INTO memory_file (assistant_id, path, content, updated_at) VALUES (?, ?, ?, ?)",
-                    arrayOf<Any?>(assistantId, MemoryFile.PROFILE_PATH, profile, now),
-                )
-            }
+            val existing = database.rawQuery(
+                "SELECT content FROM memory_file WHERE assistant_id = ? AND path = ?",
+                arrayOf(assistantId, MemoryFile.PROFILE_PATH),
+            ).use { if (it.moveToFirst()) it.getString(0) else null }
+            val combined = if (existing.isNullOrBlank()) profile else existing + "\n\n" + profile
+            database.execSQL(
+                "INSERT OR REPLACE INTO memory_file (assistant_id, path, content, updated_at) VALUES (?, ?, ?, ?)",
+                arrayOf<Any?>(assistantId, MemoryFile.PROFILE_PATH, combined, now),
+            )
+            database.execSQL(
+                "INSERT OR REPLACE INTO memory_file (assistant_id, path, content, updated_at) VALUES (?, ?, ?, ?)",
+                arrayOf<Any?>(assistantId, "_legacy/imported_memories_$now.md", contents.joinToString("\n"), now),
+            )
         }
     }
 }

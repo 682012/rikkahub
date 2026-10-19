@@ -212,8 +212,10 @@ private fun resolveTimeoutMillis(
 ): Long {
     val maxSec = runtime.maxTimeoutSec.toLong()
     val sec = requestedSec ?: runtime.commandTimeoutSec.toLong()
-    if (sec <= 0L) return 0L
-    return (if (maxSec > 0L) sec.coerceIn(1L, maxSec) else sec) * 1_000L
+    val bounded = if (maxSec > 0) {
+        if (sec <= 0) maxSec else sec.coerceAtMost(maxSec)
+    } else sec.coerceAtLeast(0)
+    return bounded.coerceAtMost(Long.MAX_VALUE / 1_000L) * 1_000L
 }
 
 private fun createShellTool(
@@ -233,7 +235,9 @@ private fun createShellTool(
         append("Timeout defaults to ${runtime.commandTimeoutSec}s")
         if (runtime.maxTimeoutSec > 0) append(", max ${runtime.maxTimeoutSec}s") else append(", 0 means no limit")
         append(". For anything that may outlive the timeout use workspace_job_start instead.")
-        append(" Requires Rootfs to be installed and ready.")
+        if (runtime.remote?.enabled == true) {
+            append(" Shell commands run on the configured REMOTE server. /workspace is not mounted there; cwd is relative to the remote workdir. workspace_read_file/write_file/edit_file remain LOCAL and do not access remote files. Use shell commands for remote file operations.")
+        } else append(" Requires Rootfs to be installed and ready.")
     },
     parameters = {
         InputSchema.Obj(
@@ -492,6 +496,7 @@ private suspend fun WorkspaceRepository.runRootfsCommand(
         command = command,
         timeoutMillis = WorkspaceManager.DEFAULT_COMMAND_TIMEOUT_MS,
         stdin = stdin,
+        allowRemote = false,
     )
     if (result.timedOut) {
         error("$action timed out")

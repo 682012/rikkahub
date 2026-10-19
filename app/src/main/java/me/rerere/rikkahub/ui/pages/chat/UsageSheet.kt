@@ -65,7 +65,7 @@ fun UsageSheet(
                     style = MaterialTheme.typography.bodySmall,
                 )
             } else {
-                UsageRow("请求次数", t.requests.toString())
+                UsageRow("生成记录数", t.requests.toString())
                 UsageRow("输入 tokens", t.promptTokens.toString())
                 UsageRow("输出 tokens", t.completionTokens.toString())
                 UsageRow("缓存命中", t.cachedTokens.toString())
@@ -86,7 +86,7 @@ fun UsageSheet(
                         Column {
                             Text(model.modelId, style = MaterialTheme.typography.labelLarge)
                             Text(
-                                "请求 ${model.requests} · 输入 ${model.promptTokens} · 输出 ${model.completionTokens} · 缓存 ${model.cachedTokens}",
+                                "记录 ${model.requests} · 输入 ${model.promptTokens} · 输出 ${model.completionTokens} · 缓存 ${model.cachedTokens}",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }

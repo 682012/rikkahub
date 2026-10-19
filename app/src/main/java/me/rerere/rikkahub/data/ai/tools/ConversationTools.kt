@@ -190,7 +190,7 @@ internal fun Conversation.dialogueMessages(): List<UIMessage> =
     currentMessages.filter { it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT }
 
 /** 让子代理按会话 id 读取另一段聊天的尾部内容。 */
-fun createConversationReadTool(conversationRepo: ConversationRepository): Tool = Tool(
+fun createConversationReadTool(conversationRepo: ConversationRepository, assistantId: Uuid): Tool = Tool(
     name = "conversation_read",
     description = """
         Read the most recent messages of another conversation by its id.
@@ -217,6 +217,8 @@ fun createConversationReadTool(conversationRepo: ConversationRepository): Tool =
         val id = params["conversation_id"]?.jsonPrimitive?.contentOrNull
             ?: error("conversation_id is required")
         val limit = (params["limit"]?.jsonPrimitive?.intOrNull ?: 20).coerceIn(1, 100)
+        val owner = conversationRepo.getConversationAssistantId(id)
+        require(owner == assistantId.toString()) { "Conversation is outside this assistant's scope" }
         val messages = conversationRepo.readConversationTail(id, limit)
         var budget = 24_000
         val payload = buildJsonArray {

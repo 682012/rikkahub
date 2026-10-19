@@ -103,14 +103,12 @@ class ChatToolFactory(
         // 子代理可以额外拿到会话检索/读取工具，用来参考其他聊天。
         val childTools = (if (settings.subagent.includeChatHistory) {
             (tools +
-                createConversationReadTool(conversationRepository) +
+                createConversationReadTool(conversationRepository, assistant.id) +
                 createConversationTools(conversationRepository, assistant.id))
                 .distinctBy { it.name }
         } else tools).filter { tool ->
             // 子代理的工具可见性遵循设置，避免开关是摆设
-            (settings.subagent.includeWorkspace || !tool.name.startsWith("workspace_")) &&
-                (settings.subagent.includeMcp || !tool.name.startsWith("mcp__")) &&
-                (settings.subagent.includeSearch || !tool.name.startsWith("search_"))
+            isSubagentToolAllowed(tool.name, settings.subagent)
         }
         val withSubagent = if (settings.subagent.enabled) {
             val allModelIds = settings.providers.flatMap { provider -> provider.models.map { it.id } }
@@ -119,11 +117,12 @@ class ChatToolFactory(
                 childTools = childTools,
                 settings = settings.subagent,
                 allModelIds = allModelIds,
+                parentModelId = model.id,
                 conversationId = conversationId,
             )
         } else tools
         // 过长的输出存成文件让模型用 shell 按需读取；没有 shell 时模型读不到文件，只能原样返回
-        return if (workspaceTools.isEmpty()) withSubagent else withSubagent.map(::withOutputTruncation)
+        return if (workspaceTools.isEmpty() || settings.workspaceRuntime.remote?.enabled == true) withSubagent else withSubagent.map(::withOutputTruncation)
     }
 
     private fun withOutputTruncation(tool: Tool): Tool {
@@ -164,13 +163,17 @@ class ChatToolFactory(
     ): List<Tool> {
         if (workspaceId.isNullOrBlank()) return emptyList()
         val workspace = workspaceRepository.getById(workspaceId) ?: return emptyList()
-        if (workspace.shellStatus != WorkspaceShellStatus.READY.name) {
+        if (workspace.shellStatus != WorkspaceShellStatus.READY.name && runtime.remote?.enabled != true) {
             Log.d(
                 TAG,
                 "createWorkspaceToolsIfReady: skip workspace tools, workspace=$workspaceId, status=${workspace.shellStatus}"
             )
             return emptyList()
         }
-        return createWorkspaceTools(workspaceId, workspaceRepository, cwd, runtime)
+        return createWorkspaceTools(workspaceId, workspaceRepository, cwd, runtime).filter {
+            if (runtime.remote?.enabled == true) {
+                it.name == "workspace_shell" || it.name.startsWith("workspace_job_")
+            } else workspace.shellStatus == WorkspaceShellStatus.READY.name
+        }
     }
 }

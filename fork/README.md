@@ -62,7 +62,10 @@ python3 rk-exec-server.py   # 监听 127.0.0.1:18080
 - `RK_EXEC_ROOT`：执行根目录
 - `RK_EXEC_JOBS`：后台任务日志目录
 
-公网入口建议用 nginx 带 TLS 反代，不要直接暴露。
+服务端强制要求非空 `RK_EXEC_TOKEN`，否则拒绝启动；客户端只接受 HTTPS（本机回环可用 HTTP）。
+公网入口用 nginx 带 TLS 反代，不要直接暴露。
+
+远程模式只提供 `workspace_shell` 与 `workspace_job_*`；本地文件工具不会读取或写入远程目录。
 
 ## 升级上游
 

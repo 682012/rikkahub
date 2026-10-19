@@ -28,9 +28,9 @@
 
 - 默认超时与最大超时都可配置，填 `0` 表示不限制
 - 新增 `workspace_job_start` / `workspace_job_status` / `workspace_job_kill`
-  - 进程用 `setsid` 脱离当前 shell，工具返回后继续运行
-  - pid 与日志落在工作区 `.jobs/<id>/`，App 重启后仍可查
-- 本地任务由前台服务（`specialUse` + partial wakelock）保活，任务结束自动释放
+  - 每个任务持有独立 PRoot 进程，启动后工具立即返回；不使用 PRoot 内 `setsid`（`--kill-on-exit` 会清理它）
+  - 日志与退出码落在工作区 `.jobs/<id>/`；App 重启后可查历史，但不能安全恢复进程归属，也不会按旧 PID 杀进程
+- 本地任务在启动前先申请前台服务（`specialUse` + partial wakelock）；被系统拒绝时直接报错，不留下无主进程；最后一个任务结束时释放
 - 日志只读尾部 256KB，不会因为日志过大把内存吃满
 
 ### 3. 远程执行后端
@@ -140,4 +140,5 @@
 - 自动压缩依赖模型设置里的 `contextLength` 准确，默认 100 万会让阈值形同虚设
 - 消息分页尚未实现，超大会话靠外置缓解
 - `SubagentTask.steps` 实际记录的是工具调用次数，不是模型步数
-- 远程服务端没有多租户隔离，所有任务共享同一个执行目录
+- 远程服务端没有多租户隔离，所有任务共享同一个执行目录；必须配置非空 token，客户端只接受 HTTPS（回环地址除外）
+- 远程模式下文件工具不可用：`workspace_read_file/write_file/edit_file` 是本地文件 API，不会访问服务器；远程文件操作需用 `workspace_shell`

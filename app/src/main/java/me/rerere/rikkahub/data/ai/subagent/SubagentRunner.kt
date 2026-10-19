@@ -5,6 +5,11 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -14,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import me.rerere.ai.agent.AgentFinishReason
 import me.rerere.ai.agent.AgentEvent
 import me.rerere.ai.agent.AgentHooks
 import me.rerere.ai.agent.AgentRequest
@@ -55,8 +61,7 @@ class SubagentRunner(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val tasks = ConcurrentHashMap<String, SubagentTask>()
     private val jobs = ConcurrentHashMap<String, Job>()
-    private val active = AtomicInteger(0)
-    private val released = MutableStateFlow(0)
+    private val permits = SubagentPermitPool()
     private val state = MutableStateFlow<List<SubagentTask>>(emptyList())
 
     fun observe(): StateFlow<List<SubagentTask>> = state.asStateFlow()
@@ -79,7 +84,7 @@ class SubagentRunner(
         timeoutSec: Int = 900,
         systemPrompt: String? = null,
     ): SubagentTask {
-        val id = Uuid.random().toString().take(8)
+        val id = Uuid.random().toString()
         val task = SubagentTask(
             id = id,
             prompt = prompt,
@@ -92,96 +97,90 @@ class SubagentRunner(
         publish()
         val generationId = Uuid.random()
         val job = scope.launch(start = CoroutineStart.LAZY) {
-            val settings = settingsStore.awaitLoaded()
-            val cfg = settings.subagent
-            pruneOld(cfg.keepDays)
-            val limit = cfg.maxConcurrent.coerceIn(1, HARD_MAX_CONCURRENT)
-            acquirePermit(limit)
-            update(id) { it.copy(status = SubagentStatus.RUNNING, startedAt = System.currentTimeMillis()) }
-            if (conversationId != null) {
-                runCatching {
-                    ChatGenerationForegroundService.acquire(context, generationId, conversationId)
-                }.onFailure { Log.w(TAG, "acquire foreground service failed", it) }
-            }
+            var acquired = false
+            var foregroundStarted = false
             try {
+                val settings = settingsStore.awaitLoaded()
+                val cfg = settings.subagent
+                check(cfg.enabled) { "Subagents are disabled" }
+                pruneOld(cfg.keepDays)
+                permits.acquire(cfg.maxConcurrent.coerceIn(1, HARD_MAX_CONCURRENT))
+                acquired = true
+                currentCoroutineContext().ensureActive()
+                update(id) { it.copy(status = SubagentStatus.RUNNING, startedAt = System.currentTimeMillis()) }
+                if (conversationId != null) {
+                    foregroundStarted = ChatGenerationForegroundService.acquire(context, generationId, conversationId)
+                }
+                // Only retry before receiving a model response: replaying a tool-capable run can duplicate effects.
+                var receivedResponse = false
+                suspend fun attempt(chosen: Uuid?): Pair<AgentEvent.Finished?, Uuid> = runOnce(
+                    id, settings, chosen, prompt, tools, maxSteps, timeoutSec, systemPrompt, cfg.sessionId,
+                    onProgress = { receivedResponse = true },
+                    conversationId = conversationId,
+                )
                 val primaryId = modelId ?: cfg.defaultModelId
                 val (finished, usedModelId) = try {
-                    runOnce(id, settings, primaryId, prompt, tools, maxSteps, timeoutSec, systemPrompt, cfg.sessionId)
-                } catch (e: kotlinx.coroutines.CancellationException) {
+                    attempt(primaryId)
+                } catch (e: CancellationException) {
                     throw e
-                } catch (e: Throwable) {
-                    val fallbackId = cfg.fallbackModelId
-                    if (fallbackId != null && fallbackId != primaryId) {
-                        Log.w(TAG, "subagent $id primary model failed, retrying with fallback", e)
+                } catch (e: Exception) {
+                    val fallback = cfg.fallbackModelId
+                    if (!receivedResponse && fallback != null && fallback != primaryId) {
                         appendLog(id, "[fallback] ${e.message}")
-                        runOnce(id, settings, fallbackId, prompt, tools, maxSteps, timeoutSec, systemPrompt, cfg.sessionId)
-                    } else {
-                        throw e
-                    }
+                        attempt(fallback)
+                    } else throw e
                 }
+                currentCoroutineContext().ensureActive()
                 if (finished == null) {
-                    update(id) {
-                        it.copy(
-                            status = SubagentStatus.TIMEOUT,
-                            finishedAt = System.currentTimeMillis(),
-                            error = "Subagent timed out after ${timeoutSec}s",
-                        )
-                    }
-                    appendLog(id, "[timeout] ${timeoutSec}s")
+                    update(id) { it.copy(status = SubagentStatus.TIMEOUT,
+                        finishedAt = System.currentTimeMillis(), error = "Subagent timed out after ${timeoutSec}s") }
                 } else {
+                    val reason = finished.reason
+                    val error = when (reason) {
+                        is AgentFinishReason.AwaitingApproval -> "Tool approval is required. Run this operation in the parent conversation; child approval/resume is not supported."
+                        AgentFinishReason.StepLimitReached -> "Maximum model steps reached; result may be incomplete."
+                        AgentFinishReason.Completed -> null
+                    }
                     val text = finished.message.toText()
                     resultFile(id).writeText(text)
-                    update(id) {
-                        it.copy(
-                            status = SubagentStatus.COMPLETED,
-                            finishedAt = System.currentTimeMillis(),
-                            result = text,
-                            usage = finished.message.usage,
-                            steps = finished.message.getTools().size,
-                            modelId = usedModelId,
-                        )
-                    }
-                    appendLog(id, "[done] ${text.length} chars")
-                    recordUsage(conversationId, usedModelId, finished.message.usage)
+                    update(id) { it.copy(
+                        status = if (error == null) SubagentStatus.COMPLETED else SubagentStatus.FAILED,
+                        finishedAt = System.currentTimeMillis(), result = text, error = error,
+                        usage = finished.message.usage, steps = finished.message.getTools().size, modelId = usedModelId,
+                    ) }
+                    appendLog(id, "[done] ${reason::class.simpleName}, ${text.length} chars")
                 }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                update(id) {
-                    it.copy(
-                        status = SubagentStatus.CANCELLED,
-                        finishedAt = System.currentTimeMillis(),
-                        error = "Cancelled",
-                    )
-                }
+            } catch (e: CancellationException) {
+                update(id) { it.copy(status = SubagentStatus.CANCELLED,
+                    finishedAt = System.currentTimeMillis(), error = "Cancelled") }
                 throw e
-            } catch (e: Throwable) {
+            } catch (e: Exception) {
                 Log.e(TAG, "subagent $id failed", e)
-                update(id) {
-                    it.copy(
-                        status = SubagentStatus.FAILED,
-                        finishedAt = System.currentTimeMillis(),
-                        error = e.message ?: e::class.java.simpleName,
-                    )
-                }
+                update(id) { it.copy(status = SubagentStatus.FAILED,
+                    finishedAt = System.currentTimeMillis(), error = e.message ?: e::class.java.simpleName) }
                 appendLog(id, "[error] ${e.message}")
             } finally {
-                active.decrementAndGet()
-                released.value += 1
-                jobs.remove(id)
-                if (conversationId != null) {
-                    runCatching {
-                        ChatGenerationForegroundService.release(context, generationId)
-                    }
+                withContext(NonCancellable) {
+                    if (acquired) permits.release()
+                    if (foregroundStarted) ChatGenerationForegroundService.release(context, generationId)
                 }
                 publish()
             }
         }
         jobs[id] = job
+        job.invokeOnCompletion { cause ->
+            jobs.remove(id, job)
+            if (cause is CancellationException) update(id) { old ->
+                if (old.isFinished) old else old.copy(status = SubagentStatus.CANCELLED,
+                    finishedAt = System.currentTimeMillis(), error = "Cancelled")
+            }
+        }
         job.start()
         return task
     }
 
     fun cancel(id: String): Boolean {
-        val job = jobs[id] ?: return false
+        val job = jobs[id]?.takeIf { it.isActive } ?: return false
         job.cancel()
         update(id) { it.copy(status = SubagentStatus.CANCELLED, finishedAt = System.currentTimeMillis()) }
         publish()
@@ -208,6 +207,8 @@ class SubagentRunner(
         timeoutSec: Int,
         systemPrompt: String?,
         sessionId: Uuid,
+        onProgress: () -> Unit,
+        conversationId: Uuid?,
     ): Pair<AgentEvent.Finished?, Uuid> {
         val cfg = settings.subagent
         val model = settings.findModelById(modelId, cfg.defaultModelId)
@@ -238,21 +239,35 @@ class SubagentRunner(
             retry = RetryPolicy.NETWORK,
         )
         val timeoutMs = if (timeoutSec <= 0) 0L else timeoutSec * 1000L
-        val finished = if (timeoutMs == 0L) {
-            runAgent(request, hooks).collectFinished()
-        } else {
-            withTimeoutOrNull(timeoutMs) { runAgent(request, hooks).collectFinished() }
+        var latest: UIMessage? = null
+        suspend fun collect(): AgentEvent.Finished? {
+            var result: AgentEvent.Finished? = null
+            runAgent(request, hooks).collect { event ->
+                when (event) {
+                    is AgentEvent.MessageUpdated -> {
+                        onProgress()
+                        latest = event.message
+                    }
+                    is AgentEvent.Finished -> { latest = event.message; result = event }
+                    else -> Unit
+                }
+            }
+            return result
         }
-        return finished to model.id
-    }
-
-    private suspend fun acquirePermit(limit: Int) {
-        while (true) {
-            val current = active.get()
-            if (current < limit && active.compareAndSet(current, current + 1)) return
-            val version = released.value
-            // 最多等 5 秒再重新检查，避免通知丢失时永久挂起
-            withTimeoutOrNull(5_000) { released.first { it > version } }
+        try {
+            val finished = if (timeoutMs == 0L) collect() else withTimeoutOrNull(timeoutMs) { collect() }
+            return finished to model.id
+        } finally {
+            // A cancelled/timed-out run can already have consumed tokens and completed tool calls.
+            withContext(NonCancellable) {
+                latest?.let { message ->
+                    val text = message.toText()
+                    runCatching { resultFile(id).writeText(text) }
+                    update(id) { it.copy(result = text, usage = message.usage, modelId = model.id,
+                        steps = message.getTools().size) }
+                    recordUsage(conversationId, model.id, message.usage)
+                }
+            }
         }
     }
 
@@ -277,13 +292,14 @@ class SubagentRunner(
     }
 
     private fun pruneOld(keepDays: Int) {
-        if (keepDays <= 0) return
-        runCatching {
-            val root = File(context.filesDir, "subagents")
-            if (!root.isDirectory) return
-            val cutoff = System.currentTimeMillis() - keepDays * 24L * 60 * 60 * 1000
-            root.listFiles().orEmpty().forEach { dir ->
-                if (dir.isDirectory && dir.lastModified() < cutoff) {
+        val cutoff = if (keepDays > 0) System.currentTimeMillis() - keepDays * 86_400_000L else Long.MIN_VALUE
+        val completed = tasks.values.filter { it.isFinished }.sortedByDescending { it.createdAt }
+        completed.forEachIndexed { index, task ->
+            if (index >= 100 || task.createdAt < cutoff) tasks.remove(task.id, task)
+        }
+        if (keepDays > 0) runCatching {
+            File(context.filesDir, "subagents").listFiles().orEmpty().forEach { dir ->
+                if (dir.isDirectory && dir.lastModified() < cutoff && jobs[dir.name]?.isActive != true) {
                     dir.deleteRecursively()
                 }
             }
@@ -319,12 +335,4 @@ When you are done, reply with a compact result: what you did, key findings, and 
 If the task cannot be completed, say exactly what blocked you.
 """
     }
-}
-
-private suspend fun kotlinx.coroutines.flow.Flow<AgentEvent>.collectFinished(): AgentEvent.Finished? {
-    var finished: AgentEvent.Finished? = null
-    collect { event ->
-        if (event is AgentEvent.Finished) finished = event
-    }
-    return finished
 }

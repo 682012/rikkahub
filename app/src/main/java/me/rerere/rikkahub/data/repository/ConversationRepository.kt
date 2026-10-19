@@ -44,6 +44,8 @@ class ConversationRepository(
         private const val INITIAL_LOAD_SIZE = 40
     }
 
+    suspend fun getConversationAssistantId(id: String): String? = conversationDAO.getAssistantId(id)
+
     suspend fun hasFileReference(fileUrl: String): Boolean =
         messageNodeDAO.hasFileReference(JsonInstant.encodeToString(fileUrl))
 
@@ -514,41 +516,34 @@ class ConversationRepository(
             .mapNotNull { runCatching { Uuid.parse(it) }.getOrNull() }
             .toSet()
 
-        return database.withTransaction {
-            val nodes = mutableListOf<MessageNode>()
+        // Read pages in one transaction; decoding and file promotion must not hold SQLite locks.
+        val entities = database.withTransaction {
+            val result = mutableListOf<me.rerere.rikkahub.data.db.entity.MessageNodeEntity>()
             var offset = 0
             val pageSize = 64
             while (true) {
                 val page = try {
                     messageNodeDAO.getNodesOfConversationPaged(conversationId, pageSize, offset)
                 } catch (e: SQLiteBlobTooBigException) {
-                    e.printStackTrace()
-                    offset += pageSize
-                    continue
+                    e.printStackTrace(); offset += pageSize; continue
                 } catch (e: CancellationException) {
-                    // CancellationException 是 IllegalStateException 的子类，必须先重新抛出，否则取消后会在事务内无限循环
                     throw e
                 } catch (e: IllegalStateException) {
-                    e.printStackTrace()
-                    offset += pageSize
-                    continue
+                    e.printStackTrace(); offset += pageSize; continue
                 }
                 if (page.isEmpty()) break
-                page.forEach { entity ->
-                    val messages = JsonInstant.decodeFromString<List<UIMessage>>(entity.messages).externalizeLargeParts(filesManager)
-                    val nodeId = Uuid.parse(entity.id)
-                    nodes.add(
-                        MessageNode(
-                            id = nodeId,
-                            messages = messages,
-                            selectIndex = entity.selectIndex,
-                            isFavorite = favoriteNodeIds.contains(nodeId)
-                        )
-                    )
-                }
+                result += page
                 offset += page.size
             }
-            nodes
+            result
+        }
+        return withContext(Dispatchers.IO) {
+            entities.map { entity ->
+                val messages = JsonInstant.decodeFromString<List<UIMessage>>(entity.messages)
+                    .externalizeLargeParts(filesManager)
+                val nodeId = Uuid.parse(entity.id)
+                MessageNode(nodeId, messages, entity.selectIndex, favoriteNodeIds.contains(nodeId))
+            }
         }
     }
 
@@ -584,75 +579,21 @@ data class ConversationPageResult(
     val nextOffset: Int?,
 )
 
-private const val MAX_INLINE_TEXT_CHARS = 48_000
-private const val MAX_INLINE_MEDIA_CHARS = 512_000
-private const val PREVIEW_TEXT_CHARS = 2_000
-
-/**
- * 历史消息里的大块内容外置到磁盘，消息本身只保留引用。
- *
- * 图片/视频/音频/文档换成 file:// 路径后仍能正常显示；超长文本保留预览和文件路径。
- * 这样几十 MB 的会话不会在解码 JSON 时把 512MB 堆打满，也不会丢内容。
- */
+/** Upgrade legacy fork.14 cache references without replacing canonical text by a preview. */
 private suspend fun List<UIMessage>.externalizeLargeParts(
     filesManager: FilesManager,
 ): List<UIMessage> = withContext(Dispatchers.IO) {
-    map { message ->
-        val parts = message.parts.map { it.externalizePart(filesManager, insideTool = false) }
-        if (parts == message.parts) message else message.copy(parts = parts)
+    suspend fun normalize(part: UIMessagePart): UIMessagePart = when (part) {
+        is UIMessagePart.Text -> part.copy(text = filesManager.restoreLegacyText(part.text))
+        is UIMessagePart.Tool -> part.copy(
+            input = filesManager.restoreLegacyText(part.input),
+            output = part.output.map { normalize(it) },
+        )
+        is UIMessagePart.Image -> part.copy(url = filesManager.persistHistoricalMedia(part.url))
+        is UIMessagePart.Video -> part.copy(url = filesManager.persistHistoricalMedia(part.url))
+        is UIMessagePart.Audio -> part.copy(url = filesManager.persistHistoricalMedia(part.url))
+        is UIMessagePart.Document -> part.copy(url = filesManager.persistHistoricalMedia(part.url, part.mime))
+        else -> part
     }
-}
-
-private fun UIMessagePart.externalizePart(
-    filesManager: FilesManager,
-    insideTool: Boolean,
-): UIMessagePart = when (this) {
-    // 普通正文不外置：模型需要原文，预览会丢上下文
-    is UIMessagePart.Text ->
-        if (insideTool) externalizeText(text, filesManager)?.let { copy(text = it) } ?: this else this
-
-    is UIMessagePart.Tool -> {
-        val newInput = externalizeText(input, filesManager) ?: input
-        val newOutput = output.map { it.externalizePart(filesManager, insideTool = true) }
-        if (newInput == input && newOutput == output) this else copy(input = newInput, output = newOutput)
-    }
-
-    is UIMessagePart.Image -> externalizeMedia(url, "image", filesManager)?.let { copy(url = it) } ?: this
-    is UIMessagePart.Video -> externalizeMedia(url, "video", filesManager)?.let { copy(url = it) } ?: this
-    is UIMessagePart.Audio -> externalizeMedia(url, "audio", filesManager)?.let { copy(url = it) } ?: this
-    is UIMessagePart.Document -> externalizeMedia(url, "document", filesManager)?.let { copy(url = it) } ?: this
-    else -> this
-}
-
-private fun externalizeText(text: String, filesManager: FilesManager): String? {
-    if (text.length <= MAX_INLINE_TEXT_CHARS) return null
-    return runCatching {
-        val file = filesManager.cacheTransient(text.toByteArray(), "txt")
-        text.take(PREVIEW_TEXT_CHARS) + "\n…[full text: ${file.absolutePath}]"
-    }.getOrNull()
-}
-
-private fun externalizeMedia(
-    url: String,
-    kind: String,
-    filesManager: FilesManager,
-): String? {
-    if (!url.startsWith("data:") || url.length <= MAX_INLINE_MEDIA_CHARS) return null
-    val header = url.substringAfter("data:", "").substringBefore(",")
-    val payload = url.substringAfter(",", "")
-    if (payload.isEmpty()) return null
-    val extension = when {
-        header.contains("png") -> "png"
-        header.contains("jpeg") || header.contains("jpg") -> "jpg"
-        header.contains("webp") -> "webp"
-        header.contains("gif") -> "gif"
-        header.contains("mp4") -> "mp4"
-        header.contains("mpeg") || header.contains("mp3") -> "mp3"
-        header.contains("pdf") -> "pdf"
-        else -> "bin"
-    }
-    return runCatching {
-        val bytes = android.util.Base64.decode(payload, android.util.Base64.DEFAULT)
-        "file://" + filesManager.cacheTransient(bytes, extension).absolutePath
-    }.getOrNull()
+    map { message -> message.copy(parts = message.parts.map { normalize(it) }) }
 }

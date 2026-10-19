@@ -135,35 +135,34 @@ class FilesManager(
         bitmap.recycle()
     }
 
-    private val lastCacheCleanup = java.util.concurrent.atomic.AtomicLong(0)
+    // fork.14 stored canonical message data in this directory. It is NOT disposable cache:
+    // retain it, include it in backups, and recover references when messages are next loaded.
+    private val legacyCache get() = LegacyMessageCache(File(context.filesDir, "msg_cache"))
 
-    private fun maybeCleanupTransientCache(dir: File) {
-        val now = System.currentTimeMillis()
-        if (now - lastCacheCleanup.get() < 10 * 60_000) return
-        lastCacheCleanup.set(now)
-        val files = dir.listFiles()?.sortedBy { it.lastModified() } ?: return
-        val cutoff = now - 7L * 24 * 60 * 60 * 1000
-        var total = files.sumOf { it.length() }
-        for (file in files) {
-            if (file.lastModified() < cutoff || total > 300L * 1024 * 1024) {
-                total -= file.length()
-                file.delete()
-            }
+    fun restoreLegacyText(text: String): String = legacyCache.restoreText(text) ?: text
+
+    fun readLegacyTextPreview(text: String, maxChars: Int): String? =
+        legacyCache.readPreview(text, maxChars)
+
+    suspend fun persistHistoricalMedia(url: String, mimeHint: String? = null): String {
+        val legacy = legacyCache.mediaFile(url)
+        val isData = url.startsWith("data:")
+        if (!isData && legacy == null) return url
+        return try {
+            val mime = if (isData) url.substringAfter("data:").substringBefore(';').substringBefore(',')
+                else mimeHint ?: guessMimeType(legacy!!, legacy.name) ?: "application/octet-stream"
+            val bytes = if (isData) {
+                require(url.substringBefore(',').endsWith(";base64")) { "Unsupported data URI" }
+                android.util.Base64.decode(url.substringAfter(','), android.util.Base64.DEFAULT)
+            } else legacy!!.readBytes()
+            createChatFilesByByteArrays(listOf(bytes), displayName = "historical_media", mimeType = mime)
+                .single().toString()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not promote historical media; keeping original reference", e)
+            url
         }
-    }
-
-    /**
-     * 把历史消息里的大块内容落盘，按内容哈希去重。
-     * 仅用于加载时的外置缓存，不进入 managed_files 表。
-     */
-    fun cacheTransient(bytes: ByteArray, extension: String): File {
-        val dir = File(context.filesDir, "msg_cache").apply { mkdirs() }
-        maybeCleanupTransientCache(dir)
-        val digest = java.security.MessageDigest.getInstance("MD5").digest(bytes)
-        val name = digest.joinToString("") { "%02x".format(it) } + "." + extension
-        val file = File(dir, name)
-        if (!file.exists()) file.writeBytes(bytes)
-        return file
     }
 
     fun createChatFilesByContents(uris: List<Uri>): List<Uri> {

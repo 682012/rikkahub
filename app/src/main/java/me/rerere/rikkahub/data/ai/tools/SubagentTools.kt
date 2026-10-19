@@ -26,6 +26,7 @@ fun createSubagentTools(
     childTools: List<Tool>,
     settings: SubagentSettings,
     allModelIds: List<Uuid>,
+    parentModelId: Uuid,
     conversationId: Uuid?,
 ): List<Tool> {
     val modelPool = if (settings.modelIds.isNotEmpty()) settings.modelIds else allModelIds
@@ -36,11 +37,21 @@ fun createSubagentTools(
     }
 
     fun resolveModelId(raw: String?): Uuid? {
-        if (raw.isNullOrBlank()) return null
+        if (raw.isNullOrBlank()) {
+            val preferred = settings.defaultModelId ?: parentModelId
+            require(modelPool.isEmpty() || preferred in modelPool) { "Default model is outside the allowed subagent model pool" }
+            return preferred
+        }
         val id = runCatching { Uuid.parse(raw.trim()) }.getOrNull()
             ?: error("Invalid model_id: $raw")
         require(modelPool.isEmpty() || id in modelPool) { "model_id is not in the allowed subagent model pool" }
         return id
+    }
+
+    fun owned(id: String): SubagentTask {
+        val task = runner.get(id) ?: error("Task not found: $id")
+        require(task.conversationId == conversationId) { "Task belongs to another conversation" }
+        return task
     }
 
     val run = Tool(
@@ -121,6 +132,7 @@ fun createSubagentTools(
             val params = it.jsonObject
             val id = params.string("task_id") ?: error("task_id is required")
             val waitSec = params.string("timeout_sec")?.toIntOrNull() ?: 600
+            owned(id)
             val task = runner.await(id, waitSec) ?: error("Task not found: $id")
             listOf(UIMessagePart.Text(task.toToolJson()))
         },
@@ -141,7 +153,7 @@ fun createSubagentTools(
         execute = {
             val params = it.jsonObject
             val id = params.string("task_id") ?: error("task_id is required")
-            val task = runner.get(id) ?: error("Task not found: $id")
+            val task = owned(id)
             val text = task.result
                 ?: task.resultPath?.let { path -> File(path).takeIf { it.isFile }?.readText() }
                 ?: ""
@@ -164,7 +176,7 @@ fun createSubagentTools(
         parameters = { InputSchema.Obj(properties = buildJsonObject { }) },
         needsApproval = { false },
         execute = {
-            val items = runner.list().joinToString("\n") { t ->
+            val items = runner.list().filter { it.conversationId == conversationId }.joinToString("\n") { t ->
                 "${t.id}\t${t.status.name}\t${t.modelId}\t${t.prompt.take(60)}"
             }
             listOf(UIMessagePart.Text(items.ifBlank { "no subagent tasks" }))
@@ -186,6 +198,7 @@ fun createSubagentTools(
         execute = {
             val params = it.jsonObject
             val id = params.string("task_id") ?: error("task_id is required")
+            owned(id)
             val ok = runner.cancel(id)
             listOf(UIMessagePart.Text(buildJsonObject { put("ok", ok) }.toString()))
         },

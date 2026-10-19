@@ -10,6 +10,8 @@
 鉴权：Authorization: Bearer <RK_EXEC_TOKEN>
 只监听回环，公网由 nginx + TLS 反代。
 """
+import hmac
+import tempfile
 import json
 import os
 import signal
@@ -27,6 +29,10 @@ MAX_TAIL = 64 * 1024
 
 JOBS = {}
 LOCK = threading.Lock()
+SLOTS = threading.BoundedSemaphore(max(1, int(os.environ.get("RK_EXEC_MAX_JOBS", "4"))))
+MAX_REQUEST = 1024 * 1024
+KEEP_SECONDS = 7 * 86400
+
 
 
 def trim(text: bytes) -> tuple[str, bool]:
@@ -63,11 +69,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _authorized(self) -> bool:
-        return not TOKEN or self.headers.get("Authorization") == f"Bearer {TOKEN}"
+        return bool(TOKEN) and hmac.compare_digest(self.headers.get("Authorization", ""), f"Bearer {TOKEN}")
 
     def do_GET(self):
         if self.path == "/health":
-            return self._json(200, {"ok": True, "root": ROOT})
+            return self._json(200, {"ok": True})
         self._json(404, {"error": "not found"})
 
     def do_POST(self):
@@ -76,12 +82,30 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(404, {"error": "not found"})
         if not self._authorized():
             return self._json(401, {"error": "unauthorized"})
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            if not 0 < length <= MAX_REQUEST:
+                self.close_connection = True
+                return self._json(413, {"error": "request size must be 1..1048576 bytes"})
+        except ValueError:
+            self.close_connection = True
+            return self._json(400, {"error": "invalid content length"})
+        self.connection.settimeout(30)
         try:
             body = json.loads(self.rfile.read(length) or b"{}")
         except Exception:
             return self._json(400, {"error": "invalid json"})
 
+        if not isinstance(body, dict):
+            return self._json(400, {"error": "request must be an object"})
+        try:
+            self._dispatch(path, body)
+        except (ValueError, TypeError) as exc:
+            self._json(400, {"error": str(exc)})
+        except OSError:
+            self._json(500, {"error": "execution or storage failure"})
+
+    def _dispatch(self, path, body):
         if path == "/exec":
             return self._exec(body)
         if path == "/job/start":
@@ -91,68 +115,83 @@ class Handler(BaseHTTPRequestHandler):
         return self._job_kill(body)
 
     def _cwd(self, body) -> str:
-        cwd = str(body.get("cwd") or ROOT)
+        cwd = os.path.abspath(os.path.expanduser(str(body.get("cwd") or ROOT)))
         os.makedirs(ROOT, exist_ok=True)
-        return cwd if os.path.isdir(cwd) else ROOT
+        if not os.path.isdir(cwd):
+            raise ValueError("Working directory does not exist")
+        return cwd
 
     def _exec(self, body):
         command = str(body.get("command") or "")
         if not command.strip():
             return self._json(400, {"error": "command is required"})
         timeout = int(body.get("timeout") or 0) or None
+        if timeout is not None and timeout < 0:
+            raise ValueError("timeout must not be negative")
+        if not SLOTS.acquire(blocking=False):
+            return self._json(429, {"error": "execution slots full"})
         started = time.time()
-        proc = subprocess.Popen(
-            ["bash", "-lc", command],
-            cwd=self._cwd(body),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-        )
-        timed_out = False
         try:
-            out, err = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            out, err = proc.communicate()
-        stdout, cut1 = trim(out or b"")
-        stderr, cut2 = trim(err or b"")
-        self._json(200, {
-            "exitCode": -1 if timed_out else proc.returncode,
-            "stdout": stdout,
-            "stderr": stderr,
-            "timedOut": timed_out,
-            "truncated": cut1 or cut2,
-            "elapsedMs": int((time.time() - started) * 1000),
-        })
+            # Spool output to disk instead of buffering an unbounded build log in RAM.
+            with tempfile.TemporaryFile() as out, tempfile.TemporaryFile() as err:
+                proc = subprocess.Popen(["bash", "-lc", command], cwd=self._cwd(body),
+                    stdin=subprocess.DEVNULL, stdout=out, stderr=err, start_new_session=True)
+                timed_out = False
+                try:
+                    proc.wait(timeout=timeout)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    os.killpg(proc.pid, signal.SIGKILL)
+                    proc.wait()
+                out.seek(0); err.seek(0)
+                stdout, cut1 = trim(out.read(MAX_OUTPUT + 1))
+                stderr, cut2 = trim(err.read(MAX_OUTPUT + 1))
+                self._json(200, {"exitCode": -1 if timed_out else proc.returncode,
+                    "stdout": stdout, "stderr": stderr, "timedOut": timed_out,
+                    "truncated": cut1 or cut2, "elapsedMs": int((time.time() - started) * 1000)})
+        finally:
+            SLOTS.release()
 
     def _job_start(self, body):
         command = str(body.get("command") or "")
         if not command.strip():
             return self._json(400, {"error": "command is required"})
-        os.makedirs(JOBS_DIR, exist_ok=True)
-        jid = uuid.uuid4().hex[:8]
+        cwd = self._cwd(body)
+        if not SLOTS.acquire(blocking=False):
+            return self._json(429, {"error": "execution slots full"})
+        os.makedirs(JOBS_DIR, mode=0o700, exist_ok=True)
+        jid = uuid.uuid4().hex
         log_path = os.path.join(JOBS_DIR, jid + ".log")
-        log_file = open(log_path, "wb")
-        proc = subprocess.Popen(
-            ["bash", "-lc", command],
-            cwd=self._cwd(body),
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-        )
+        try:
+            with open(log_path, "xb") as log_file:
+                os.chmod(log_path, 0o600)
+                proc = subprocess.Popen(["bash", "-lc", command], cwd=cwd,
+                    stdout=log_file, stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL, start_new_session=True)
+        except Exception:
+            SLOTS.release()
+            raise
+        job = {"proc": proc, "log": log_path, "command": command, "cwd": cwd,
+            "startedAt": int(time.time() * 1000)}
         with LOCK:
-            JOBS[jid] = {
-                "proc": proc,
-                "log": log_path,
-                "command": command,
-                "cwd": self._cwd(body),
-                "startedAt": int(time.time() * 1000),
-            }
+            JOBS[jid] = job
+        def reap():
+            try:
+                proc.wait()
+            finally:
+                SLOTS.release()
+                # Bounded history; never remove running jobs or their logs.
+                with LOCK:
+                    completed = [(k, v) for k, v in JOBS.items() if v["proc"].poll() is not None]
+                    completed.sort(key=lambda item: item[1]["startedAt"], reverse=True)
+                    expired = [k for index, (k, v) in enumerate(completed)
+                        if index >= 1000 or time.time() - v["startedAt"] / 1000 > KEEP_SECONDS]
+                    for key in expired:
+                        old = JOBS.pop(key, None)
+                        if old:
+                            try: os.unlink(old["log"])
+                            except FileNotFoundError: pass
+        threading.Thread(target=reap, daemon=True).start()
         self._json(200, {"id": jid, "logPath": log_path})
 
     def _job_status(self, body):
@@ -199,6 +238,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    if not TOKEN.strip():
+        raise SystemExit("RK_EXEC_TOKEN must be configured; refusing unauthenticated execution")
     port = int(os.environ.get("RK_EXEC_PORT", "18080"))
     os.makedirs(ROOT, exist_ok=True)
     os.makedirs(JOBS_DIR, exist_ok=True)

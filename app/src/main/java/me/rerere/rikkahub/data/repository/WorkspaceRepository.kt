@@ -37,12 +37,13 @@ class WorkspaceRepository(
     private val manager: WorkspaceManager,
     private val rootfsInstaller: RootfsInstaller,
     private val settingsStore: SettingsStore,
+    private val context: android.content.Context,
 ) {
     private val jobManager = WorkspaceJobManager(manager)
     private val remoteClient = me.rerere.rikkahub.data.repository.RemoteExecutionClient()
     private val jobMonitorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private fun appContext(): android.content.Context = getKoin().get()
+    private fun appContext(): android.content.Context = context.applicationContext
 
     private fun remoteCwd(workdir: String, cwd: String): String =
         listOf(workdir.trimEnd('/'), cwd.trimStart('/')).filter { it.isNotBlank() }.joinToString("/")
@@ -317,11 +318,14 @@ class WorkspaceRepository(
         cwd: String = "",
         timeoutMillis: Long = WorkspaceManager.DEFAULT_COMMAND_TIMEOUT_MS,
         stdin: ByteArray? = null,
+        allowRemote: Boolean = true,
     ): WorkspaceCommandResult {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         // fork: 远程后端优先。长任务交给服务器，避免 Android 后台限制。
         val remote = settingsStore.awaitLoaded().workspaceRuntime.remote
-        if (remote?.enabled == true && remote.baseUrl.isNotBlank()) {
+        if (allowRemote && remote?.enabled == true) {
+            require(remote.baseUrl.isNotBlank()) { "Remote base URL is empty" }
+            require(stdin == null) { "Remote shell does not support stdin" }
             val remoteCwd = listOf(remote.workdir.trimEnd('/'), cwd.trimStart('/'))
                 .filter { it.isNotBlank() }
                 .joinToString("/")
@@ -345,26 +349,32 @@ class WorkspaceRepository(
     ): WorkspaceJobInfo = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         val remote = settingsStore.awaitLoaded().workspaceRuntime.remote
-        if (remote?.enabled == true && remote.baseUrl.isNotBlank()) {
+        if (remote?.enabled == true) {
+            require(remote.baseUrl.isNotBlank()) { "Remote base URL is empty" }
             return@withContext remoteClient.startJob(remote, command, remoteCwd(remote.workdir, cwd))
         }
         manager.ensureWorkspace(workspace.root)
-        val info = jobManager.start(workspace.root, command, cwd, timeoutMillis)
-        // 本地任务用前台服务保活，任务结束后自动释放
-        WorkspaceJobForegroundService.acquire(appContext(), info.id)
-        jobMonitorScope.launch {
-            while (true) {
-                delay(10_000)
-                val running = runCatching {
-                    jobManager.status(workspace.root, info.id).running
-                }.getOrDefault(false)
-                if (!running) {
-                    WorkspaceJobForegroundService.release(appContext(), info.id)
-                    break
+        val runtime = settingsStore.awaitLoaded().workspaceRuntime
+        jobManager.prune(workspace.root, runtime.keepJobsDays)
+        // Start the foreground service before starting work. A denied FGS must not leave an untracked task.
+        val serviceId = Uuid.random().toString()
+        check(WorkspaceJobForegroundService.acquire(appContext(), serviceId)) {
+            "Cannot start foreground service; bring the app to the foreground and try again"
+        }
+        try {
+            val info = jobManager.start(workspace.root, command, cwd, timeoutMillis, workspace.shellCompatibilityMode)
+            jobMonitorScope.launch {
+                try {
+                    while (jobManager.status(workspace.root, info.id).running) delay(2_000)
+                } finally {
+                    WorkspaceJobForegroundService.release(appContext(), serviceId)
                 }
             }
+            info
+        } catch (e: Exception) {
+            WorkspaceJobForegroundService.release(appContext(), serviceId)
+            throw e
         }
-        info
     }
 
     suspend fun jobStatus(
@@ -374,7 +384,8 @@ class WorkspaceRepository(
     ): WorkspaceJobStatus = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         val remote = settingsStore.awaitLoaded().workspaceRuntime.remote
-        if (remote?.enabled == true && remote.baseUrl.isNotBlank()) {
+        if (remote?.enabled == true) {
+            require(remote.baseUrl.isNotBlank()) { "Remote base URL is empty" }
             return@withContext remoteClient.jobStatus(remote, jobId, tailLines)
         }
         jobManager.status(workspace.root, jobId, tailLines)
@@ -383,11 +394,11 @@ class WorkspaceRepository(
     suspend fun killJob(id: String, jobId: String): Boolean = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         val remote = settingsStore.awaitLoaded().workspaceRuntime.remote
-        if (remote?.enabled == true && remote.baseUrl.isNotBlank()) {
+        if (remote?.enabled == true) {
+            require(remote.baseUrl.isNotBlank()) { "Remote base URL is empty" }
             return@withContext remoteClient.killJob(remote, jobId)
         }
         val killed = jobManager.kill(workspace.root, jobId)
-        WorkspaceJobForegroundService.release(appContext(), jobId)
         killed
     }
 
