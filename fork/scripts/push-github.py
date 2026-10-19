@@ -64,6 +64,7 @@ FILES = [
     'DISCLAIMER.md',
     'NOTICE.md',
     'fork/README.md',
+    'fork/CHANGES.md',
     'fork/WORKFLOW.md',
     'fork/rk-exec-server.py',
     'fork/scripts/sync-upstream.sh',

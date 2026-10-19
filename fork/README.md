@@ -13,6 +13,8 @@
 
 ## 功能
 
+与官方版本的完整差异见 [CHANGES.md](CHANGES.md)。
+
 - 子代理：`subagent_run / wait / result / list / cancel`，独立上下文、并发上限、fallback 模型、结果落盘
 - 子代理可读取其他会话：`recent_chats / conversation_search / conversation_read`
 - 工作区：命令超时可配（0 = 不限），`workspace_job_start/status/kill` 后台任务，前台服务保活
