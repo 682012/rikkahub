@@ -10,6 +10,7 @@ val Migration_31_32 = object : Migration(31, 32) {
         DatabaseMigrationTracker.onMigrationStart(31, 32)
         db.beginTransaction()
         try {
+            normalizeConversationEntity(db)
             val columns = tableColumns(db, "usage_record")
             if (columns.isEmpty()) {
                 createUsageRecordTable(db, "usage_record")
@@ -59,6 +60,32 @@ val Migration_31_32 = object : Migration(31, 32) {
             db.endTransaction()
             DatabaseMigrationTracker.onMigrationEnd()
         }
+    }
+}
+
+
+/**
+ * Older fork/branch databases can contain ConversationEntity.chat_model_id and indexes that
+ * 3.1 removed. Drop indexes first, then the extra columns; Room validates every column and index.
+ */
+private fun normalizeConversationEntity(db: SupportSQLiteDatabase) {
+    val actual = tableColumns(db, "ConversationEntity")
+    if (actual.isEmpty()) return
+    val expected = setOf(
+        "id", "assistant_id", "title", "nodes", "create_at", "update_at", "suggestions",
+        "is_pinned", "custom_system_prompt", "mode_injection_ids", "lorebook_ids",
+        "workspace_cwd", "folder_id", "config",
+    )
+    val indexes = db.query(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'ConversationEntity' AND sql IS NOT NULL"
+    ).use { cursor ->
+        buildList { while (cursor.moveToNext()) cursor.getString(0)?.let(::add) }
+    }
+    indexes.forEach { name ->
+        db.execSQL("DROP INDEX IF EXISTS `${name.replace("`", "``")}`")
+    }
+    for (extra in actual - expected) {
+        db.execSQL("ALTER TABLE `ConversationEntity` DROP COLUMN `${extra.replace("`", "``")}`")
     }
 }
 
