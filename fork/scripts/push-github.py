@@ -54,6 +54,7 @@ FILES = [
     'app/src/main/java/me/rerere/rikkahub/ui/pages/setting/SettingPage.kt',
     'app/src/main/java/me/rerere/rikkahub/ui/pages/chat/ChatPage.kt',
     'app/src/main/java/me/rerere/rikkahub/ui/pages/chat/UsageSheet.kt',
+    'app/src/main/java/me/rerere/rikkahub/ui/components/message/tools/ToolUI.kt',
     'app/src/main/java/me/rerere/rikkahub/RouteActivity.kt',
     'app/src/main/AndroidManifest.xml',
     'app/build.gradle.kts',
