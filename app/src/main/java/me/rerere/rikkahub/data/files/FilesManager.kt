@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.files
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.util.Log
@@ -25,6 +26,9 @@ import me.rerere.rikkahub.utils.exportImageFile
 import me.rerere.rikkahub.utils.getActivity
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
+
+private const val MAX_UPLOAD_BYTES = 128L * 1024 * 1024
+private const val MAX_UPLOAD_IMAGE_BYTES = 32L * 1024 * 1024
 
 class FilesManager(
     private val context: Context,
@@ -102,6 +106,65 @@ class FilesManager(
     fun getFile(entity: ManagedFileEntity): File =
         File(context.filesDir, entity.relativePath)
 
+    private fun notifyUser(message: String) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun compressImageIfNeeded(file: File) {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, bounds)
+        val width = bounds.outWidth
+        val height = bounds.outHeight
+        if (width <= 0 || height <= 0) return
+        val maxDimension = 4096
+        var sample = 1
+        while (width / sample > maxDimension || height / sample > maxDimension) sample *= 2
+        if (sample == 1 && file.length() <= 8L * 1024 * 1024) return
+        val options = BitmapFactory.Options().apply { inSampleSize = sample }
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath, options) ?: return
+        val format = if (file.extension.equals("png", ignoreCase = true)) {
+            Bitmap.CompressFormat.PNG
+        } else {
+            Bitmap.CompressFormat.JPEG
+        }
+        runCatching {
+            java.io.FileOutputStream(file).use { output -> bitmap.compress(format, 85, output) }
+        }
+        bitmap.recycle()
+    }
+
+    // fork.14 stored canonical message data in this directory. It is NOT disposable cache:
+    // retain it, include it in backups, and recover references when messages are next loaded.
+    private val legacyCache get() = LegacyMessageCache(File(context.filesDir, "msg_cache"))
+
+    fun restoreLegacyText(text: String): String = legacyCache.restoreText(text) ?: text
+
+    fun readLegacyTextPreview(text: String, maxChars: Int): String? =
+        legacyCache.readPreview(text, maxChars)
+
+    suspend fun persistHistoricalMedia(url: String, mimeHint: String? = null): String {
+        val legacy = legacyCache.mediaFile(url)
+        val isData = url.startsWith("data:")
+        if (!isData && legacy == null) return url
+        return try {
+            val mime = if (isData) url.substringAfter("data:").substringBefore(';').substringBefore(',')
+                else mimeHint ?: guessMimeType(legacy!!, legacy.name) ?: "application/octet-stream"
+            val bytes = if (isData) {
+                require(url.substringBefore(',').endsWith(";base64")) { "Unsupported data URI" }
+                android.util.Base64.decode(url.substringAfter(','), android.util.Base64.DEFAULT)
+            } else legacy!!.readBytes()
+            createChatFilesByByteArrays(listOf(bytes), displayName = "historical_media", mimeType = mime)
+                .single().toString()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not promote historical media; keeping original reference", e)
+            url
+        }
+    }
+
     fun createChatFilesByContents(uris: List<Uri>): List<Uri> {
         val newUris = mutableListOf<Uri>()
         val dir = context.filesDir.resolve(FileFolders.UPLOAD)
@@ -110,8 +173,22 @@ class FilesManager(
         }
         uris.forEach { uri ->
             runCatching {
-                val sourceName = getFileNameFromUri(uri) ?: uri.lastPathSegment ?: "file"
+                // 超大文件不落地，避免后续读取/编码把进程撑爆
+                val size = runCatching {
+                    context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } ?: -1L
+                }.getOrDefault(-1L)
                 val sourceMime = getFileMimeType(uri)
+                val limit = if (sourceMime?.startsWith("image/") == true) {
+                    MAX_UPLOAD_IMAGE_BYTES
+                } else {
+                    MAX_UPLOAD_BYTES
+                }
+                if (size > limit) {
+                    Log.w(TAG, "createChatFilesByContents: skip oversized file $size > $limit, uri=$uri")
+                    notifyUser("文件过大（${size / 1024 / 1024}MB），已跳过")
+                    return@runCatching
+                }
+                val sourceName = getFileNameFromUri(uri) ?: uri.lastPathSegment ?: "file"
                 val fileName = buildUuidFileName(displayName = sourceName, mimeType = sourceMime)
                 val file = dir.resolve(fileName)
                 if (!file.exists()) {
@@ -123,6 +200,9 @@ class FilesManager(
                     file.outputStream().use { output ->
                         input.copyTo(output)
                     }
+                }
+                if (sourceMime?.startsWith("image/") == true) {
+                    compressImageIfNeeded(file)
                 }
                 val guessedMime = sourceMime ?: guessMimeType(file, sourceName)
                 trackManagedFile(

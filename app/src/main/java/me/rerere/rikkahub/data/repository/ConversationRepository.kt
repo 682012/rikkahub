@@ -8,10 +8,13 @@ import androidx.paging.PagingSource
 import androidx.paging.map
 import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.datastore.ConversationSortOrder
 import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.fts.MessageFtsManager
@@ -40,6 +43,8 @@ class ConversationRepository(
         private const val PAGE_SIZE = 20
         private const val INITIAL_LOAD_SIZE = 40
     }
+
+    suspend fun getConversationAssistantId(id: String): String? = conversationDAO.getAssistantId(id)
 
     suspend fun hasFileReference(fileUrl: String): Boolean =
         messageNodeDAO.hasFileReference(JsonInstant.encodeToString(fileUrl))
@@ -487,47 +492,58 @@ class ConversationRepository(
         )
     }
 
+    /** 读取会话尾部消息，供子代理按会话 id 查阅其他聊天。 */
+    suspend fun readConversationTail(
+        conversationId: String,
+        limit: Int = 20,
+    ): List<Pair<String, String>> {
+        val nodes = messageNodeDAO.getLastNodes(conversationId, limit.coerceIn(1, 100)).reversed()
+        val result = mutableListOf<Pair<String, String>>()
+        for (node in nodes) {
+            val messages = runCatching {
+                JsonInstant.decodeFromString<List<UIMessage>>(node.messages)
+            }.getOrNull() ?: continue
+            val selected = messages.getOrNull(node.selectIndex) ?: messages.lastOrNull() ?: continue
+            val text = selected.toText().trim()
+            if (text.isNotEmpty()) result += selected.role.name.lowercase() to text
+        }
+        return result
+    }
+
     private suspend fun loadMessageNodes(conversationId: String): List<MessageNode> {
         val favoriteNodeIds = favoriteDAO
             .getFavoriteNodeIdsOfConversation(conversationId)
             .mapNotNull { runCatching { Uuid.parse(it) }.getOrNull() }
             .toSet()
 
-        return database.withTransaction {
-            val nodes = mutableListOf<MessageNode>()
+        // Read pages in one transaction; decoding and file promotion must not hold SQLite locks.
+        val entities = database.withTransaction {
+            val result = mutableListOf<me.rerere.rikkahub.data.db.entity.MessageNodeEntity>()
             var offset = 0
             val pageSize = 64
             while (true) {
                 val page = try {
                     messageNodeDAO.getNodesOfConversationPaged(conversationId, pageSize, offset)
                 } catch (e: SQLiteBlobTooBigException) {
-                    e.printStackTrace()
-                    offset += pageSize
-                    continue
+                    e.printStackTrace(); offset += pageSize; continue
                 } catch (e: CancellationException) {
-                    // CancellationException 是 IllegalStateException 的子类，必须先重新抛出，否则取消后会在事务内无限循环
                     throw e
                 } catch (e: IllegalStateException) {
-                    e.printStackTrace()
-                    offset += pageSize
-                    continue
+                    e.printStackTrace(); offset += pageSize; continue
                 }
                 if (page.isEmpty()) break
-                page.forEach { entity ->
-                    val messages = JsonInstant.decodeFromString<List<UIMessage>>(entity.messages)
-                    val nodeId = Uuid.parse(entity.id)
-                    nodes.add(
-                        MessageNode(
-                            id = nodeId,
-                            messages = messages,
-                            selectIndex = entity.selectIndex,
-                            isFavorite = favoriteNodeIds.contains(nodeId)
-                        )
-                    )
-                }
+                result += page
                 offset += page.size
             }
-            nodes
+            result
+        }
+        return withContext(Dispatchers.IO) {
+            entities.map { entity ->
+                val messages = JsonInstant.decodeFromString<List<UIMessage>>(entity.messages)
+                    .externalizeLargeParts(filesManager)
+                val nodeId = Uuid.parse(entity.id)
+                MessageNode(nodeId, messages, entity.selectIndex, favoriteNodeIds.contains(nodeId))
+            }
         }
     }
 
@@ -562,3 +578,22 @@ data class ConversationPageResult(
     val items: List<Conversation>,
     val nextOffset: Int?,
 )
+
+/** Upgrade legacy fork.14 cache references without replacing canonical text by a preview. */
+private suspend fun List<UIMessage>.externalizeLargeParts(
+    filesManager: FilesManager,
+): List<UIMessage> = withContext(Dispatchers.IO) {
+    suspend fun normalize(part: UIMessagePart): UIMessagePart = when (part) {
+        is UIMessagePart.Text -> part.copy(text = filesManager.restoreLegacyText(part.text))
+        is UIMessagePart.Tool -> part.copy(
+            input = filesManager.restoreLegacyText(part.input),
+            output = part.output.map { normalize(it) },
+        )
+        is UIMessagePart.Image -> part.copy(url = filesManager.persistHistoricalMedia(part.url))
+        is UIMessagePart.Video -> part.copy(url = filesManager.persistHistoricalMedia(part.url))
+        is UIMessagePart.Audio -> part.copy(url = filesManager.persistHistoricalMedia(part.url))
+        is UIMessagePart.Document -> part.copy(url = filesManager.persistHistoricalMedia(part.url, part.mime))
+        else -> part
+    }
+    map { message -> message.copy(parts = message.parts.map { normalize(it) }) }
+}

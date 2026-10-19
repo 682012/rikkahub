@@ -222,6 +222,19 @@ class WorkspaceManager(
         )
     }
 
+    /** A job owns its PRoot tracer until the foreground command exits. Do not background it inside PRoot. */
+    fun startCommand(root: String, command: String, cwd: String, logFile: File,
+        shellCompatibilityMode: Boolean = false): Process {
+        require(command.isNotBlank())
+        val workingDir = fileSystem.resolve(filesDir(root), cwd)
+        require(workingDir.isDirectory) { "Working directory does not exist: $cwd" }
+        return shellRunner.start(WorkspaceShellContext(
+            root = root, command = command, cwd = cwd, filesDir = filesDir(root),
+            linuxDir = linuxDir(root), tempDir = tempDir(root), workingDir = workingDir,
+            timeoutMillis = 0, bindMounts = bindMounts, shellCompatibilityMode = shellCompatibilityMode,
+        ), logFile)
+    }
+
     private fun requireValidRoot(root: String) {
         require(root.matches(ROOT_NAME_REGEX)) {
             "Invalid workspace root name: $root"

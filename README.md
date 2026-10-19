@@ -1,3 +1,9 @@
+> **个人改版 / Personal Fork**
+> 本仓库是 RikkaHub 的非官方个人修改版，仅供自用，不提供 APK、安装教程或技术支持，与原作者无关。
+> This is an unofficial personal fork for private use only. See [DISCLAIMER.md](DISCLAIMER.md) and [NOTICE.md](NOTICE.md).
+>
+> 上游 / Upstream: https://github.com/rikkahub/rikkahub
+
 <div align="center">
   <img src="docs/icon.png" alt="App Icon" width="100" />
   <h1>RikkaHub</h1>

@@ -41,24 +41,34 @@ class ProotShellRunner(
             )
         }
 
+        return processBuilder(context).start().readResult(context.timeoutMillis, context.stdin)
+    }
+
+    override fun start(context: WorkspaceShellContext, logFile: File): Process {
+        require(WorkspaceManager.isUsableRootfs(context.linuxDir)) { "Rootfs is not installed" }
+        return processBuilder(context)
+            .redirectInput(File("/dev/null"))
+            .redirectOutput(logFile)
+            .redirectErrorStream(true)
+            .start()
+    }
+
+    private fun processBuilder(context: WorkspaceShellContext): ProcessBuilder {
+        val proot = File(nativeLibraryDir, PROOT_EXEC)
+        val loader = File(nativeLibraryDir, PROOT_LOADER)
+        require(proot.isFile && loader.isFile) { "PRoot executable or loader is missing" }
         context.tempDir.mkdirs()
         patcher.patch(context.linuxDir)
-        val process = ProcessBuilder(buildCommand(context, proot))
+        return ProcessBuilder(buildCommand(context, proot))
             .directory(context.filesDir)
             .redirectErrorStream(false)
             .apply {
-                if (context.shellCompatibilityMode) {
-                    environment()["PROOT_NO_SECCOMP"] = "1"
-                } else {
-                    environment().remove("PROOT_NO_SECCOMP")
-                }
+                if (context.shellCompatibilityMode) environment()["PROOT_NO_SECCOMP"] = "1"
+                else environment().remove("PROOT_NO_SECCOMP")
                 environment()["PROOT_LOADER"] = loader.absolutePath
                 environment()["PROOT_TMP_DIR"] = context.tempDir.absolutePath
                 environment()["TMPDIR"] = context.tempDir.absolutePath
             }
-            .start()
-
-        return process.readResult(context.timeoutMillis, context.stdin)
     }
 
     private fun buildCommand(

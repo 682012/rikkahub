@@ -26,6 +26,12 @@ interface MessageNodeDAO {
         offset: Int
     ): List<MessageNodeEntity>
 
+    @Query(
+        "SELECT * FROM message_node WHERE conversation_id = :conversationId " +
+            "ORDER BY node_index DESC LIMIT :limit"
+    )
+    suspend fun getLastNodes(conversationId: String, limit: Int): List<MessageNodeEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(nodes: List<MessageNodeEntity>)
 

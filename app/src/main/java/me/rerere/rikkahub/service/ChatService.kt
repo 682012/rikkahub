@@ -4,6 +4,7 @@ import android.app.Application
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.core.net.toUri
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
@@ -575,6 +576,8 @@ class ChatService(
         var senderName = ""
         try {
             val settings = settingsStore.awaitLoaded()
+            // fork: 上下文到阈值时先插入摘要检查点，不删除历史
+            if (regenerateNodeId == null) maybeAutoCompress(session, settings)
             // 清掉上一轮的建议；没法继续执行的工具调用发给模型会被拒绝，先去掉。
             // 重新生成时只清理要发给模型的节点，被重新生成的节点保持原样，旧回复留作分支
             val conversation = session.update { latest ->
@@ -783,6 +786,41 @@ class ChatService(
             }.onFailure {
                 it.printStackTrace()
             }
+        }
+    }
+
+    /**
+     * 自动压缩：上下文占用达到模型窗口的阈值时，插入一条摘要检查点。
+     *
+     * 摘要不删除原始消息，模型后续只看到检查点；失败时静默继续，不阻塞发送。
+     */
+    private suspend fun maybeAutoCompress(
+        session: ConversationSession,
+        settings: me.rerere.rikkahub.data.datastore.Settings,
+    ) {
+        val snapshot = session.state.value
+        val plan = autoCompressionPlan(snapshot, settings.autoCompress) ?: return
+        val turn = requestFactory.createContext(settings, snapshot)
+        if (!plan.exceedsThreshold(turn.model.contextLength, settings.autoCompress.thresholdPercent)) return
+        session.processingStatus.value = "正在压缩上下文…"
+        try {
+            val summary = requestFactory.generateCompressionSummary(
+                turn = turn,
+                messages = plan.messages,
+                compressPrompt = buildCompressPrompt("", Locale.getDefault().displayName),
+            )
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            session.tryUpdate { latest ->
+                // Edits while summarizing invalidate this snapshot; never insert a stale checkpoint.
+                if (latest.messageNodes != snapshot.messageNodes) null
+                else latest.insertContextCheckpoint(plan.afterNodeId, summary)
+            }?.let { session.flush() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "auto compress failed; continuing with original history", e)
+        } finally {
+            session.processingStatus.value = null
         }
     }
 

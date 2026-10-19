@@ -21,6 +21,7 @@ import me.rerere.rikkahub.data.db.dao.SourceUsage
 import me.rerere.rikkahub.data.db.dao.UsageBucket
 import me.rerere.rikkahub.data.db.dao.UsageRecordDAO
 import me.rerere.rikkahub.data.db.dao.UsageTotals
+import me.rerere.rikkahub.data.db.dao.UsageByModel
 import me.rerere.rikkahub.data.db.entity.UsageRecordEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -115,6 +116,26 @@ private class FakeUsageRecordDAO : UsageRecordDAO {
     override suspend fun getRequestCountPerDay(source: String, since: Long) = emptyList<DayCount>()
 
     override suspend fun getTotalsBySource(since: Long) = emptyList<SourceUsage>()
+
+    override suspend fun listByConversation(conversationId: String) = records.filter { it.conversationId == conversationId }
+
+    override suspend fun totals(conversationId: String, includeSubagents: Boolean) = UsageTotals(
+        promptTokens = records.sumOf { it.promptTokens.toLong() },
+        completionTokens = records.sumOf { it.completionTokens.toLong() },
+        cachedTokens = records.sumOf { it.cachedTokens.toLong() },
+        totalTokens = records.sumOf { (it.promptTokens + it.completionTokens).toLong() },
+        requests = records.size.toLong(),
+    )
+
+    override suspend fun byModel(conversationId: String, includeSubagents: Boolean) = emptyList<UsageByModel>()
+
+    override suspend fun deleteByConversation(conversationId: String) {
+        records.removeAll { it.conversationId == conversationId }
+    }
+
+    override suspend fun deleteOlderThan(before: Long) {
+        records.removeAll { it.createdAt < before }
+    }
 }
 
 private class FakeProvider(

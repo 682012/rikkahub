@@ -23,11 +23,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "me.rerere.rikkahub"
+        applicationId = "me.rerere.rikkahub.fork"
         minSdk = 26
         targetSdk = 37
-        versionCode = 193
-        versionName = "3.1.0"
+        versionCode = 3000016
+        versionName = "3.1.0-fork.16"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -77,7 +77,8 @@ android {
         release {
             signingConfig = signingConfigs.getByName("release")
             optimization {
-                enable = true
+                // -PfastBuild 时关闭 R8，用于快速迭代验证；正式包不要带这个参数
+                enable = !project.hasProperty("fastBuild")
             }
             buildConfigField("String", "VERSION_NAME", "\"${android.defaultConfig.versionName}\"")
             buildConfigField("String", "VERSION_CODE", "\"${android.defaultConfig.versionCode}\"")

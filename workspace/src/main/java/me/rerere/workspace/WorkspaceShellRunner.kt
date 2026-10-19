@@ -7,6 +7,8 @@ import java.util.concurrent.TimeUnit
 
 interface WorkspaceShellRunner {
     fun execute(context: WorkspaceShellContext): WorkspaceCommandResult
+    fun start(context: WorkspaceShellContext, logFile: File): Process =
+        error("This shell runner does not support persistent jobs")
 }
 
 data class WorkspaceShellContext(
@@ -24,6 +26,14 @@ data class WorkspaceShellContext(
 )
 
 class HostShellRunner : WorkspaceShellRunner {
+    override fun start(context: WorkspaceShellContext, logFile: File): Process =
+        ProcessBuilder(defaultShell(), "-c", context.command)
+            .directory(context.workingDir)
+            .redirectInput(File("/dev/null"))
+            .redirectOutput(logFile)
+            .redirectErrorStream(true)
+            .start()
+
     override fun execute(context: WorkspaceShellContext): WorkspaceCommandResult {
         val process = ProcessBuilder(defaultShell(), "-c", context.command)
             .directory(context.workingDir)
@@ -53,7 +63,13 @@ fun Process.readResult(timeoutMillis: Long, stdin: ByteArray? = null): Workspace
         }
     }
     try {
-        val finished = waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
+        // fork: timeoutMillis <= 0 表示不限制，此时阻塞等待进程自然结束
+        val finished = if (timeoutMillis <= 0L) {
+            waitFor()
+            true
+        } else {
+            waitFor(timeoutMillis, TimeUnit.MILLISECONDS)
+        }
         if (!finished) {
             destroyForcibly()
         }

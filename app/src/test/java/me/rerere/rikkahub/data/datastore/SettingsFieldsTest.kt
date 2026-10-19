@@ -162,6 +162,35 @@ private val SAMPLE = Settings(
     webServerLocalhostOnly = true,
     backupReminderConfig = BackupReminderConfig(enabled = true),
     sponsorAlertDismissedAt = 7,
+    workspaceRuntime = WorkspaceRuntimeSettings(
+        commandTimeoutSec = 45,
+        maxTimeoutSec = 120,
+        keepJobsDays = 3,
+        remote = RemoteExecutionSettings(
+            enabled = true,
+            baseUrl = "https://example.com/rk-exec",
+            token = "token",
+            workdir = "~/work",
+            requestTimeoutSec = 30,
+        ),
+    ),
+    subagent = SubagentSettings(
+        enabled = true,
+        maxConcurrent = 3,
+        maxSteps = 60,
+        timeoutSec = 1200,
+        keepDays = 2,
+        modelIds = listOf(id(40)),
+        defaultModelId = id(40),
+        fallbackModelId = id(41),
+        includeWorkspace = false,
+        includeSearch = true,
+        includeMcp = true,
+        includeChatHistory = false,
+        sessionId = id(42),
+        allowNested = true,
+    ),
+    autoCompress = AutoCompressSettings(enabled = false, thresholdPercent = 70),
 )
 
 private val STORED_KEYS = setOf(
@@ -213,4 +242,7 @@ private val STORED_KEYS = setOf(
     "quick_messages",
     "backup_reminder_config",
     "sponsor_alert_dismissed_at",
+    "workspace_runtime",
+    "subagent",
+    "auto_compress",
 )
