@@ -2,6 +2,11 @@
 
 基线：RikkaHub `3.1.0`（commit `eeef60b2`）；上一个 fork 基线是 `3.0.0`（`55a108a4`）。
 
+## fork.19：还原 fork.18 对 Learning Mode 的改动
+
+- fork.18 误改了 `LEARNING_MODE_PROMPT`，fork.19 恢复官方 3.1 原文
+- 版本 `3.1.0-fork.19` / `3000019`
+
 ## fork.18：内置学习模式提示词不再覆盖用户设定
 
 - `LEARNING_MODE_PROMPT` 改为补充性指南，明确服从助手系统提示词、用户指令和人格
