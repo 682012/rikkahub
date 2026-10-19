@@ -1,4 +1,4 @@
-# RikkaHub Fork 交接文档（fork.17）
+# RikkaHub Fork 交接文档（fork.18）
 
 > 用途：给其他模型/维护者审查当前 APK 与源码。文中所有“已验证/未验证”都按实际执行情况标注，没有实测过的不会写成已验证。
 
@@ -10,8 +10,8 @@
 | 大小 | 构建后以实际文件为准 |
 | MD5 | `ae204b0e5e35e3c8e5e80a3eac55097a` |
 | 包名 | `me.rerere.rikkahub.fork` |
-| versionName | `3.1.0-fork.17` |
-| versionCode | `3000017` |
+| versionName | `3.1.0-fork.18` |
+| versionCode | `3000018` |
 | 签名 | V2，证书 SHA-256 `cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89` |
 | 构建类型 | release **未跑 R8**（`-PfastBuild`），体积偏大，功能与正式包一致 |
 | 基线 | RikkaHub 官方 `3.1.0`，commit `eeef60b2`；上一基线 `3.0.0` / `55a108a4` |
