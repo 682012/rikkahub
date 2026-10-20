@@ -113,7 +113,7 @@ object SettingsJsonMigrator {
         })
     }
 
-    private val SUPPORTED_PROVIDER_TYPES = setOf("openai", "google", "claude")
+    private val SUPPORTED_PROVIDER_TYPES = setOf("openai", "google", "claude", "chatgpt", "grok")
 
     private fun filterSupportedProviders(element: JsonElement): JsonElement {
         val providers = element as? JsonArray ?: return element

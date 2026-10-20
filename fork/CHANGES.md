@@ -2,6 +2,13 @@
 
 基线：RikkaHub `3.1.0`（commit `eeef60b2`）；上一个 fork 基线是 `3.0.0`（`55a108a4`）。
 
+## fork.20：备份导入与 3.1 账号 Provider 修复
+
+- `30→32` 迁移也清理旧 `ConversationEntity.chat_model_id` 和旧索引
+- `DatabaseBackup.alignToTarget` 在 identity hash 相同但表结构不同时不再跳过对齐
+- 备份设置迁移保留官方 3.1 的 `chatgpt` / `grok` Provider，不再把订阅登录入口过滤掉
+- 版本 `3.1.0-fork.20` / `3000020`
+
 ## fork.19：还原 fork.18 对 Learning Mode 的改动
 
 - fork.18 误改了 `LEARNING_MODE_PROMPT`，fork.19 恢复官方 3.1 原文

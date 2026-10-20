@@ -13,6 +13,7 @@ val Migration_30_32 = object : Migration(30, 32) {
         DatabaseMigrationTracker.onMigrationStart(30, 32)
         db.beginTransaction()
         try {
+            normalizeConversationEntity(db)
             createUsageRecordTable(db, "usage_record")
             createUsageRecordIndexes(db)
             db.execSQL(

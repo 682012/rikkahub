@@ -68,7 +68,7 @@ val Migration_31_32 = object : Migration(31, 32) {
  * Older fork/branch databases can contain ConversationEntity.chat_model_id and indexes that
  * 3.1 removed. Drop indexes first, then the extra columns; Room validates every column and index.
  */
-private fun normalizeConversationEntity(db: SupportSQLiteDatabase) {
+internal fun normalizeConversationEntity(db: SupportSQLiteDatabase) {
     val actual = tableColumns(db, "ConversationEntity")
     if (actual.isEmpty()) return
     val expected = setOf(

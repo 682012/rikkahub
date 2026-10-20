@@ -69,7 +69,6 @@ internal object DatabaseBackup {
         if (!targetFile.isFile || targetFile.length() == 0L) return false
         val targetHash = identityHash(context, targetFile) ?: return false
         val stagedHash = identityHash(context, databaseFile)
-        if (stagedHash == targetHash) return false
         val targetVersion = userVersion(context, targetFile)
         if (userVersion(context, databaseFile) != targetVersion) return false
 
@@ -78,6 +77,11 @@ internal object DatabaseBackup {
         try {
             val targetTables = tableSql(target)
             val stagedTables = tableSql(staged)
+            // Same version/hash can still hide schema drift (e.g. a failed/older fork migration).
+            if (stagedHash == targetHash &&
+                targetTables == stagedTables &&
+                indexSql(target) == indexSql(staged)
+            ) return false
             val common = targetTables.keys intersect stagedTables.keys
             // Rebuild with the real target DDL rather than blessing a column-name-only approximation.
             // All writes are confined to the staged file and one transaction.
