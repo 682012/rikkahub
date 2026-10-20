@@ -106,7 +106,8 @@ class McpManager(
     fun getAllAvailableTools(assistant: Assistant): List<Triple<Uuid, String, McpTool>> {
         val settings = settingsStore.settingsFlow.value
         return settings.mcpServers
-            .filter { it.commonOptions.enable && it.id in assistant.mcpServers }
+            // Cached tool definitions from a failed server are stale and must not enter the prompt.
+            .filter { it.commonOptions.enable && it.id in assistant.mcpServers && sessionRegistry.getClient(it.id) != null }
             .flatMap { server ->
                 server.commonOptions.tools
                     .filter { tool -> tool.enable }

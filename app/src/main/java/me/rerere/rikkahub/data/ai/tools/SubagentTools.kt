@@ -25,15 +25,15 @@ fun createSubagentTools(
     runner: SubagentRunner,
     childTools: List<Tool>,
     settings: SubagentSettings,
-    allModelIds: List<Uuid>,
     parentModelId: Uuid,
     conversationId: Uuid?,
 ): List<Tool> {
-    val modelPool = if (settings.modelIds.isNotEmpty()) settings.modelIds else allModelIds
-    val modelHint = if (modelPool.isEmpty()) {
-        "当前没有单独配置模型池，省略 model_id 使用默认模型。"
-    } else {
-        "可选 model_id: " + modelPool.joinToString(", ") { it.toString() }
+    // Never enumerate every provider model: large accounts can have thousands of UUIDs.
+    val modelPool = settings.modelIds
+    val modelHint = when {
+        modelPool.isEmpty() -> "省略 model_id 使用默认模型。"
+        modelPool.size <= 8 -> "可选 model_id: " + modelPool.joinToString(", ") { it.toString() }
+        else -> "设置中配置了 ${modelPool.size} 个可选模型；省略 model_id 使用默认模型，具体 ID 请在设置页查看。"
     }
 
     fun resolveModelId(raw: String?): Uuid? {

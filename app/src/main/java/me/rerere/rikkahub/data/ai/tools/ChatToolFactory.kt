@@ -111,12 +111,10 @@ class ChatToolFactory(
             isSubagentToolAllowed(tool.name, settings.subagent)
         }
         val withSubagent = if (settings.subagent.enabled) {
-            val allModelIds = settings.providers.flatMap { provider -> provider.models.map { it.id } }
             tools + createSubagentTools(
                 runner = subagentRunner,
                 childTools = childTools,
                 settings = settings.subagent,
-                allModelIds = allModelIds,
                 parentModelId = model.id,
                 conversationId = conversationId,
             )
