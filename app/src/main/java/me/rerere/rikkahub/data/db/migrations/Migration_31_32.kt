@@ -14,6 +14,7 @@ val Migration_31_32 = object : Migration(31, 32) {
             val columns = tableColumns(db, "usage_record")
             if (columns.isEmpty()) {
                 createUsageRecordTable(db, "usage_record")
+                createUsageRecordIndexes(db)
             } else {
                 val oldIndexes = db.query(
                     "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'usage_record'"
@@ -112,7 +113,7 @@ internal fun createUsageRecordTable(db: SupportSQLiteDatabase, table: String) {
             `prompt_tokens` INTEGER NOT NULL,
             `completion_tokens` INTEGER NOT NULL,
             `cached_tokens` INTEGER NOT NULL,
-            `total_tokens` INTEGER NOT NULL DEFAULT 0,
+            `total_tokens` INTEGER NOT NULL,
             PRIMARY KEY(`id`)
         )
         """.trimIndent()

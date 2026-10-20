@@ -2,6 +2,12 @@
 
 基线：RikkaHub `3.1.0`（commit `eeef60b2`）；上一个 fork 基线是 `3.0.0`（`55a108a4`）。
 
+## fork.21：备份导入 schema 细节修复
+
+- `usage_record.total_tokens` 去掉错误的 `DEFAULT 0`，与 Room schema 32 一致
+- `31→32` 在 `usage_record` 不存在的分支补建三个索引
+- 版本 `3.1.0-fork.21` / `3000021`
+
 ## fork.20：备份导入与 3.1 账号 Provider 修复
 
 - `30→32` 迁移也清理旧 `ConversationEntity.chat_model_id` 和旧索引
