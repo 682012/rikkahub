@@ -134,7 +134,7 @@ internal fun migrateLegacyMemory(db: SupportSQLiteDatabase) {
         )
         db.execSQL(
             "INSERT OR REPLACE INTO `memory_file` (assistant_id, path, content, updated_at) VALUES (?, ?, ?, ?)",
-            arrayOf<Any?>(assistantId, "_legacy/imported_memories_$now.md", contents.joinToString("\n"), now),
+            arrayOf<Any?>(assistantId, "/_legacy/imported_memories_$now.md", contents.joinToString("\n"), now),
         )
     }
 }

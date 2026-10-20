@@ -57,7 +57,7 @@ import me.rerere.rikkahub.utils.JsonInstant
     ],
     // fork.15 already used schema 31 with a different usage_record shape.
     // Keep 3.1 compatibility in a new fork schema instead of lying to Room about identity.
-    version = 32,
+    version = 33,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
