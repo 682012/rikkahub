@@ -26,11 +26,10 @@
 - 同机还有 `/data/data1/rk3mod/src310`（3.1.0 的中间副本），**fork.25 用的是 src31**
 - 旧路径 `/data/data1/rk3mod/src` 已不存在，脚本/文档里看到要改
 - GitHub：`https://github.com/682012/rikkahub`，分支 `fork/3.0.0`
-- **GitHub 最新只到 fork.15**（commit `a64fa9b`，10-19，还是 3.0.0 基线）；fork.16–25 没推
-- 推送脚本：`/workspace/rikkahub-fork/scripts/push-github.py`，`SRC` 已改成 `/data/data1/rk3mod/src31`
-  - 脚本按 `FILES` 清单逐个上传，只覆盖 fork 自有改动；**fork.16 合并官方 3.1.0 时改动了大量上游文件，FILES 表达不了这部分**。所以不是“补几个文件”就能同步的
-  - 要真正同步 GitHub：用整体快照（clone 上游 → 覆盖 src31 内容 → 提交），或把 src31 打成 tarball 推一个新分支；不要指望逐文件清单
-  - 行为：读分支当前 head 作 parent，逐个上传 FILES，生成一次 commit 并 force 更新分支；不 clone、不依赖本地 git 历史
+- 分支 `fork/3.1.0`：**已同步到 fork.25**（代码 `cd5d365`，10-21 05:06；文档提交 `df5b057`）
+- 分支 `fork/3.0.0`：停在 fork.15（`a64fa9b`，10-19），旧分支保留，不再更新
+- 默认分支 `master` 是上游镜像，不用于 fork 工作
+- 推送脚本：`/workspace/rikkahub-fork/scripts/push-github.py` 写死 `fork/3.0.0` 和 62 个文件的清单，**已过时**；当前同步方式是按分支整体快照（clone → 覆盖 → commit → push），不要再用旧脚本推
 - 环境：JDK 21，Android SDK 37，Gradle 9.6
 - 快速构建：`./gradlew :app:assembleRelease -PfastBuild --daemon`（本次 4m8s，320 tasks）
 - 正式构建：`./gradlew :app:assembleRelease --daemon`（R8 + lint，约 10–15 分钟）
@@ -66,7 +65,7 @@
 | fork.24 | 子代理工具不再枚举全部模型 ID（大账号模型池上千 UUID 会撑爆提示词）；同步调整 MCP/Skills 工具与 `ChatToolFactory` |
 | fork.25 | 技能安装校验 `SkillValidator`（name 去空白、长度 ≤64、不以 `.` 开头、禁 `/ \` 与控制字符、description 必填）+ 技能页/详情页；Provider 设置页内置 ChatGPT/Grok 订阅类型，修复备份设置迁移后 provider 被过滤、登录选项消失 |
 
-`fork/CHANGES.md` 只写到 fork.19，**20–25 没补**。
+`fork/CHANGES.md` 已补到 fork.25（2026-10-21 同步时补上 23–25，20–22 原本就在 GitHub 版）。
 
 ## 5. 功能现状
 
@@ -112,10 +111,9 @@
 
 **流程风险：**
 
-1. **GitHub 落后 10 个版本**（停在 3.0.0 基线的 fork.15）。fork.16 起合并了官方 3.1.0，逐文件推送脚本覆盖不了上游改动，按 GitHub 重建会得到 3.0.0 时代的代码
-2. **fork.20–22 没有文档**，改动只能从源码和 APK 反推
-3. `fork/CHANGES.md` 停在 fork.19，与 fork.25 不一致
-4. 源码快照没有 git，无法 `git diff` 核对历史改动
+1. **旧分支 `fork/3.0.0` 停在 fork.15**，和 `fork/3.1.0` 差 10 个版本，别在旧分支上继续工作
+2. **HB 快照的 `fork/CHANGES.md` 曾落后 GitHub 版**（缺 20–22），2026-10-21 已拉回同步；以后改 CHANGES 先从 GitHub 拉最新
+3. 源码快照没有 git，无法 `git diff` 核对历史改动
 
 **设计限制：**
 
@@ -159,15 +157,16 @@ scp app/build/outputs/apk/release/app-release.apk \
 
 改版本号：`app/build.gradle.kts` 的 `versionCode = 30000NN`、`versionName = "3.1.0-fork.NN"`。
 
-推 GitHub 前：
+推 GitHub（整体快照，2026-10-21 起用这个流程）：
 
-1. 把新文件补进 `/workspace/rikkahub-fork/scripts/push-github.py` 的 `FILES` 列表和 HB 的 `fork/push-files.txt`
-2. `python3 scripts/push-github.py "fork.NN: ..."`，核对返回的 commit sha
-3. 推完在 GitHub 上看一眼分支 head 和文件树，确认迁移文件在
+1. 在 US 上 `git clone --depth 1 --branch fork/3.1.0`（HB 直连 GitHub 会 TLS 断）
+2. `rsync -a --checksum` 从 HB `src31/` 同步到 clone（排除 `.git`、`build`、`.gradle`、`.kotlin`、`node_modules`、`local.properties`、`*.jks`、`*.apk`）
+3. `git add -A`，看清楚变更列表再 commit，`git push` 到 `fork/3.1.0`
+4. 推完用 raw 加 `?v=<sha>` 核对，别被 CDN 缓存骗了
 
 ## 8. 相关文档
 
-- `fork/CHANGES.md`：与原版的功能差异（只到 fork.19）
+- `fork/CHANGES.md`：与原版的功能差异（已到 fork.25）
 - `fork/README.md`：构建、签名、发布、回退
 - `fork/WORKFLOW.md`：可复用的私有 fork 维护流程
 - `DISCLAIMER.md` / `NOTICE.md`：个人改版与 AGPL 修改声明
