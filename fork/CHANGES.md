@@ -2,6 +2,25 @@
 
 基线：RikkaHub `3.1.0`（commit `eeef60b2`）；上一个 fork 基线是 `3.0.0`（`55a108a4`）。
 
+## fork.25：技能删除与 Provider 类型标签修复
+
+- 技能安装前校验 SKILL.md：name 去空白、长度不超过 64、不以 `.` 开头、禁 `/` 和控制字符、description 必填
+- 修复技能删除链路
+- Provider 设置页内置 ChatGPT / Grok 订阅类型，修复备份设置迁移后 provider 被过滤、登录选项消失
+- 版本 `3.1.0-fork.25` / `3000025`
+
+## fork.24：压缩提示词、隐藏失败的 MCP 工具
+
+- 子代理工具不再枚举全部模型 ID（大账号模型池上千 UUID 会撑爆提示词）
+- MCP 工具列表隐藏连接失败的项
+- 版本 `3.1.0-fork.24` / `3000024`
+
+## fork.23：修复旧记忆路径
+
+- legacy 记忆文件路径补前导 `/`（`_legacy/imported_memories_*.md`）
+- 数据库 schema 32 → 33
+- 版本 `3.1.0-fork.23` / `3000023`
+
 ## fork.22：补齐 excp schema 31 备份迁移
 
 - 兼容 excp 分支 schema 31：补 `ConversationEntity.config`，创建 `memory_file`/`memory_consolidation`/媒体创作/翻译/用量表

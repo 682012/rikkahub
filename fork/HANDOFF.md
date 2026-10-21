@@ -1,243 +1,174 @@
-# RikkaHub Fork 交接文档（fork.18）
+# RikkaHub Fork 交接文档（fork.25）
 
-> 用途：给其他模型/维护者审查当前 APK 与源码。文中所有“已验证/未验证”都按实际执行情况标注，没有实测过的不会写成已验证。
+> 用途：给其他模型/维护者审查当前 APK 与源码。文中“已验证/未验证”按实际执行情况标注，没有实测过的不会写成已验证。
+> 最后更新：2026-10-21。上一版是 fork.14（备份 `HANDOFF.md.bak-fork14-20261021`）。
 
 ## 1. 产物
 
 | 项 | 值 |
 |---|---|
-| APK | `/sdcard/Download/rikkahub-fork-16.apk` |
-| 大小 | 构建后以实际文件为准 |
-| MD5 | `ae204b0e5e35e3c8e5e80a3eac55097a` |
+| APK（HB） | `/data/data1/rk3mod/rikkahub-3.1.0-fork.25.apk` |
+| APK（手机） | `/sdcard/Download/rikkahub-3.1.0-fork.25.apk` |
+| 大小 | 70,068,354 字节（约 67MB） |
+| MD5 | `567a763f2a80f4a9e5a9c79ce5050652` |
 | 包名 | `me.rerere.rikkahub.fork` |
-| versionName | `3.1.0-fork.18` |
-| versionCode | `3000018` |
+| versionName | `3.1.0-fork.25` |
+| versionCode | `3000025` |
 | 签名 | V2，证书 SHA-256 `cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89` |
-| 构建类型 | release **未跑 R8**（`-PfastBuild`），体积偏大，功能与正式包一致 |
-| 基线 | RikkaHub 官方 `3.1.0`，commit `eeef60b2`；上一基线 `3.0.0` / `55a108a4` |
+| 构建类型 | release **未跑 R8**（构建日志无 `minifyReleaseWithR8`，未带 `-PfastBuild` 也会关闭；正式发布要显式确认） |
+| 基线 | RikkaHub 官方 `3.1.0`，commit `eeef60b2` |
 
 安装前提：与官方包、mod89、excp 等分支共存；同签名版本可覆盖升级，不同签名只能卸载重装后导入备份。
 
-## 2. 源码与构建
+## 2. 源码、GitHub 与构建
 
-- GitHub：`https://github.com/682012/rikkahub`，分支 `fork/3.0.0`，tag `v3.0.0-fork.14`
-- 最新 commit：`b5cf3807`
-- 构建机：HB（43.248.3.158:20031），源码 `/data/data1/rk3mod/src`
-- JDK 21，Android SDK 37.2，Gradle 9.6
-- 快速构建：`gradle :app:assembleRelease -PfastBuild --daemon`（约 5 分钟）
-- 正式构建：去掉 `-PfastBuild`（R8 + lint，约 10–15 分钟）
+- 构建机：HB（43.248.3.158:20031），源码 `/data/data1/rk3mod/src31`（**tar 快照，没有 .git**）
+- 同机还有 `/data/data1/rk3mod/src310`（3.1.0 的中间副本），**fork.25 用的是 src31**
+- 旧路径 `/data/data1/rk3mod/src` 已不存在，脚本/文档里看到要改
+- GitHub：`https://github.com/682012/rikkahub`，分支 `fork/3.0.0`
+- **GitHub 最新只到 fork.15**（commit `a64fa9b`，10-19，还是 3.0.0 基线）；fork.16–25 没推
+- 推送脚本：`/workspace/rikkahub-fork/scripts/push-github.py`，`SRC` 已改成 `/data/data1/rk3mod/src31`
+  - 脚本按 `FILES` 清单逐个上传，只覆盖 fork 自有改动；**fork.16 合并官方 3.1.0 时改动了大量上游文件，FILES 表达不了这部分**。所以不是“补几个文件”就能同步的
+  - 要真正同步 GitHub：用整体快照（clone 上游 → 覆盖 src31 内容 → 提交），或把 src31 打成 tarball 推一个新分支；不要指望逐文件清单
+  - 行为：读分支当前 head 作 parent，逐个上传 FILES，生成一次 commit 并 force 更新分支；不 clone、不依赖本地 git 历史
+- 环境：JDK 21，Android SDK 37，Gradle 9.6
+- 快速构建：`./gradlew :app:assembleRelease -PfastBuild --daemon`（本次 4m8s，320 tasks）
+- 正式构建：`./gradlew :app:assembleRelease --daemon`（R8 + lint，约 10–15 分钟）
 - `material3/material-color-utilities` 是上游 submodule，构建时必须存在
 - `app/google-services.json` 是占位文件，仅用于通过编译
-- 签名配置在 `local.properties`（不入库）
+- 签名配置在 `local.properties`（不入库），keystore 在 `/data/data1/rk3mod/keystore/fork.jks`
 
-## 3. 变更文件总览
+## 3. 数据层（schema 33）
 
-新增：
+- `AppDatabase` version 33，identity_hash `6a88f571586222d4365ee0a1d4d610fa`
+- 迁移链：25→26→…→30→31→32→33
+  - **31→32**（fork.16/17）：官方 3.1 的会话表清理（删 `chat_model_id` 和旧索引）、`memory_file` 表、`usage_record` 统一表
+  - **32→33**（fork.23）：legacy 记忆路径补前导 `/`（`_legacy/imported_memories_*.md`）
+- `UsageRecordEntity`：fork 自有表与官方 3.1 同名表已合并为统一表；子代理用量走官方 `UsageRecorder`，来源 `SUBAGENT`
+- 备份导入对齐 `DatabaseBackup.alignToTarget` 逻辑保留：同版本不同分支（典型 excp schema 31）先对齐表结构再改 hash
+  - 触发条件是“版本相同但 identity hash 不同”；版本不同直接 return false
+  - 删表只作用于 staging 副本，原备份不动；列类型差异不处理
+- 从 2.5.x（schema 25）导入可一路升到 33
+- 坑：Termux 自带 sqlite3 未编 `simple` 分词器，读写 `message_fts` 会报 "no such tokenizer: simple"，`quick_check` 也会误报，不要据此判库损坏
 
-```
-data/datastore/ForkSettings.kt
-data/ai/subagent/SubagentModels.kt
-data/ai/subagent/SubagentRunner.kt
-data/ai/tools/SubagentTools.kt
-data/repository/RemoteExecutionClient.kt
-data/db/entity/UsageRecordEntity.kt
-data/db/dao/UsageRecordDAO.kt
-service/WorkspaceJobForegroundService.kt
-ui/pages/setting/SettingForkPage.kt
-ui/pages/chat/UsageSheet.kt
-workspace/WorkspaceJob.kt
-workspace/WorkspaceJobManager.kt
-```
+## 4. 版本节点（fork.14 → fork.25）
 
-修改：
+| 版本 | 关键变化 |
+|---|---|
+| fork.14 | 3.0.0 基线；子代理、工作区 job、远程执行、用量、自动压缩、大会话外置（详见旧版文档） |
+| fork.15 | 修复数据持久化、内容丢失、job 生命周期、远程取消、备份完整性 |
+| fork.16 | 合并官方 3.1.0：账号登录、官方用量统计、自动做梦、语音继续聆听、压缩保留条数、工作区图片 URI；schema 升 32 |
+| fork.17 | 修复 31→32 会话表迁移（删 `chat_model_id`、旧索引） |
+| fork.18 | 学习模式提示词改成补充性，不再覆盖用户设定 |
+| fork.19 | 还原 fork.18 对 Learning Mode 的改动 |
+| fork.20–22 | **没有独立文档记录**；产物只有 HB 上的 APK，改动内容需要从 src31 与后续差异反推 |
+| fork.23 | legacy 记忆路径补前导 `/`；schema 32→33 |
+| fork.24 | 子代理工具不再枚举全部模型 ID（大账号模型池上千 UUID 会撑爆提示词）；同步调整 MCP/Skills 工具与 `ChatToolFactory` |
+| fork.25 | 技能安装校验 `SkillValidator`（name 去空白、长度 ≤64、不以 `.` 开头、禁 `/ \` 与控制字符、description 必填）+ 技能页/详情页；Provider 设置页内置 ChatGPT/Grok 订阅类型，修复备份设置迁移后 provider 被过滤、登录选项消失 |
 
-```
-data/datastore/Settings.kt
-data/ai/tools/WorkspaceTools.kt
-data/ai/tools/ChatToolFactory.kt
-data/ai/tools/ConversationTools.kt
-data/repository/WorkspaceRepository.kt
-data/repository/ConversationRepository.kt
-data/db/AppDatabase.kt
-data/db/dao/MessageNodeDAO.kt
-data/db/migrations/Migration_27_28.kt
-data/files/FilesManager.kt
-data/sync/BackupManager.kt
-data/sync/DatabaseBackup.kt
-di/AppModule.kt
-di/DataSourceModule.kt
-service/ChatService.kt
-ui/pages/setting/SettingPage.kt
-ui/pages/chat/ChatPage.kt
-ui/components/message/tools/ToolUI.kt
-RouteActivity.kt
-AndroidManifest.xml
-app/build.gradle.kts
-workspace/WorkspaceShellRunner.kt
-```
+`fork/CHANGES.md` 只写到 fork.19，**20–25 没补**。
 
-## 4. 数据层
+## 5. 功能现状
 
-### 4.1 Room schema
-
-- 版本：官方 30 → 31；fork 统一为 **32**（避免与官方同名 usage_record 冲突）
-- 新增表 `usage_record`：
-
-```sql
-id TEXT PK,
-conversation_id TEXT NOT NULL,
-node_id TEXT,
-model_id TEXT NOT NULL,
-source TEXT NOT NULL,          -- chat | subagent
-prompt_tokens INTEGER NOT NULL,
-completion_tokens INTEGER NOT NULL,
-cached_tokens INTEGER NOT NULL,
-total_tokens INTEGER NOT NULL,
-created_at INTEGER NOT NULL
--- 索引：conversation_id / created_at / model_id
-```
-
-- 迁移链：25→26、26→27、27→28、28→29、29→30；fork 走 **30→32** 或 **31→32**
-- 从 2.5.x（schema 25）导入可一路升到 31
-
-### 4.2 备份导入对齐（`DatabaseBackup.alignToTarget`）
-
-触发条件：staging 库与当前 App **版本相同但 identity hash 不同**（典型：excp 分支 schema 31）。
-
-行为：
-
-1. 删除目标结构里不存在的表（`agent_runs`、`workflows`、`scheduled_jobs`、`ssh_hosts`、`telegram_chats` 等）
-2. 补建缺失的表，按目标库 SQL 执行
-3. 共用表补缺失列（用目标列的默认值）
-4. 旧 `MemoryEntity` 转成 `profile` 记忆文件后再删
-5. 补索引
-6. 对齐后再次校验表/列集合，缺任何一项直接抛错
-7. 写入目标库 identity hash
-
-风险：删表是破坏性的（只作用于 staging 副本，原备份不动）；列类型差异不做处理。
-
-### 4.3 记忆迁移
-
-`Migration_27_28` 除了生成 `profile`，额外写 `_legacy/raw_memories.md` 保留原始条目。该文件只在**重新导入 25 库**时产生，已迁移的库没有。
-
-## 5. 功能实现
-
-### 5.1 子代理 `SubagentRunner`
+### 5.1 子代理
 
 - 工具：`subagent_run / wait / result / list / cancel`
-- 每次任务独立 `AgentRequest`，工具集继承父会话（去掉 `subagent_*`）
-- 并发：`active` 计数 + `released` 状态流，最多 5 秒等一次，不会永久挂起
-- `maxConcurrent` 1–4，硬上限 4
-- 超时：`withTimeoutOrNull`，超时状态 `TIMEOUT`
-- 主模型抛错时用 `fallbackModelId` 重试一次（超时不重试）
+- 每次任务独立 AgentRequest，工具集继承父会话（去掉 `subagent_*`）
+- 并发：`active` 计数 + `released` 状态流，硬上限 4
+- 超时 `withTimeoutOrNull`，超时不重试；主模型永久失败时用 `fallbackModelId` 重试一次
 - 结果写 `filesDir/subagents/<id>/result.md` 与 `events.log`
-- 运行期间 `ChatGenerationForegroundService.acquire`
-- 用量写 `usage_record`，`source=subagent`
+- 运行期间持前台服务；用量写统一 `usage_record`，`source=SUBAGENT`
 - 会话检索：`recent_chats / conversation_search / conversation_read`，按 `includeChatHistory` 开关
-- 工具可见性按 `includeWorkspace / includeMcp / includeSearch` 过滤
-
-未实现：`allowNested`（始终禁止嵌套）、子代理单独计费/预算。
+- 未实现：嵌套子代理、单独预算
 
 ### 5.2 工作区
 
-- `WorkspaceTools` 超时来自 `WorkspaceRuntimeSettings`：`commandTimeoutSec`（默认 30）、`maxTimeoutSec`（0 = 不限）
-- `WorkspaceManager.readResult`：`timeoutMillis <= 0` 时用无参 `waitFor()`
-- `workspace_job_start/status/kill`：
-  - 本地：`if command -v setsid; then setsid ... else nohup ... fi; echo $! > pid`
-  - 日志读写用 `RandomAccessFile` 尾部 256KB
-  - job 元数据在 `<workspace>/.jobs/<id>/`
-- 前台服务：`WorkspaceJobForegroundService`，`specialUse` + partial wakelock（`WAKE_LOCK` 权限已加）
-- 任务结束由 `jobMonitorScope` 每 10 秒检测并释放服务
-- 远程：`/exec`、`/job/start`、`/job/status`、`/job/kill`，Bearer token；开启后本地不执行
+- `WorkspaceTools` 超时来自 `WorkspaceRuntimeSettings`：`commandTimeoutSec` 默认 30，`maxTimeoutSec` 0=不限
+- `workspace_job_start/status/kill`：本地 setsid/nohup + pid 文件；日志尾部 256KB；元数据在 `<workspace>/.jobs/<id>/`
+- 前台服务 `WorkspaceJobForegroundService`（specialUse + partial wakelock）
+- 远程执行：`/exec`、`/job/start`、`/job/status`、`/job/kill`，Bearer token；开启后本地不执行
 
 ### 5.3 用量
 
-- 写入点：`ChatService.runTurn` 的 `finally`（主对话）；`SubagentRunner.recordUsage`（子代理）
-- 读取：`UsageSheet`（聊天页顶栏“用量”），显示总量、缓存命中率、按模型拆分
+- 写入：官方 `UsageRecorder`（主对话）；子代理来源 `SUBAGENT`
+- 读取：聊天页顶栏「用量」→ `UsageSheet`，总量、缓存命中率、按模型拆分
 - 只统计写入之后产生的请求，历史不补记
 
-### 5.4 自动压缩 `ChatService.maybeAutoCompress`
+### 5.4 自动压缩
 
 - 触发：`contextTokens >= model.contextLength * thresholdPercent / 100`
 - 条件：开关开启、最后节点不是检查点、没有未完成工具调用
-- 行为：用当前请求上下文生成摘要，`insertContextCheckpoint` 插在最后一条之后，不删历史
-- 失败：静默跳过，不阻塞发送
+- 行为：生成摘要并插检查点，不删历史；失败静默跳过
 - 设置：`Settings.autoCompress { enabled, thresholdPercent }`
 
-### 5.5 大会话加载 `ConversationRepository.externalizeLargeParts`
+### 5.5 大会话加载
 
-- 新数据不再外置或截断工具输入/输出；正文和工具结果原样入库
-- 加载 fork.14 旧消息时，识别 `…[full text: …/msg_cache/<md5>.txt]`，校验前缀后恢复完整正文
-- 旧 `msg_cache` 视为持久数据：不再自动清理，随备份导出/恢复
-- base64 媒体 > 512k 字符 → 解码写文件，消息换成 `file://`（旧 `msg_cache` 媒体也会转存为普通上传文件）
-- 工具卡片提供“查看完整输出”，点开才读文件（最大 100 万字符，分段渲染）
+- 只处理工具输出与媒体，正文不截断
+- 工具输出 > 48k 字符 → `filesDir/msg_cache/<md5>.txt`，消息保留前 2k + `[full text: 路径]`
+- base64 媒体 > 512k 字符 → 解码写文件，换 `file://`
+- 缓存按 MD5 去重，7 天 / 300MB 清理
 
-## 6. 已知风险与未验证项
+## 6. 已知风险与未验证
 
-**fork.15 修复后仍需真机验证：**
+**流程风险：**
 
-1. 本地 job 在锁屏/切后台后的存活与通知释放
-2. 远程同步命令在“停止生成”后是否及时终止
-3. fork.14 旧会话首次加载恢复耗时与内存峰值
+1. **GitHub 落后 10 个版本**（停在 3.0.0 基线的 fork.15）。fork.16 起合并了官方 3.1.0，逐文件推送脚本覆盖不了上游改动，按 GitHub 重建会得到 3.0.0 时代的代码
+2. **fork.20–22 没有文档**，改动只能从源码和 APK 反推
+3. `fork/CHANGES.md` 停在 fork.19，与 fork.25 不一致
+4. 源码快照没有 git，无法 `git diff` 核对历史改动
 
-**仍未在真机验证：**
+**设计限制：**
 
-1. 本地 `workspace_job_start` 的完整链路（启动 / pid / status / kill / App 重启后查询）
-2. 前台服务锁屏后的实际存活时长，以及 Android 15 `onTimeout` 回调（未实现兜底）
+1. 远程执行服务端没有并发限制、没有目录隔离，所有任务共享 `RK_EXEC_ROOT`
+2. 远程 token 明文存在 `settings.json`，会随备份导出
+3. 子代理结果文件、`msg_cache` 没有 UI 清理入口，只靠定时策略
+4. `SubagentTask.steps` 存的是工具调用次数，不是模型步数
+5. 自动压缩依赖模型 `contextLength` 准确，默认 1,000,000 会让阈值形同虚设
+6. 消息分页未实现，超大会话靠外置缓解
+7. `alignToTarget` 对同版本但结构差异极大的库会直接抛错（有意为之，避免带残缺结构启动）
+
+**真机未验证（沿用 fork.14 的清单，fork.16 重构后需重测）：**
+
+1. 本地 `workspace_job_start` 全链路（启动 / pid / status / kill / App 重启后查询）
+2. 前台服务锁屏后的存活时长，Android 15 `onTimeout` 无兜底
 3. 自动压缩在真实长会话上的触发与摘要质量
 4. 子代理并发 2 时的内存峰值（512MB 堆）
 5. 备份对齐遇到差异更大的库（缺主键、FTS 结构不同、触发器）
 
-**设计上的已知限制：**
+**修过但值得复查：**
 
-1. 远程服务端有并发槽限制，但没有目录隔离，所有任务共享 `RK_EXEC_ROOT`
-2. 远程 token 明文存在 `settings.json`，会随备份导出
-3. 子代理结果文件有保留期；`msg_cache` 作为旧数据恢复源保留，没有 UI 清理入口
-4. `SubagentTask.steps` 存的是工具调用次数，不是模型步数
-5. 自动压缩依赖模型 `contextLength` 准确，默认 1,000,000 会让阈值形同虚设
-6. 消息分页未实现，超大会话靠外置缓解
-7. `alignToTarget` 对同版本但结构差异极大的库可能直接抛错（这是有意为之，避免带残缺结构启动）
-
-**已经修过、但值得复查的脆弱点：**
-
-1. `UsageRecordDAO` 的 Koin 绑定（曾插错位置导致“用量”闪退）
-2. `WAKE_LOCK` 权限（曾缺失，会让 job 服务启动即崩）
-3. `UsageSheet` 的滚动容器（曾用无限高度 LazyColumn）
-4. 远程 `exitCode: null` 的解析（曾抛异常）
+1. `UsageRecordDAO` 的 Koin 绑定（曾导致「用量」闪退）
+2. `WAKE_LOCK` 权限（曾导致 job 服务启动即崩）
+3. `UsageSheet` 滚动容器（曾用无限高度 LazyColumn）
+4. 远程 `exitCode: null` 解析
 5. 子代理并发等待（曾可能永久挂起）
-6. 本地 job 的 shell 优先级（曾可能不执行）
+6. 本地 job 的 shell 优先级
 
-## 7. 建议审查的具体问题
+## 7. 构建与发布
 
-1. `SubagentRunner.start` 的协程启动顺序、`jobs` map 生命周期、取消传播是否完整
-2. `acquirePermit` 的计数与 `released` 信号是否存在竞态
-3. `WorkspaceJobManager.start` 生成的 shell 在 proot/busybox 下是否可用；pid 是否正确指向 setsid 子进程
-4. `WorkspaceRepository.appContext()` 通过 Koin 取 Context 是否可靠
-5. `ChatService.maybeAutoCompress` 与 `session` 锁、生成状态的关系，是否存在重入或竞态
-6. `externalizeLargeParts` 对发送上下文的影响（正文不动，工具输出预览是否足够）
-7. `alignToTarget` 的删表/补列顺序，外键与 FTS 表是否被误删
-8. `UsageTotals` / `UsageByModel` 的 Room 列名映射在 R8 后是否稳定
-9. 前台服务的 `startForeground` 在 Android 12+ 后台启动限制下的行为
-10. 远程客户端与服务端的协议字段是否完全对齐（尤其 null 字段）
+```bash
+# HB 上
+cd /data/data1/rk3mod/src31
+./gradlew :app:assembleRelease -PfastBuild --daemon   # 快速验证
+# 产物：app/build/outputs/apk/release/app-release.apk
 
-## 8. 复现与测试步骤
+# 发布到手机（示例）
+scp app/build/outputs/apk/release/app-release.apk \
+  <phone>:/sdcard/Download/rikkahub-3.1.0-fork.25.apk
+```
 
-1. 安装 fork.14，确认能正常启动
-2. 设置 → 高级与长任务：
-   - 工作区：默认超时 30，最大 0
-   - 远程：填 `https://hb.682012ysh.top:8443/rk-exec` 与 token
-   - 子代理：开启，并发 2，超时 900
-   - 上下文：自动压缩开启，阈值 80
-3. 聊天页 → 用量：应显示总量与按模型拆分，不应闪退
-4. 让模型跑 `workspace_shell sleep 5`，再跑 `workspace_job_start` 一个 2 分钟的循环，`job_status` 查日志，`job_kill` 停止
-5. 开启远程后重复第 4 步，确认执行在服务器（`uname -a`）
-6. 让模型派生两个子代理，确认并发、取消、结果回传、用量 +2
-7. 打开一个大会话，确认能加载、超长工具输出可展开
-8. 导入 25（mod89）与 31（excp）两种备份，确认迁移/对齐结果
+改版本号：`app/build.gradle.kts` 的 `versionCode = 30000NN`、`versionName = "3.1.0-fork.NN"`。
 
-## 9. 相关文档
+推 GitHub 前：
 
-- `fork/CHANGES.md`：与原版的功能差异
+1. 把新文件补进 `/workspace/rikkahub-fork/scripts/push-github.py` 的 `FILES` 列表和 HB 的 `fork/push-files.txt`
+2. `python3 scripts/push-github.py "fork.NN: ..."`，核对返回的 commit sha
+3. 推完在 GitHub 上看一眼分支 head 和文件树，确认迁移文件在
+
+## 8. 相关文档
+
+- `fork/CHANGES.md`：与原版的功能差异（只到 fork.19）
 - `fork/README.md`：构建、签名、发布、回退
-- `DISCLAIMER.md`：个人改版声明
-- `NOTICE.md`：AGPL 修改声明
+- `fork/WORKFLOW.md`：可复用的私有 fork 维护流程
+- `DISCLAIMER.md` / `NOTICE.md`：个人改版与 AGPL 修改声明
+- 凭据位置：`/workspace/.secrets/rikkahub-fork/`（keystore、口令、GitHub PAT、远程 token）
