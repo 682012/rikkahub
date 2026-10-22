@@ -16,6 +16,8 @@ import kotlin.time.Duration.Companion.seconds
 data class RetryPolicy(
     val maxRetries: Int,
     val initialDelay: Duration = 1.seconds,
+    /** 退避上限。重试次数调大后指数增长会失控，超过这个值就按固定间隔重试。 */
+    val maxDelay: Duration = 60.seconds,
     val retryOn: (Throwable) -> Boolean = { it is IOException },
 ) {
     companion object {
@@ -54,7 +56,8 @@ suspend fun <T> withRetry(
                 throw error
             }
             retries++
-            val backoff = policy.initialDelay * (1 shl (retries - 1))
+            val scale = 1 shl (retries - 1).coerceAtMost(20)
+            val backoff = minOf(policy.initialDelay * scale, policy.maxDelay)
             onRetry(RetryAttempt(error, retries, policy.maxRetries, backoff))
             delay(backoff)
         }

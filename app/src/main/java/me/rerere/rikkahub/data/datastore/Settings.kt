@@ -98,6 +98,8 @@ data class NetworkSetting(
     val proxyUsername: String = "",
     val proxyPassword: String = "",
     val enableAutoRetry: Boolean = true,
+    /** 自动重试的最大次数，0 表示不重试（总开关打开也无效）。 */
+    val maxRetries: Int = 3,
 )
 
 @Serializable

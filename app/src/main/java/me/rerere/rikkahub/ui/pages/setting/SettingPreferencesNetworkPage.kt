@@ -296,6 +296,39 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
                             Text(stringResource(R.string.setting_page_preferences_network_auto_retry))
                         },
                     )
+                    if (settings.networkSetting.enableAutoRetry) {
+                        formItem(
+                            headlineContent = {
+                                Text(stringResource(R.string.setting_page_preferences_network_max_retries))
+                            },
+                            supportingContent = {
+                                Text(stringResource(R.string.setting_page_preferences_network_max_retries_desc))
+                            },
+                        ) {
+                            var retryText by remember(settings.networkSetting.maxRetries) {
+                                mutableStateOf(settings.networkSetting.maxRetries.toString())
+                            }
+                            OutlinedTextField(
+                                value = retryText,
+                                onValueChange = { raw ->
+                                    val digits = raw.filter { it.isDigit() }.take(3)
+                                    retryText = digits
+                                    digits.toIntOrNull()?.let { value ->
+                                        vm.updateSettings { current ->
+                                            current.copy(
+                                                networkSetting = current.networkSetting.copy(
+                                                    maxRetries = value.coerceIn(0, 100),
+                                                ),
+                                            )
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            )
+                        }
+                    }
                 }
             }
             item {

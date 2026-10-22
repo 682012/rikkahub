@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.repository
 
 import android.database.sqlite.SQLiteBlobTooBigException
+import android.util.Log
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -30,6 +31,8 @@ import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.utils.JsonInstant
 import java.time.Instant
 import kotlin.uuid.Uuid
+
+private const val TAG = "ConversationRepository"
 
 class ConversationRepository(
     private val conversationDAO: ConversationDAO,
@@ -322,7 +325,9 @@ class ConversationRepository(
             )
             saveMessageNodes(conversation.id.toString(), conversation.messageNodes)
         }
-        messageFtsManager.indexConversation(conversation)
+        // 搜索引是派生数据，写失败不能连带会话保存失败
+        runCatching { messageFtsManager.indexConversation(conversation) }
+            .onFailure { Log.w(TAG, "indexConversation failed for ${conversation.id}", it) }
     }
 
     suspend fun updateConversation(conversation: Conversation) {
@@ -334,7 +339,9 @@ class ConversationRepository(
             messageNodeDAO.deleteByConversation(conversation.id.toString())
             saveMessageNodes(conversation.id.toString(), conversation.messageNodes)
         }
-        messageFtsManager.indexConversation(conversation)
+        // 搜索引是派生数据，写失败不能连带会话保存失败
+        runCatching { messageFtsManager.indexConversation(conversation) }
+            .onFailure { Log.w(TAG, "indexConversation failed for ${conversation.id}", it) }
     }
 
     suspend fun deleteConversation(conversation: Conversation) {
@@ -365,6 +372,8 @@ class ConversationRepository(
         messageFtsManager.search(keyword, MessageSearchSort.RELEVANCE, assistantIds.map { it.toString() })
 
     suspend fun rebuildAllIndexes(onProgress: (current: Int, total: Int) -> Unit = { _, _ -> }) {
+        // 表结构不对时只清数据是没用的，先确保 message_fts 真的能用
+        messageFtsManager.ensureSchema()
         messageFtsManager.deleteAll()
         val allIds = conversationDAO.getAllIds()
         val total = allIds.size
@@ -375,6 +384,19 @@ class ConversationRepository(
             messageFtsManager.indexConversation(conversation)
             onProgress(index + 1, total)
         }
+    }
+
+    /**
+     * 启动自检：会话有内容但索引是空的（典型是刚导入旧备份、或旧版本没建过索引）时重建一次。
+     * 已经有索引就不动，避免每次启动都扫全库。
+     */
+    suspend fun ensureMessageIndex(): Boolean {
+        if (countConversations() <= 0) return false
+        // 表不存在或分词器不对时，count() 本身也可能失败，先保证结构可用
+        val recreated = messageFtsManager.ensureSchema()
+        if (!recreated && messageFtsManager.count() > 0) return false
+        rebuildAllIndexes()
+        return true
     }
 
     fun conversationToConversationEntity(conversation: Conversation): ConversationEntity {
@@ -557,7 +579,18 @@ class ConversationRepository(
                 selectIndex = node.selectIndex
             )
         }
-        messageNodeDAO.insertAll(entities)
+        // 流式生成期间每 1.5 秒会落库一次，长会话全量删写太贵：只删掉不再存在的节点，
+        // 只写顺序或内容真正变化的节点。比较的是同一套 JSON 编码，内容没变就跳过。
+        val existing = messageNodeDAO.getSnapshots(conversationId).associateBy { it.id }
+        val currentIds = entities.mapTo(HashSet()) { it.id }
+        val removed = existing.keys - currentIds
+        if (removed.isNotEmpty()) messageNodeDAO.deleteByIds(removed.toList())
+        val changed = entities.filter { entity ->
+            val previous = existing[entity.id]
+            previous == null || previous.nodeIndex != entity.nodeIndex ||
+                previous.selectIndex != entity.selectIndex || previous.messages != entity.messages
+        }
+        if (changed.isNotEmpty()) messageNodeDAO.insertAll(changed)
     }
 }
 

@@ -1,19 +1,19 @@
-# RikkaHub Fork 交接文档（fork.25）
+# RikkaHub Fork 交接文档（fork.26）
 
 > 用途：给其他模型/维护者审查当前 APK 与源码。文中“已验证/未验证”按实际执行情况标注，没有实测过的不会写成已验证。
-> 最后更新：2026-10-21。上一版是 fork.14（备份 `HANDOFF.md.bak-fork14-20261021`）。
+> 最后更新：2026-10-22。上一版是 fork.25（备份见 git 历史）。
 
 ## 1. 产物
 
 | 项 | 值 |
 |---|---|
-| APK（HB） | `/data/data1/rk3mod/rikkahub-3.1.0-fork.25.apk` |
-| APK（手机） | `/sdcard/Download/rikkahub-3.1.0-fork.25.apk` |
-| 大小 | 70,068,354 字节（约 67MB） |
-| MD5 | `567a763f2a80f4a9e5a9c79ce5050652` |
+| APK（HB） | `/data/data1/rk3mod/rikkahub-3.1.0-fork.26.apk` |
+| APK（手机） | `/sdcard/Download/rikkahub-3.1.0-fork.26.apk` |
+| 大小 | 70,079,894 字节（约 67MB） |
+| MD5 | `c872876f62c73ed1fb33480cda5828cf` |
 | 包名 | `me.rerere.rikkahub.fork` |
-| versionName | `3.1.0-fork.25` |
-| versionCode | `3000025` |
+| versionName | `3.1.0-fork.26` |
+| versionCode | `3000026` |
 | 签名 | V2，证书 SHA-256 `cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89` |
 | 构建类型 | release **未跑 R8**（构建日志无 `minifyReleaseWithR8`，未带 `-PfastBuild` 也会关闭；正式发布要显式确认） |
 | 基线 | RikkaHub 官方 `3.1.0`，commit `eeef60b2` |
@@ -64,6 +64,7 @@
 | fork.23 | legacy 记忆路径补前导 `/`；schema 32→33 |
 | fork.24 | 子代理工具不再枚举全部模型 ID（大账号模型池上千 UUID 会撑爆提示词）；同步调整 MCP/Skills 工具与 `ChatToolFactory` |
 | fork.25 | 技能安装校验 `SkillValidator`（name 去空白、长度 ≤64、不以 `.` 开头、禁 `/ \` 与控制字符、description 必填）+ 技能页/详情页；Provider 设置页内置 ChatGPT/Grok 订阅类型，修复备份设置迁移后 provider 被过滤、登录选项消失 |
+| fork.26 | **强杀不丢聊天记录**：流式生成按 1.5 秒节流落库（原来只在生成结束/空闲时写）；ON_STOP 与前台服务 `onTaskRemoved` 主动落库；消息节点增量保存（只写变化的节点）；搜索索引写失败不再连带会话保存失败；搜索页默认范围改「全部助手」；空闲落库 5s→2s。搜索侧另有 `ensureSchema`（tokenizer 不符时重建）、启动自检重建、`jieba_query` 出错返回空结果不崩 |
 
 `fork/CHANGES.md` 已补到 fork.25（2026-10-21 同步时补上 23–25，20–22 原本就在 GitHub 版）。
 
@@ -124,6 +125,8 @@
 5. 自动压缩依赖模型 `contextLength` 准确，默认 1,000,000 会让阈值形同虚设
 6. 消息分页未实现，超大会话靠外置缓解
 7. `alignToTarget` 对同版本但结构差异极大的库会直接抛错（有意为之，避免带残缺结构启动）
+8. **进程被强杀时，流式生成最多丢最近 1.5 秒内容**（fork.26 起）；落库是节流的，做不到逐 token 持久化
+9. 前台服务 `onTaskRemoved` 只能尽力而为：划掉任务后系统可能立刻回收进程，落库不保证完成
 
 **真机未验证（沿用 fork.14 的清单，fork.16 重构后需重测）：**
 
@@ -145,14 +148,14 @@
 ## 7. 构建与发布
 
 ```bash
-# HB 上
+# HB 上。wrapper 会去下载 gradle-9.6.0 并超时，直接用本地发行版
 cd /data/data1/rk3mod/src31
-./gradlew :app:assembleRelease -PfastBuild --daemon   # 快速验证
-# 产物：app/build/outputs/apk/release/app-release.apk
+/data/data1/tools/gradle-9.6.0/bin/gradle :app:assembleRelease -PfastBuild --daemon   # 快速验证
+# 产物（ABI 拆分，手机用 arm64）：app/build/outputs/apk/release/app-arm64-v8a-release.apk
 
 # 发布到手机（示例）
-scp app/build/outputs/apk/release/app-release.apk \
-  <phone>:/sdcard/Download/rikkahub-3.1.0-fork.25.apk
+scp app/build/outputs/apk/release/app-arm64-v8a-release.apk \
+  <phone>:/sdcard/Download/rikkahub-3.1.0-fork.26.apk
 ```
 
 改版本号：`app/build.gradle.kts` 的 `versionCode = 30000NN`、`versionName = "3.1.0-fork.NN"`。

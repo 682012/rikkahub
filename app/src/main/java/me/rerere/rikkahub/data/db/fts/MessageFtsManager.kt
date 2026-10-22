@@ -26,30 +26,115 @@ enum class MessageSearchSort(val orderBy: String) {
 
 private const val TAG = "MessageFtsManager"
 
+private const val CREATE_FTS_SQL = """
+    CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
+        text,
+        node_id UNINDEXED,
+        message_id UNINDEXED,
+        conversation_id UNINDEXED,
+        title UNINDEXED,
+        update_at UNINDEXED,
+        tokenize = 'simple'
+    )
+"""
+
 class MessageFtsManager(private val database: AppDatabase) {
 
     private val db get() = database.openHelper.writableDatabase
 
+    /**
+     * 确认 message_fts 是可用结构（simple 分词器）。
+     *
+     * 从旧分支或旧备份导入的库可能带着不同分词器的 message_fts；CREATE VIRTUAL TABLE
+     * IF NOT EXISTS 不会修正这种残留，查询就会全部落空。这里检测到不匹配时直接重建，
+     * 返回 true 表示旧索引已经失效，调用方需要重新灌索引。
+     */
+    suspend fun ensureSchema(): Boolean = withContext(Dispatchers.IO) {
+        val sql = db.query(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'message_fts'"
+        ).use { if (it.moveToFirst()) it.getString(0) else null }
+        val usable = sql != null &&
+            sql.contains("tokenize", ignoreCase = true) &&
+            sql.contains("simple", ignoreCase = true)
+        if (usable) return@withContext false
+        Log.w(TAG, "message_fts missing or incompatible tokenizer, recreating")
+        db.execSQL("DROP TABLE IF EXISTS message_fts")
+        db.execSQL(CREATE_FTS_SQL)
+        true
+    }
+
+    suspend fun recreateSchema() = withContext(Dispatchers.IO) {
+        db.execSQL("DROP TABLE IF EXISTS message_fts")
+        db.execSQL(CREATE_FTS_SQL)
+    }
+
+    suspend fun count(): Long = withContext(Dispatchers.IO) {
+        db.query("SELECT COUNT(*) FROM message_fts").use {
+            if (it.moveToFirst()) it.getLong(0) else 0L
+        }
+    }
+
     suspend fun indexConversation(conversation: Conversation) = withContext(Dispatchers.IO) {
         val conversationId = conversation.id.toString()
-        db.execSQL("DELETE FROM message_fts WHERE conversation_id = ?", arrayOf(conversationId))
+        // 当前应该进入索引的消息：messageId -> (nodeId, text, updateAt)
+        val current = LinkedHashMap<String, IndexedMessage>()
         conversation.messageNodes.forEach { node ->
             node.messages.forEach { message ->
                 val text = message.extractFtsText()
                 if (text.isNotBlank()) {
-                    db.execSQL(
-                        "INSERT INTO message_fts(text, node_id, message_id, conversation_id, title, update_at) VALUES (?, ?, ?, ?, ?, ?)",
-                        arrayOf(
-                            text,
-                            node.id.toString(),
-                            message.id.toString(),
-                            conversationId,
-                            conversation.title,
-                            conversation.updateAt.toEpochMilli().toString(),
-                        )
+                    current[message.id.toString()] = IndexedMessage(
+                        nodeId = node.id.toString(),
+                        text = text,
                     )
                 }
             }
+        }
+        val updateAt = conversation.updateAt.toEpochMilli().toString()
+        // 同一个事务内完成差分：流式生成期间会话会被反复落库，不能留下“删干净但没写回”的空索引，
+        // 也不能每次把整段会话重新分词（长会话会明显拖慢消息保存）。
+        db.beginTransaction()
+        try {
+            val existing = HashMap<String, String>()
+            db.query(
+                "SELECT message_id, text FROM message_fts WHERE conversation_id = ?",
+                arrayOf(conversationId),
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    existing[cursor.getString(0)] = cursor.getString(1).orEmpty()
+                }
+            }
+            for (messageId in existing.keys - current.keys) {
+                db.execSQL(
+                    "DELETE FROM message_fts WHERE conversation_id = ? AND message_id = ?",
+                    arrayOf(conversationId, messageId),
+                )
+            }
+            current.forEach { (messageId, message) ->
+                if (existing[messageId] == message.text) return@forEach
+                db.execSQL(
+                    "DELETE FROM message_fts WHERE conversation_id = ? AND message_id = ?",
+                    arrayOf(conversationId, messageId),
+                )
+                db.execSQL(
+                    "INSERT INTO message_fts(text, node_id, message_id, conversation_id, title, update_at) VALUES (?, ?, ?, ?, ?, ?)",
+                    arrayOf(
+                        message.text,
+                        message.nodeId,
+                        messageId,
+                        conversationId,
+                        conversation.title,
+                        updateAt,
+                    ),
+                )
+            }
+            // 标题或会话更新时间变化时，已有行的冗余字段也要刷新，否则搜索结果的标题和排序会停在旧值
+            db.execSQL(
+                "UPDATE message_fts SET title = ?, update_at = ? WHERE conversation_id = ?",
+                arrayOf(conversation.title, updateAt, conversationId),
+            )
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
         }
     }
 
@@ -72,6 +157,8 @@ class MessageFtsManager(private val database: AppDatabase) {
         assistantIds: Collection<String>? = null,
     ): List<MessageSearchResult> = withContext(Dispatchers.IO) {
         val results = mutableListOf<MessageSearchResult>()
+        val queryText = keyword.trim()
+        if (queryText.isEmpty()) return@withContext results
         if (assistantIds != null && assistantIds.isEmpty()) return@withContext results
         val assistantFilter = if (assistantIds != null) {
             """
@@ -84,19 +171,25 @@ class MessageFtsManager(private val database: AppDatabase) {
         } else {
             ""
         }
-        val cursor = db.query(
-            """
-            SELECT node_id, message_id, conversation_id, title, update_at,
-                   simple_snippet(message_fts, 0, '[', ']', '...', 30) AS snippet
-            FROM message_fts
-            WHERE text MATCH jieba_query(?)
-            $assistantFilter
-            ORDER BY ${sort.orderBy}
-            LIMIT 50
-            """.trimIndent(),
-            arrayOf(keyword, *assistantIds.orEmpty().toTypedArray())
-        )
-        Log.i(TAG, "search: $keyword")
+        // jieba_query 遇到引号、星号这类 FTS 语法字符可能直接抛错。搜索失败不该让页面崩溃，
+        // 记录后返回空结果，用户改一下关键词就行。
+        val cursor = runCatching {
+            db.query(
+                """
+                SELECT node_id, message_id, conversation_id, title, update_at,
+                       simple_snippet(message_fts, 0, '[', ']', '...', 30) AS snippet
+                FROM message_fts
+                WHERE text MATCH jieba_query(?)
+                $assistantFilter
+                ORDER BY ${sort.orderBy}
+                LIMIT 50
+                """.trimIndent(),
+                arrayOf(queryText, *assistantIds.orEmpty().toTypedArray())
+            )
+        }.onFailure {
+            Log.w(TAG, "search failed: $queryText", it)
+        }.getOrNull() ?: return@withContext results
+        Log.i(TAG, "search: $queryText")
         cursor.use {
             while (it.moveToNext()) {
                 results.add(
@@ -114,6 +207,11 @@ class MessageFtsManager(private val database: AppDatabase) {
         results
     }
 }
+
+private data class IndexedMessage(
+    val nodeId: String,
+    val text: String,
+)
 
 private fun UIMessage.extractFtsText(): String =
     parts.filterIsInstance<UIMessagePart.Text>()

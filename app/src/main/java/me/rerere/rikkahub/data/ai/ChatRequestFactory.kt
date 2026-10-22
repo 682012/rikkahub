@@ -95,10 +95,14 @@ class ChatRequestFactory(
     )
 
     /** 解析本轮的助手、模型、记忆和工具；MCP 服务名不合法时抛出 InvalidMcpServerNamesException */
-    suspend fun createContext(settings: Settings, conversation: Conversation): ChatTurnContext {
-        // 模型、思考级别、搜索、工具等以会话上固定的配置为准
+    suspend fun createContext(
+        settings: Settings,
+        conversation: Conversation,
+        modelOverride: Model? = null,
+    ): ChatTurnContext {
+        // 模型、思考级别、搜索、工具等以会话上固定的配置为准；modelOverride 只给压缩这类旁路请求单独指定模型
         val assistant = settings.getAssistantOf(conversation)
-        val model = settings.getChatModelOf(conversation)
+        val model = modelOverride ?: settings.getChatModelOf(conversation)
             ?: throw IllegalStateException("No chat model selected")
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         return ChatTurnContext(
@@ -110,13 +114,19 @@ class ChatRequestFactory(
             conversationSystemPrompt = conversation.customSystemPrompt,
             workspaceCwd = conversation.workspaceCwd,
             memories = if (assistant.enableMemory) memoryRepository.getFiles(assistant.memoryId) else emptyList(),
-            tools = chatToolFactory.createTools(
-                settings = settings,
-                assistant = assistant,
-                model = model,
-                workspaceCwd = conversation.workspaceCwd,
-                conversationId = conversation.id,
-            ),
+            // 压缩这类旁路请求只需要文本，指定了单独模型时不带工具，
+            // 避免不支持工具调用的上游直接拒绝请求
+            tools = if (modelOverride != null) {
+                emptyList()
+            } else {
+                chatToolFactory.createTools(
+                    settings = settings,
+                    assistant = assistant,
+                    model = model,
+                    workspaceCwd = conversation.workspaceCwd,
+                    conversationId = conversation.id,
+                )
+            },
         )
     }
 
@@ -300,4 +310,8 @@ internal fun backgroundTextGenerationParams(
 )
 
 internal fun Settings.retryPolicy() =
-    if (networkSetting.enableAutoRetry) RetryPolicy.NETWORK else RetryPolicy.NONE
+    if (networkSetting.enableAutoRetry) {
+        RetryPolicy(maxRetries = networkSetting.maxRetries.coerceIn(0, 100))
+    } else {
+        RetryPolicy.NONE
+    }

@@ -101,6 +101,19 @@ fun SettingForkPage(vm: SettingVM = koinViewModel()) {
                             }
                         }
                     }
+                    formItem(
+                        headlineContent = { Text("压缩模型") },
+                        supportingContent = { Text("生成摘要用的模型。不选则跟随当前对话模型；选了以后手动压缩和自动压缩都用它。") },
+                    ) {
+                        ModelPickerRow(
+                            selected = settings.autoCompress.modelId,
+                            providers = settings.providers,
+                        ) { id ->
+                            vm.updateSettings {
+                                it.copy(autoCompress = it.autoCompress.copy(modelId = id))
+                            }
+                        }
+                    }
                 }
             }
 

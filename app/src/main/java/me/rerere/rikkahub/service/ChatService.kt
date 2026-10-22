@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.service
 
 import android.app.Application
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.core.net.toUri
@@ -49,6 +50,7 @@ import me.rerere.rikkahub.data.ai.prompts.buildCompressPrompt
 import me.rerere.rikkahub.data.ai.tools.InvalidMcpServerNamesException
 import me.rerere.rikkahub.data.ai.tools.shouldUseExternalWebSearch
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
@@ -82,12 +84,16 @@ import me.rerere.rikkahub.web.BadRequestException
 import me.rerere.rikkahub.web.NotFoundException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
+import java.util.concurrent.ConcurrentHashMap
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
 import java.util.Locale
 import kotlin.uuid.Uuid
 
 private const val TAG = "ChatService"
+
+/** 流式生成落库间隔：进程被强杀时最多丢这么久的内容 */
+private const val STREAM_PERSIST_INTERVAL_MS = 1_500L
 
 data class ChatError(
     val id: Uuid = Uuid.random(),
@@ -152,6 +158,9 @@ class ChatService(
         onGenerationFinished = ::onSessionGenerationFinished,
         onSessionRemoved = memoryConsolidationScheduler::onConversationLeft,
     )
+
+    // 流式生成期间定期落库，进程被强杀时最多丢最近一次落库之后的内容
+    private val lastStreamPersistAt = ConcurrentHashMap<Uuid, Long>()
 
     // 错误状态
     private val _errors = MutableStateFlow<List<ChatError>>(emptyList())
@@ -221,7 +230,13 @@ class ChatService(
         keepAliveInBackground: Boolean = true,
         block: suspend () -> Unit,
     ): Job {
-        if (!keepAliveInBackground) return appScope.launch(start = CoroutineStart.LAZY) { block() }
+        if (!keepAliveInBackground) return appScope.launch(start = CoroutineStart.LAZY) {
+            try {
+                block()
+            } finally {
+                lastStreamPersistAt.remove(conversationId)
+            }
+        }
 
         return appScope.launch(start = CoroutineStart.LAZY) {
             val generationId = Uuid.random()
@@ -233,6 +248,7 @@ class ChatService(
             try {
                 block()
             } finally {
+                lastStreamPersistAt.remove(conversationId)
                 if (foregroundStarted) {
                     ChatGenerationForegroundService.release(context, generationId)
                 }
@@ -618,6 +634,8 @@ class ChatService(
                             // 生成过程中只有网络重试的提示会留着，收到新内容说明重试已经成功
                             session.processingStatus.value = null
                             session.update { it.upsertMessage(replyNodeId, event.message) }
+                            // 流式内容此刻只在内存里，定时落库避免强杀丢掉整段回复
+                            persistStreamingThrottled(session)
                             // 通知等边缘副作用由 ChatNotificationManager 消费；
                             // tryEmit 不挂起，事件丢失只影响单次通知更新，不能反压生成链
                             appEventBus.tryEmit(
@@ -696,6 +714,40 @@ class ChatService(
                 conversationId,
                 title = context.getString(R.string.error_title_tool_unavailable)
             )
+        }
+    }
+
+    /**
+     * 流式生成期间的节流落库。
+     *
+     * 每个 token 都写库太重，而只在生成结束时写又会在进程被强杀时丢掉整段回复。
+     * 这里按 [STREAM_PERSIST_INTERVAL_MS] 节流，写库失败只记日志，不打断生成。
+     */
+    private suspend fun persistStreamingThrottled(session: ConversationSession) {
+        val now = SystemClock.elapsedRealtime()
+        val last = lastStreamPersistAt[session.id] ?: 0L
+        if (now - last < STREAM_PERSIST_INTERVAL_MS) return
+        lastStreamPersistAt[session.id] = now
+        try {
+            session.flush()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Streaming flush failed for ${session.id}", e)
+        }
+    }
+
+    /** App 退到后台或任务被划掉时，把还在内存里的会话落库 */
+    suspend fun flushActiveSessions() {
+        sessionManager.snapshot().forEach { session ->
+            if (!session.isInitialized || !session.existsInDatabase) return@forEach
+            try {
+                session.flush()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Flush active session ${session.id} failed", e)
+            }
         }
     }
 
@@ -800,8 +852,11 @@ class ChatService(
     ) {
         val snapshot = session.state.value
         val plan = autoCompressionPlan(snapshot, settings.autoCompress) ?: return
-        val turn = requestFactory.createContext(settings, snapshot)
-        if (!plan.exceedsThreshold(turn.model.contextLength, settings.autoCompress.thresholdPercent)) return
+        // 阈值按对话模型自己的窗口算；摘要可以交给单独配置的压缩模型生成
+        val chatModel = settings.getChatModelOf(snapshot) ?: return
+        if (!plan.exceedsThreshold(chatModel.contextLength, settings.autoCompress.thresholdPercent)) return
+        val compressionModel = settings.autoCompress.modelId?.let { settings.findModelById(it) }
+        val turn = requestFactory.createContext(settings, snapshot, compressionModel)
         session.processingStatus.value = "正在压缩上下文…"
         try {
             val summary = requestFactory.generateCompressionSummary(
@@ -864,8 +919,12 @@ class ChatService(
                 node.currentMessage.getTools().any { it.isPending || it.canResumeExecution }
             }) { context.getString(R.string.chat_page_compress_handle_pending_tools) }
 
-            // 必须和对话用同一个模型、同一套请求组装，才能命中提示词缓存
-            val turn = requestFactory.createContext(settingsStore.awaitLoaded(), conversation)
+            // 没配置压缩模型时沿用对话模型、同一套请求组装，才能命中提示词缓存；
+            // 配置了独立压缩模型时，摘要请求改由它生成。
+            val compressionSettings = settingsStore.awaitLoaded()
+            val compressionModel = compressionSettings.autoCompress.modelId
+                ?.let { compressionSettings.findModelById(it) }
+            val turn = requestFactory.createContext(compressionSettings, conversation, compressionModel)
             val summary = requestFactory.generateCompressionSummary(
                 turn = turn,
                 messages = conversation.currentMessages.take(endIndex),

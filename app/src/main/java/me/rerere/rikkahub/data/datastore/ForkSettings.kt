@@ -47,6 +47,8 @@ data class AutoCompressSettings(
     val enabled: Boolean = true,
     /** 触发百分比，80 表示用到窗口的 80% 时压缩。 */
     val thresholdPercent: Int = 80,
+    /** 生成摘要用的模型；null 表示跟随当前对话模型（保持提示词缓存命中）。 */
+    val modelId: Uuid? = null,
 )
 
 @Serializable
