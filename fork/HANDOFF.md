@@ -9,8 +9,8 @@
 |---|---|
 | APK（HB） | `/data/data1/rk3mod/rikkahub-3.1.0-fork.26.apk` |
 | APK（手机） | `/sdcard/Download/rikkahub-3.1.0-fork.26.apk` |
-| 大小 | 70,079,894 字节（约 67MB） |
-| MD5 | `c872876f62c73ed1fb33480cda5828cf` |
+| 大小 | 70,080,646 字节（约 67MB） |
+| MD5 | `f430d819895ba5f9841218d400defbf1` |
 | 包名 | `me.rerere.rikkahub.fork` |
 | versionName | `3.1.0-fork.26` |
 | versionCode | `3000026` |
