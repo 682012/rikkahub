@@ -58,8 +58,18 @@ jobs:
         shell: bash
         run: |
           echo "SDK: $ANDROID_HOME"
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --install 'platforms;android-37.2' 'build-tools;37.0.0'
+          sdkm="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdkm" ]; then
+            sdkm="$(find "$ANDROID_HOME" -type f -name sdkmanager -print -quit)"
+          fi
+          if [ -z "$sdkm" ] || [ ! -x "$sdkm" ]; then
+            echo "::error::sdkmanager was not found in ANDROID_HOME"
+            find "$ANDROID_HOME" -maxdepth 3 -type d | head -50
+            exit 1
+          fi
+          echo "Android command line manager: $sdkm"
+          yes | "$sdkm" --licenses >/dev/null || true
+          "$sdkm" --channel=3 --install 'platforms;android-37.2' 'build-tools;37.0.0'
           df -h /
 
       - name: Install web UI build dependencies
