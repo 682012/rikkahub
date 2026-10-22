@@ -1,0 +1,129 @@
+name: RikkaHub public runner smoke test
+
+on:
+  push:
+    branches:
+      - ci/runner-smoke-20261023
+
+permissions:
+  contents: read
+
+jobs:
+  build-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout public fork (including submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Report free runner resources
+        shell: bash
+        run: |
+          echo "Runner architecture: $(uname -m)"
+          echo "CPU threads: $(nproc)"
+          free -h
+          df -h /
+          lsblk -o NAME,SIZE,FSTYPE,MOUNTPOINTS | head -20
+
+      - name: Recover ephemeral runner disk space if needed
+        shell: bash
+        run: |
+          before=$(df -Pk / | awk 'END {print $4}')
+          if [ "$before" -lt 8388608 ]; then
+            echo "Less than 8 GiB free; remove unrelated preinstalled toolchains on this disposable runner."
+            sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/powershell
+          fi
+          df -h /
+
+      - name: Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: pnpm 11
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Install Android SDK platform required by fork
+        shell: bash
+        run: |
+          echo "SDK: $ANDROID_HOME"
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager --install 'platforms;android-37.2' 'build-tools;37.0.0'
+          df -h /
+
+      - name: Install web UI build dependencies
+        working-directory: web-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Isolated build limits and disposable signing
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.gradle"
+          cat > "$HOME/.gradle/gradle.properties" <<'GRADLE'
+          org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8
+          kotlin.daemon.jvmargs=-Xmx3072m
+          org.gradle.workers.max=2
+          org.gradle.parallel=false
+          GRADLE
+          keytool -genkeypair -noprompt \
+            -keystore app/ci-test.jks \
+            -storepass ci-test-only -keypass ci-test-only \
+            -alias ci-test -keyalg RSA -keysize 2048 -validity 2 \
+            -dname 'CN=Disposable CI Test,OU=Smoke Test,O=RikkaHub'
+          cat > local.properties <<'LOCAL'
+          storeFile=ci-test.jks
+          storePassword=ci-test-only
+          keyAlias=ci-test
+          keyPassword=ci-test-only
+          LOCAL
+          python3 - <<'PY'
+          import json
+          obj = {
+              'project_info': {
+                  'project_number': '123456789012',
+                  'project_id': 'ci-smoke-placeholder',
+                  'storage_bucket': 'ci-smoke-placeholder.appspot.com'
+              },
+              'client': [{
+                  'client_info': {
+                      'mobilesdk_app_id': '1:123456789012:android:0123456789abcdef012345',
+                      'android_client_info': {'package_name': 'me.rerere.rikkahub.fork'}
+                  },
+                  'api_key': [{'current_key': 'CI_ONLY_NOT_A_REAL_API_KEY'}]
+              }],
+              'configuration_version': '1'
+          }
+          with open('app/google-services.json','w') as f:
+              json.dump(obj,f)
+          PY
+          echo "All signing and service config here is FAKE test data. Do not install or publish the resulting APK."
+
+      - name: Fast Android release compile (CI-only disposable APK)
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease -PfastBuild --no-daemon --max-workers=2 --console=plain
+          echo "Build completed. Disk and memory:"
+          free -h
+          df -h /
+          find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -printf '%f %s bytes\n'
+
+      - name: Upload disposable CI test APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rikkahub-ci-test-NOT-FOR-INSTALL
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 1
+          if-no-files-found: error
