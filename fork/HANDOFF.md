@@ -1,19 +1,19 @@
-# RikkaHub Fork 交接文档（fork.26）
+# RikkaHub Fork 交接文档（fork.34）
 
 > 用途：给其他模型/维护者审查当前 APK 与源码。文中“已验证/未验证”按实际执行情况标注，没有实测过的不会写成已验证。
-> 最后更新：2026-10-22。上一版是 fork.25（备份见 git 历史）。
+> 最后更新：2026-10-23。上一版是 fork.26（备份见 git 历史）。
 
 ## 1. 产物
 
 | 项 | 值 |
 |---|---|
-| APK（HB） | `/data/data1/rk3mod/rikkahub-3.1.0-fork.26.apk` |
-| APK（手机） | `/sdcard/Download/rikkahub-3.1.0-fork.26.apk` |
-| 大小 | 70,080,646 字节（约 67MB） |
-| MD5 | `f430d819895ba5f9841218d400defbf1` |
+| APK（HB） | `/data/data1/rk3mod/rikkahub-3.1.0-fork.34.apk` |
+| APK（手机） | `/sdcard/Download/rikkahub-3.1.0-fork.34.apk` |
+| 大小 | 70,088,814 字节（约 67MB） |
+| MD5 | `dc96baf1242563697ab27fe0e843b01a` |
 | 包名 | `me.rerere.rikkahub.fork` |
-| versionName | `3.1.0-fork.26` |
-| versionCode | `3000026` |
+| versionName | `3.1.0-fork.34` |
+| versionCode | `3000037` |
 | 签名 | V2，证书 SHA-256 `cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89` |
 | 构建类型 | release **未跑 R8**（构建日志无 `minifyReleaseWithR8`，未带 `-PfastBuild` 也会关闭；正式发布要显式确认） |
 | 基线 | RikkaHub 官方 `3.1.0`，commit `eeef60b2` |
@@ -65,6 +65,12 @@
 | fork.24 | 子代理工具不再枚举全部模型 ID（大账号模型池上千 UUID 会撑爆提示词）；同步调整 MCP/Skills 工具与 `ChatToolFactory` |
 | fork.25 | 技能安装校验 `SkillValidator`（name 去空白、长度 ≤64、不以 `.` 开头、禁 `/ \` 与控制字符、description 必填）+ 技能页/详情页；Provider 设置页内置 ChatGPT/Grok 订阅类型，修复备份设置迁移后 provider 被过滤、登录选项消失 |
 | fork.26 | **强杀不丢聊天记录**：流式生成按 1.5 秒节流落库（原来只在生成结束/空闲时写）；ON_STOP 与前台服务 `onTaskRemoved` 主动落库；消息节点增量保存（只写变化的节点）；搜索索引写失败不再连带会话保存失败；搜索页默认范围改「全部助手」；空闲落库 5s→2s。搜索侧另有 `ensureSchema`（tokenizer 不符时重建）、启动自检重建、`jieba_query` 出错返回空结果不崩 |
+| fork.27 | 压缩请求不再带工具定义（修「模型试图调用工具，而不是编写摘要」报错） |
+| fork.28 | 设置页加 rkpro 卡片（后删） |
+| fork.29–31 | rkpro ExtPage 反射入口尝试（LSPatch ClassLoader 隔离，失败，放弃） |
+| fork.32 | 纯版回退（3000035） |
+| fork.33 | 删 rkpro 卡片（3000036） |
+| fork.34 | **工作区导出**：设置→高级与长任务→工作区导出，SAF 选位置，zip 打包 `/workspace`，排除 `tmp`/`node_modules`/`.git`/`build`/`.gradle`/`.kotlin`/`cache`/`.venv`/`__pycache__`，带进度（3000037） |
 
 `fork/CHANGES.md` 已补到 fork.25（2026-10-21 同步时补上 23–25，20–22 原本就在 GitHub 版）。
 
@@ -174,3 +180,37 @@ scp app/build/outputs/apk/release/app-arm64-v8a-release.apk \
 - `fork/WORKFLOW.md`：可复用的私有 fork 维护流程
 - `DISCLAIMER.md` / `NOTICE.md`：个人改版与 AGPL 修改声明
 - 凭据位置：`/workspace/.secrets/rikkahub-fork/`（keystore、口令、GitHub PAT、远程 token）
+
+## 9. 2026-10-23 状态与待办
+
+### 已完成
+
+- fork.26–34 全部改动（见第 4 节版本节点）
+- rkpro 嵌入方案走通一半：`rkpro_signed6.apk`（`xposedscope` 加 fork、`isSupported`/`adapted` 强制 true、`clickable` `params[5]`→`[6]`），LSPatch 1.2 嵌入 fork.34 出包 3000038，但 **UI 入口仍不可用**，已放弃内置
+- 纯版 fork.34 是当前主线（3000037），rkpro 只保留脚本层（`plugins/`）
+- 清理：HB 旧 APK、工作区 tmp APK 副本、rkpro 打包中间产物
+
+### 已知问题
+
+1. rkpro UI 入口在 LSPatch 下不可用：
+   - 长按加号 `内层 clickable 挂钩数=0`（改了 `params[6]` 仍 0，`hookPlusButton` 还有别的条件对不上）
+   - 设置页 ExtPage 反射 `ClassNotFoundException`（模块 ClassLoader 隔离）
+   - 结论：不再修；脚本用 `plugins/` 文件方式
+2. 压缩修复（fork.27）未真机验证
+3. 工作区导出（fork.34）未真机验证
+4. fork.34 的代码改动 **未推 GitHub**（最后推送是 fork.26 的 `19d394ab` + HANDOFF 的 `b6e355b`）
+
+### 下次继续的入口
+
+- 源码：HB `/data/data1/rk3mod/src31`（tar 快照，无 .git）
+- 构建：`/data/data1/tools/gradle-9.6.0/bin/gradle :app:assembleRelease -PfastBuild --daemon`（wrapper 下载会超时）
+- 产物：`app/build/outputs/apk/release/app-arm64-v8a-release.apk`
+- keystore：`/data/data1/rk3mod/keystore/fork.jks`（alias `fork`，口令 `rikkahubfork`）
+- rkpro 工具：`/data/data1/tools/rkpro/`（`apktool.jar`、`lspatch.jar`、`rkpro_signed6.apk`、`rkpro_src/`）
+- 重装指南：`/workspace/RESTORE-GUIDE-20261023.md`、手机 `/sdcard/Documents/rik-restore-20261023/`、知识库搜「工作区重装」
+
+### 待确认
+
+- 用户手机当前装的是纯版 fork.34（3000037），嵌入包 3000038 已生成未装（用户只要模块）
+- 工作区导出的实际耗时和产物大小
+- 压缩报错是否只由工具定义引起

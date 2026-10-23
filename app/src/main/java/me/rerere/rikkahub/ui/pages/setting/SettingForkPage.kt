@@ -1,13 +1,24 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.Card
 import androidx.compose.material3.LargeFlexibleTopAppBar
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -18,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +51,7 @@ import me.rerere.rikkahub.ui.components.ui.switchItem
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.plus
 import org.koin.androidx.compose.koinViewModel
+import kotlinx.coroutines.launch
 import kotlin.uuid.Uuid
 
 /**
@@ -267,6 +280,73 @@ fun SettingForkPage(vm: SettingVM = koinViewModel()) {
             }
 
             item {
+                val exportContext = LocalContext.current
+                val exportRepo = remember {
+                    org.koin.java.KoinJavaComponent.getKoin()
+                        .get<me.rerere.rikkahub.data.repository.WorkspaceRepository>()
+                }
+                val exportWorkspaces by exportRepo.listFlow().collectAsStateWithLifecycle(emptyList())
+                val exportScope = rememberCoroutineScope()
+                var exporting by remember { mutableStateOf(false) }
+                var exportProgress by remember { mutableStateOf(0f) }
+                var exportStatus by remember { mutableStateOf("") }
+                val exportLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.CreateDocument("application/zip")
+                ) { uri ->
+                    val workspace = exportWorkspaces.firstOrNull()
+                    if (uri != null && workspace != null) {
+                        exporting = true
+                        exportProgress = 0f
+                        exportStatus = "准备中…"
+                        exportScope.launch {
+                            try {
+                                exportContext.contentResolver.openOutputStream(uri)?.use { os ->
+                                    exportRepo.exportWorkspaceFiles(workspace.id, os) { done, total, current ->
+                                        exportProgress = if (total > 0) done.toFloat() / total else 0f
+                                        exportStatus = "${done / 1024 / 1024} / ${total / 1024 / 1024} MB · $current"
+                                    }
+                                }
+                                exportStatus = "导出完成"
+                            } catch (e: Exception) {
+                                exportStatus = "导出失败: ${e.message}"
+                            } finally {
+                                exporting = false
+                            }
+                        }
+                    }
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("工作区导出", style = MaterialTheme.typography.titleSmall)
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text("导出当前工作区")
+                            Text(
+                                "把 /workspace 打成 zip，跳过 tmp、node_modules、.git、build 等可重建目录。保存位置由系统文件选择器决定。",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            OutlinedButton(
+                                enabled = !exporting && exportWorkspaces.isNotEmpty(),
+                                onClick = {
+                                    exportLauncher.launch("rikkahub-workspace-${System.currentTimeMillis()}.zip")
+                                },
+                            ) { Text(if (exporting) "导出中…" else "导出") }
+                            if (exporting || exportStatus.isNotBlank()) {
+                                LinearProgressIndicator(
+                                    progress = { exportProgress },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Text(exportStatus, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     Text(
                         "这些设置会随 settings.json 一起备份与恢复。升级上游版本时，这里的数据结构保持不变。",
@@ -276,6 +356,15 @@ fun SettingForkPage(vm: SettingVM = koinViewModel()) {
             }
         }
     }
+}
+
+private fun Context.findActivity(): Activity? {
+    var ctx: Context? = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }
 
 @Composable

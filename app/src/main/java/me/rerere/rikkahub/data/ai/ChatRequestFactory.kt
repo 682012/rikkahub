@@ -183,7 +183,9 @@ class ChatRequestFactory(
         messages: List<UIMessage>,
         compressPrompt: String,
     ): String {
-        val (requestMessages, params) = buildStep(turn, messages)
+        // 摘要请求不能带工具：模型看到工具定义就会去调用，正文只剩一句"我看看"，
+        // compressionSummaryOrNull 会判定失败（chat_page_compress_tool_call_response）
+        val (requestMessages, params) = buildStep(turn, messages, includeTools = false)
         // 压缩指令不经过输入转换器，模板转换器会把其中的花括号当成模板语法
         val result = withRetry(
             policy = turn.settings.retryPolicy(),
@@ -209,8 +211,11 @@ class ChatRequestFactory(
         turn: ChatTurnContext,
         messages: List<UIMessage>,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
+        includeTools: Boolean = true,
     ): StepRequest {
         val assistant = turn.assistant
+        // 压缩/摘要这类后台请求把工具摘掉，避免模型抢着调工具
+        val tools = if (includeTools) turn.tools else emptyList()
         val requestMessages = buildList {
             val system = buildString {
                 val effectiveSystemPrompt =
@@ -229,7 +234,7 @@ class ChatRequestFactory(
                     append(buildMemoryPrompt(turn.memories))
                 }
                 // 工具prompt
-                turn.tools.forEach { tool ->
+                tools.forEach { tool ->
                     appendLine()
                     append(tool.systemPrompt(turn.model, messages))
                 }
@@ -252,7 +257,7 @@ class ChatRequestFactory(
             temperature = assistant.temperature,
             topP = assistant.topP,
             maxTokens = assistant.maxTokens,
-            tools = turn.tools,
+            tools = tools,
             reasoningLevel = assistant.reasoningLevel,
             customHeaders = buildList {
                 addAll(assistant.customHeaders)

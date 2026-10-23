@@ -27,10 +27,13 @@ import me.rerere.workspace.WorkspaceJobStatus
 import me.rerere.workspace.WorkspaceManager
 import me.rerere.workspace.WorkspaceShellStatus
 import me.rerere.workspace.WorkspaceStorageArea
+import java.io.BufferedOutputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import kotlin.uuid.Uuid
 
 class WorkspaceRepository(
@@ -298,6 +301,40 @@ class WorkspaceRepository(
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         manager.ensureWorkspace(workspace.root)
         manager.exportRootfsFile(workspace.root, path, outputStream)
+    }
+
+    /** 把工作区的 /workspace 目录打成 zip，跳过可重建的大目录 */
+    suspend fun exportWorkspaceFiles(
+        id: String,
+        outputStream: OutputStream,
+        onProgress: (done: Long, total: Long, current: String) -> Unit = { _, _, _ -> },
+    ) = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        val root = manager.filesDir(workspace.root)
+        require(root.isDirectory) { "Workspace files directory missing" }
+        val excludes = listOf(
+            "tmp/", "node_modules/", ".git/", "build/", ".gradle/", ".kotlin/",
+            "cache/", ".npm/", ".cache/", "__pycache__/", ".venv/", "dist/",
+        )
+        val files = root.walkTopDown()
+            .filter { it.isFile }
+            .filterNot { file ->
+                val rel = file.relativeTo(root).invariantSeparatorsPath
+                excludes.any { rel == it.trimEnd('/') || rel.startsWith(it) || rel.contains("/$it") }
+            }
+            .toList()
+        val total = files.sumOf { it.length() }
+        var done = 0L
+        ZipOutputStream(BufferedOutputStream(outputStream)).use { zos ->
+            files.forEach { file ->
+                val rel = file.relativeTo(root).invariantSeparatorsPath
+                zos.putNextEntry(ZipEntry(rel))
+                file.inputStream().use { input -> input.copyTo(zos, 64 * 1024) }
+                zos.closeEntry()
+                done += file.length()
+                onProgress(done, total, rel)
+            }
+        }
     }
 
     suspend fun deleteFile(

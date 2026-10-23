@@ -842,7 +842,7 @@
   <string name="setting_page_preferences_network_proxy_desc">Supports HTTP and SOCKS5 proxy URLs. Leave blank to use system settings.</string>
   <string name="setting_page_preferences_network_proxy_invalid">Enter a valid proxy URL with a host and port.</string>
   <string name="setting_page_preferences_network_auto_retry">Automatic retry</string>
-  <string name="setting_page_preferences_network_auto_retry_desc">Retry model requests up to 3 times when network errors occur.</string>
+  <string name="setting_page_preferences_network_auto_retry_desc">Retry model requests automatically when network errors occur.</string>
   <string name="setting_page_preferences_network_max_retries">Maximum retries</string>
   <string name="setting_page_preferences_network_max_retries_desc">0 to 100. 0 disables retries even when automatic retry is on. Each wait is capped at 60 seconds.</string>
   <string name="setting_page_documentation">Documentation</string>
