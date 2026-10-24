@@ -30,6 +30,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
@@ -296,6 +297,47 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
                             Text(stringResource(R.string.setting_page_preferences_network_auto_retry))
                         },
                     )
+                    if (settings.networkSetting.enableAutoRetry) {
+                        formItem(
+                            headlineContent = {
+                                Text(stringResource(R.string.setting_page_preferences_network_max_retries))
+                            },
+                            supportingContent = {
+                                Text(stringResource(R.string.setting_page_preferences_network_max_retries_desc))
+                            },
+                        ) {
+                            var retryText by remember(settings.networkSetting.maxRetries) {
+                                mutableStateOf(settings.networkSetting.maxRetries.toString())
+                            }
+                            OutlinedTextField(
+                                value = retryText,
+                                onValueChange = { raw ->
+                                    // 显示文本和落库值必须出自同一个数：输入 999 时框里和设置里都是 100
+                                    val input = sanitizeMaxRetriesInput(raw)
+                                    retryText = input.text
+                                    input.value?.let { value ->
+                                        vm.updateSettings { current ->
+                                            current.copy(
+                                                networkSetting = current.networkSetting.copy(
+                                                    maxRetries = value,
+                                                ),
+                                            )
+                                        }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    // 允许清空后重新输入；离开输入框时恢复成实际生效的值，避免留一个空框
+                                    .onFocusChanged { focus ->
+                                        if (!focus.isFocused && retryText.isEmpty()) {
+                                            retryText = settings.networkSetting.maxRetries.toString()
+                                        }
+                                    },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            )
+                        }
+                    }
                 }
             }
             item {

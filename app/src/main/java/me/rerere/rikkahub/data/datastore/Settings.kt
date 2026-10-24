@@ -80,6 +80,10 @@ data class Settings(
     val webServerLocalhostOnly: Boolean = false,
     val backupReminderConfig: BackupReminderConfig = BackupReminderConfig(),
     val sponsorAlertDismissedAt: Int = 0,
+    // fork: 工作区与子代理的运行时配置，见 ForkSettings.kt
+    val workspaceRuntime: WorkspaceRuntimeSettings = WorkspaceRuntimeSettings(),
+    val subagent: SubagentSettings = SubagentSettings(),
+    val autoCompress: AutoCompressSettings = AutoCompressSettings(),
 ) {
     companion object {
         // 构造一个用于初始化的settings, 但它不能用于保存，防止使用初始值存储
@@ -94,6 +98,8 @@ data class NetworkSetting(
     val proxyUsername: String = "",
     val proxyPassword: String = "",
     val enableAutoRetry: Boolean = true,
+    /** 自动重试的最大次数，0 表示不重试（总开关打开也无效）。 */
+    val maxRetries: Int = 3,
 )
 
 @Serializable

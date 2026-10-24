@@ -12,6 +12,9 @@ import me.rerere.rikkahub.data.repository.LightConversationEntity
 
 @Dao
 interface ConversationDAO {
+    @Query("SELECT assistant_id FROM ConversationEntity WHERE id = :id")
+    suspend fun getAssistantId(id: String): String?
+
     @Query("SELECT * FROM conversationentity ORDER BY is_pinned DESC, update_at DESC")
     fun getAll(): Flow<List<ConversationEntity>>
 

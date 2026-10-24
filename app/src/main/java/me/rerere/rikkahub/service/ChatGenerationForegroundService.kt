@@ -79,6 +79,15 @@ class ChatGenerationForegroundService : Service() {
         return START_NOT_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // 用户从最近任务划掉 App：进程随时会被回收，先尽力把流式内容落库
+        appScope.launch {
+            runCatching { chatService.flushActiveSessions() }
+                .onFailure { Log.w(TAG, "flushActiveSessions on task removed failed", it) }
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
         activeGenerations.clear()
         if (isForeground) {

@@ -47,7 +47,8 @@ class SearchVM(
 
     var searchQuery by mutableStateOf("")
         private set
-    var searchScope by mutableStateOf(MessageSearchScope.CURRENT_ASSISTANT)
+    // 默认搜全部助手：迁移/换助手后，历史记录往往不属于当前助手，只搜当前助手会全部落空
+    var searchScope by mutableStateOf(MessageSearchScope.ALL_ASSISTANTS)
         private set
     var sortOrder by mutableStateOf(
         runCatching {
@@ -129,6 +130,10 @@ class SearchVM(
                 conversationRepo.rebuildAllIndexes { current, total ->
                     rebuildProgress = current to total
                 }
+                // 重建后按当前关键词再搜一次，用户不用手动触发
+                search()
+            } catch (e: Exception) {
+                android.util.Log.e("SearchVM", "rebuild index failed", e)
             } finally {
                 isRebuilding = false
             }

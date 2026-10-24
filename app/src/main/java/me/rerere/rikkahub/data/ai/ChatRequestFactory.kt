@@ -95,10 +95,14 @@ class ChatRequestFactory(
     )
 
     /** 解析本轮的助手、模型、记忆和工具；MCP 服务名不合法时抛出 InvalidMcpServerNamesException */
-    suspend fun createContext(settings: Settings, conversation: Conversation): ChatTurnContext {
-        // 模型、思考级别、搜索、工具等以会话上固定的配置为准
+    suspend fun createContext(
+        settings: Settings,
+        conversation: Conversation,
+        modelOverride: Model? = null,
+    ): ChatTurnContext {
+        // 模型、思考级别、搜索、工具等以会话上固定的配置为准；modelOverride 只给压缩这类旁路请求单独指定模型
         val assistant = settings.getAssistantOf(conversation)
-        val model = settings.getChatModelOf(conversation)
+        val model = modelOverride ?: settings.getChatModelOf(conversation)
             ?: throw IllegalStateException("No chat model selected")
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         return ChatTurnContext(
@@ -110,12 +114,19 @@ class ChatRequestFactory(
             conversationSystemPrompt = conversation.customSystemPrompt,
             workspaceCwd = conversation.workspaceCwd,
             memories = if (assistant.enableMemory) memoryRepository.getFiles(assistant.memoryId) else emptyList(),
-            tools = chatToolFactory.createTools(
-                settings = settings,
-                assistant = assistant,
-                model = model,
-                workspaceCwd = conversation.workspaceCwd,
-            ),
+            // 压缩这类旁路请求只需要文本，指定了单独模型时不带工具，
+            // 避免不支持工具调用的上游直接拒绝请求
+            tools = if (modelOverride != null) {
+                emptyList()
+            } else {
+                chatToolFactory.createTools(
+                    settings = settings,
+                    assistant = assistant,
+                    model = model,
+                    workspaceCwd = conversation.workspaceCwd,
+                    conversationId = conversation.id,
+                )
+            },
         )
     }
 
@@ -163,16 +174,19 @@ class ChatRequestFactory(
     /**
      * 生成压缩摘要。
      *
-     * 请求按正常对话组装（系统提示词、工具定义、参数和 sessionId 都相同），只在末尾追加压缩指令，
-     * 前缀与上一轮对话一致，可以命中提示词缓存，模型也能看到工具调用和结果。
-     * 工具定义必须保留：它属于请求前缀，去掉或改动 tool_choice 都会让缓存失效。
+     * 请求按正常对话组装（系统提示词、参数和 sessionId 都相同），只在末尾追加压缩指令，
+     * 前缀与上一轮对话一致；历史里的工具调用和结果仍然随消息发出去，模型能看到。
+     * 工具定义本身在 [buildStep] 里按 includeTools = false 去掉（fork.27）：模型看到工具就会去调用，
+     * 回复正文只剩一句“我看看”，摘要拿不到内容。代价是这条请求无法复用带工具的提示词前缀。
      */
     suspend fun generateCompressionSummary(
         turn: ChatTurnContext,
         messages: List<UIMessage>,
         compressPrompt: String,
     ): String {
-        val (requestMessages, params) = buildStep(turn, messages)
+        // 摘要请求不能带工具：模型看到工具定义就会去调用，正文只剩一句"我看看"，
+        // compressionSummaryOrNull 会判定失败（chat_page_compress_tool_call_response）
+        val (requestMessages, params) = buildStep(turn, messages, includeTools = false)
         // 压缩指令不经过输入转换器，模板转换器会把其中的花括号当成模板语法
         val result = withRetry(
             policy = turn.settings.retryPolicy(),
@@ -198,8 +212,11 @@ class ChatRequestFactory(
         turn: ChatTurnContext,
         messages: List<UIMessage>,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
+        includeTools: Boolean = true,
     ): StepRequest {
         val assistant = turn.assistant
+        // 压缩/摘要这类后台请求把工具摘掉，避免模型抢着调工具
+        val tools = if (includeTools) turn.tools else emptyList()
         val requestMessages = buildList {
             val system = buildString {
                 val effectiveSystemPrompt =
@@ -218,7 +235,7 @@ class ChatRequestFactory(
                     append(buildMemoryPrompt(turn.memories))
                 }
                 // 工具prompt
-                turn.tools.forEach { tool ->
+                tools.forEach { tool ->
                     appendLine()
                     append(tool.systemPrompt(turn.model, messages))
                 }
@@ -241,7 +258,7 @@ class ChatRequestFactory(
             temperature = assistant.temperature,
             topP = assistant.topP,
             maxTokens = assistant.maxTokens,
-            tools = turn.tools,
+            tools = tools,
             reasoningLevel = assistant.reasoningLevel,
             customHeaders = buildList {
                 addAll(assistant.customHeaders)
@@ -299,4 +316,8 @@ internal fun backgroundTextGenerationParams(
 )
 
 internal fun Settings.retryPolicy() =
-    if (networkSetting.enableAutoRetry) RetryPolicy.NETWORK else RetryPolicy.NONE
+    if (networkSetting.enableAutoRetry) {
+        RetryPolicy(maxRetries = networkSetting.maxRetries.coerceIn(0, 100))
+    } else {
+        RetryPolicy.NONE
+    }

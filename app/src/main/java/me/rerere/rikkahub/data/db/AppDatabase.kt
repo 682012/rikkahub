@@ -55,7 +55,9 @@ import me.rerere.rikkahub.utils.JsonInstant
         TranslationHistoryEntity::class,
         UsageRecordEntity::class,
     ],
-    version = 31,
+    // fork.15 already used schema 31 with a different usage_record shape.
+    // Keep 3.1 compatibility in a new fork schema instead of lying to Room about identity.
+    version = 33,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -80,6 +82,8 @@ import me.rerere.rikkahub.utils.JsonInstant
         AutoMigration(from = 26, to = 27),
         AutoMigration(from = 28, to = 29, spec = Migration_28_29::class),
         AutoMigration(from = 29, to = 30),
+        // 30 -> 32 is a direct migration so official 3.0 installs get the unified table.
+        // fork.15 and official 3.1 schema-31 databases use the explicit 31 -> 32 migration below.
     ]
 )
 @TypeConverters(TokenUsageConverter::class)

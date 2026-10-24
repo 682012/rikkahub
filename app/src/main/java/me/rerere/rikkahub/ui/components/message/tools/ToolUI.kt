@@ -30,6 +30,16 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.ui.components.richtext.HighlightCodeBlock
 import me.rerere.rikkahub.ui.components.richtext.ZoomableAsyncImage
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.heightIn
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.JsonInstantPretty
 import me.rerere.rikkahub.utils.jsonPrimitiveOrNull
@@ -167,15 +177,7 @@ fun DefaultToolPreview(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     context.tool.output.fastForEach { part ->
                         when (part) {
-                            is UIMessagePart.Text -> HighlightCodeBlock(
-                                code = runCatching {
-                                    JsonInstantPretty.encodeToString(
-                                        JsonInstant.parseToJsonElement(part.text)
-                                    )
-                                }.getOrElse { part.text },
-                                language = "json",
-                                style = TextStyle(fontSize = 10.sp, lineHeight = 12.sp)
-                            )
+                            is UIMessagePart.Text -> ToolOutputText(part.text)
 
                             is UIMessagePart.Image -> ZoomableAsyncImage(
                                 model = part.url,
@@ -187,6 +189,59 @@ fun DefaultToolPreview(
                         }
                     }
                 }
+            }
+        }
+    }
+
+}
+
+private const val FULL_TEXT_PREFIX = "…[full text: "
+
+/**
+ * 工具输出。超长内容在加载时被外置成文件，这里保留预览并提供“查看完整输出”，
+ * 只有用户点开时才读文件，不会把整段内容常驻在消息列表里。
+ */
+@Composable
+private fun ToolOutputText(text: String) {
+    var expanded by remember(text) { mutableStateOf(false) }
+    val markerIndex = text.lastIndexOf(FULL_TEXT_PREFIX)
+    val hasFullText = markerIndex >= 0 || text.length > 48_000
+    val pretty = remember(text) {
+        val preview = if (markerIndex >= 0) text.substring(0, markerIndex) else text.take(48_000)
+        if (hasFullText) preview else
+            runCatching { JsonInstantPretty.encodeToString(JsonInstant.parseToJsonElement(preview)) }.getOrElse { preview }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        HighlightCodeBlock(code = pretty, language = if (hasFullText) "text" else "json",
+            style = TextStyle(fontSize = 10.sp, lineHeight = 12.sp))
+        if (hasFullText) {
+            TextButton(onClick = { expanded = true }) { Text("查看完整输出") }
+            if (expanded) {
+                var content by remember(text) { mutableStateOf<String?>(null) }
+                androidx.compose.runtime.LaunchedEffect(text) {
+                    content = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        if (markerIndex >= 0) runCatching {
+                            org.koin.java.KoinJavaComponent.getKoin()
+                                .get<me.rerere.rikkahub.data.files.FilesManager>()
+                                .readLegacyTextPreview(text, 1_000_000)
+                        }.getOrNull() ?: "历史缓存已不存在；可从旧备份恢复。"
+                        else text.take(1_000_000)
+                    }
+                }
+                AlertDialog(onDismissRequest = { expanded = false },
+                    confirmButton = { TextButton(onClick = { expanded = false }) { Text("关闭") } },
+                    title = { Text("输出预览（最多 100 万字符）") },
+                    text = {
+                        val chunks = remember(content) { (content ?: "正在读取…").chunked(4_000) }
+                        LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
+                            items(chunks.size) { index ->
+                                SelectionContainer {
+                                    Text(chunks[index], style = TextStyle(fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace))
+                                }
+                            }
+                        }
+                    })
             }
         }
     }

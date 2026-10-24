@@ -142,6 +142,11 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         json(LOREBOOKS, Settings::lorebooks) { copy(lorebooks = it) },
         json(QUICK_MESSAGES, Settings::quickMessages) { copy(quickMessages = it) },
 
+        // fork 功能设置
+        json(WORKSPACE_RUNTIME, Settings::workspaceRuntime) { copy(workspaceRuntime = it) },
+        json(SUBAGENT, Settings::subagent) { copy(subagent = it) },
+        json(AUTO_COMPRESS, Settings::autoCompress) { copy(autoCompress = it) },
+
         // 备份提醒
         json(BACKUP_REMINDER_CONFIG, Settings::backupReminderConfig) { copy(backupReminderConfig = it) },
 

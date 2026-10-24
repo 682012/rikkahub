@@ -505,6 +505,10 @@ class RouteActivity : ComponentActivity() {
                                 SettingMcpPage()
                             }
 
+                            entry<Screen.SettingFork> {
+                                me.rerere.rikkahub.ui.pages.setting.SettingForkPage()
+                            }
+
                             entry<Screen.SettingMcpDetail> { key ->
                                 SettingMcpDetailPage(id = Uuid.parse(key.serverId))
                             }
@@ -747,6 +751,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object SettingMcp : Screen
+
+    @Serializable
+    data object SettingFork : Screen
 
     @Serializable
     data class SettingMcpDetail(val serverId: String) : Screen

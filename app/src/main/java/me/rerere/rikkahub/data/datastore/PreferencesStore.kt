@@ -172,6 +172,11 @@ class SettingsStore internal constructor(
         val LOREBOOKS = stringPreferencesKey("lorebooks")
         val QUICK_MESSAGES = stringPreferencesKey("quick_messages")
 
+        // fork: 工作区、子代理、自动压缩
+        val WORKSPACE_RUNTIME = stringPreferencesKey("workspace_runtime")
+        val SUBAGENT = stringPreferencesKey("subagent")
+        val AUTO_COMPRESS = stringPreferencesKey("auto_compress")
+
         // 备份提醒
         val BACKUP_REMINDER_CONFIG = stringPreferencesKey("backup_reminder_config")
 

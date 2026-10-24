@@ -35,9 +35,11 @@ import me.rerere.rikkahub.di.repositoryModule
 import me.rerere.rikkahub.di.viewModelModule
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.sync.BackupManager
 import me.rerere.rikkahub.data.sync.RestoreFailedException
 import me.rerere.rikkahub.utils.JsonInstant
+import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.service.MediaCreationService
 import me.rerere.rikkahub.service.WebServerService
 import me.rerere.rikkahub.utils.CrashHandler
@@ -108,6 +110,9 @@ class RikkaHubApp : Application() {
         // Start WebServer if enabled in settings
         startWebServerIfEnabled()
 
+        // Repair a missing message search index (fresh import / old upgrade)
+        ensureMessageIndex()
+
         // Resume media generations interrupted by the last process death
         resumeMediaCreations()
         resumeMemoryConsolidation()
@@ -115,7 +120,30 @@ class RikkaHubApp : Application() {
         // Increment launch count
         incrementLaunchCount()
 
+        // 退到后台时先把内存里的会话落库，降低被系统回收时的丢失
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_STOP) {
+                    get<AppScope>().launch(Dispatchers.IO) {
+                        runCatching { get<ChatService>().flushActiveSessions() }
+                            .onFailure { Log.w(TAG, "flushActiveSessions failed", it) }
+                    }
+                }
+            }
+        )
+
         // Composer.setDiagnosticStackTraceMode(ComposeStackTraceMode.Auto)
+    }
+
+    private fun ensureMessageIndex() {
+        get<AppScope>().launch(Dispatchers.IO) {
+            runCatching {
+                val rebuilt = get<ConversationRepository>().ensureMessageIndex()
+                if (rebuilt) Log.i(TAG, "message search index rebuilt")
+            }.onFailure {
+                Log.e(TAG, "ensureMessageIndex failed", it)
+            }
+        }
     }
 
     private fun resumeMediaCreations() {

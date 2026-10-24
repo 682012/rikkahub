@@ -2,7 +2,11 @@ package me.rerere.rikkahub.data.datastore.migration
 
 import android.util.Log
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import me.rerere.rikkahub.utils.JsonInstant
 
@@ -65,6 +69,16 @@ object SettingsJsonMigrator {
                 }
             }
 
+            // V6: 其他分支自定义的 provider 类型（如 codex）当前版本没有对应子类
+            root["providers"]?.let { element ->
+                root["providers"] = filterSupportedProviders(element)
+            }
+
+            // V5: 其他分支导出的 settings 可能把非空数值字段写成 null
+            root["providers"]?.let { element ->
+                root["providers"] = migrateProvidersNumericNulls(element)
+            }
+
             // V4: 移除 assistants 的 allowConversationPromptInjection 开关
             root["assistants"]?.let { element ->
                 val migrated = migrateAssistantsConversationInjections(JsonInstant.encodeToString(element))
@@ -80,5 +94,39 @@ object SettingsJsonMigrator {
         }.onFailure {
             Log.e(TAG, "migrate: Failed to migrate settings JSON, using original", it)
         }.getOrDefault(settingsJson)
+    }
+
+    private fun migrateProvidersNumericNulls(element: JsonElement): JsonElement {
+        val providers = element as? JsonArray ?: return element
+        return JsonArray(providers.map { provider ->
+            val providerObject = provider as? JsonObject ?: return@map provider
+            val models = providerObject["models"] as? JsonArray ?: return@map provider
+            val fixedModels = JsonArray(models.map { model ->
+                val modelObject = model as? JsonObject ?: return@map model
+                val fields = modelObject.toMutableMap()
+                if (fields["contextLength"] is JsonNull) {
+                    fields["contextLength"] = JsonPrimitive(1_000_000)
+                }
+                JsonObject(fields)
+            })
+            JsonObject(providerObject.toMutableMap().apply { put("models", fixedModels) })
+        })
+    }
+
+    private val SUPPORTED_PROVIDER_TYPES = setOf("openai", "google", "claude", "chatgpt", "grok")
+
+    private fun filterSupportedProviders(element: JsonElement): JsonElement {
+        val providers = element as? JsonArray ?: return element
+        val kept = providers.filter { provider ->
+            val type = (provider as? JsonObject)
+                ?.get("type")
+                ?.let { (it as? JsonPrimitive)?.contentOrNull }
+            type == null || type in SUPPORTED_PROVIDER_TYPES
+        }
+        val dropped = providers.size - kept.size
+        if (dropped > 0) {
+            Log.w(TAG, "filterSupportedProviders: dropped $dropped unsupported providers")
+        }
+        return JsonArray(kept)
     }
 }

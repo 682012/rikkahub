@@ -20,7 +20,8 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.uuid.Uuid
 
 private const val TAG = "ConversationSession"
-private const val IDLE_TIMEOUT_MS = 5_000L
+// 页面释放后尽快落库，进程被回收时少丢内容
+private const val IDLE_TIMEOUT_MS = 2_000L
 
 /** 会话的持久化，由 ChatService 实现 */
 interface ConversationStore {

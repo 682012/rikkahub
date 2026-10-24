@@ -4,40 +4,49 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import java.util.UUID
 
 /**
- * 一次模型请求的 token 用量流水，每次请求（多步对话的每一步、每次重试）各记一行。
+ * Unified fork/official 3.1 usage record.
  *
- * 和消息分开存：删掉会话或消息后流水还在，统计不受影响；标题、翻译这类不落到消息里的请求也记在这里。
- * 引用的模型、助手和会话都可能已经被删除，所以不加外键。
+ * fork.15 used a String id plus node/total columns; official 3.1 added provider/model
+ * snapshots and nullable conversation ownership. The final fork schema keeps both shapes
+ * so upgrading fork.15 and importing official 3.1 data are both lossless.
  */
 @Entity(
     tableName = "usage_record",
-    indices = [Index(value = ["created_at"])]
+    indices = [
+        Index(value = ["conversation_id"]),
+        Index(value = ["created_at"]),
+        Index(value = ["model_id"]),
+    ],
 )
 data class UsageRecordEntity(
-    @PrimaryKey(autoGenerate = true)
-    val id: Long = 0,
+    @PrimaryKey
+    val id: String = UUID.randomUUID().toString(),
     @ColumnInfo("created_at")
     val createdAt: Long,
-    // UsageSource 的名称
     @ColumnInfo("source")
     val source: String,
     @ColumnInfo("provider_id")
-    val providerId: String?,
+    val providerId: String? = null,
     @ColumnInfo("model_id")
-    val modelId: String?,
-    // 模型的 API 名称快照，模型被删除后靠它分辨
+    val modelId: String? = null,
     @ColumnInfo("model_name")
-    val modelName: String?,
+    val modelName: String? = null,
     @ColumnInfo("assistant_id")
-    val assistantId: String?,
+    val assistantId: String? = null,
     @ColumnInfo("conversation_id")
-    val conversationId: String?,
+    val conversationId: String? = null,
+    @ColumnInfo("node_id")
+    val nodeId: String? = null,
     @ColumnInfo("prompt_tokens")
-    val promptTokens: Int,
+    val promptTokens: Int = 0,
     @ColumnInfo("completion_tokens")
-    val completionTokens: Int,
+    val completionTokens: Int = 0,
     @ColumnInfo("cached_tokens")
-    val cachedTokens: Int,
+    val cachedTokens: Int = 0,
+    /** Kept for fork.15 compatibility; queries derive totals from prompt + completion. */
+    @ColumnInfo("total_tokens")
+    val totalTokens: Int = promptTokens + completionTokens,
 )

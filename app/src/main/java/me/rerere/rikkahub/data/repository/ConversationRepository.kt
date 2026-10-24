@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.repository
 
 import android.database.sqlite.SQLiteBlobTooBigException
+import android.util.Log
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -8,10 +9,13 @@ import androidx.paging.PagingSource
 import androidx.paging.map
 import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.datastore.ConversationSortOrder
 import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.fts.MessageFtsManager
@@ -19,6 +23,7 @@ import me.rerere.rikkahub.data.db.fts.MessageSearchSort
 import me.rerere.rikkahub.data.db.dao.ConversationDAO
 import me.rerere.rikkahub.data.db.dao.FavoriteDAO
 import me.rerere.rikkahub.data.db.dao.MessageNodeDAO
+import me.rerere.rikkahub.data.db.dao.MessageNodeSnapshot
 import me.rerere.rikkahub.data.db.entity.ConversationEntity
 import me.rerere.rikkahub.data.db.entity.MessageNodeEntity
 import me.rerere.rikkahub.data.files.FilesManager
@@ -27,6 +32,8 @@ import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.utils.JsonInstant
 import java.time.Instant
 import kotlin.uuid.Uuid
+
+private const val TAG = "ConversationRepository"
 
 class ConversationRepository(
     private val conversationDAO: ConversationDAO,
@@ -40,6 +47,8 @@ class ConversationRepository(
         private const val PAGE_SIZE = 20
         private const val INITIAL_LOAD_SIZE = 40
     }
+
+    suspend fun getConversationAssistantId(id: String): String? = conversationDAO.getAssistantId(id)
 
     suspend fun hasFileReference(fileUrl: String): Boolean =
         messageNodeDAO.hasFileReference(JsonInstant.encodeToString(fileUrl))
@@ -317,7 +326,9 @@ class ConversationRepository(
             )
             saveMessageNodes(conversation.id.toString(), conversation.messageNodes)
         }
-        messageFtsManager.indexConversation(conversation)
+        // 搜索引是派生数据，写失败不能连带会话保存失败
+        runCatching { messageFtsManager.indexConversation(conversation) }
+            .onFailure { Log.w(TAG, "indexConversation failed for ${conversation.id}", it) }
     }
 
     suspend fun updateConversation(conversation: Conversation) {
@@ -325,11 +336,14 @@ class ConversationRepository(
             conversationDAO.update(
                 conversationToConversationEntity(conversation)
             )
-            // 删除旧的节点，插入新的节点
-            messageNodeDAO.deleteByConversation(conversation.id.toString())
+            // 不再先删光节点。saveMessageNodes 自己删除已经消失的节点、只写内容或顺序变化的节点，
+            // 先删会让那里的旧行快照永远是空的，等于每次落库都把整段会话重写一遍
+            // （流式生成期间每 1.5 秒一次）。
             saveMessageNodes(conversation.id.toString(), conversation.messageNodes)
         }
-        messageFtsManager.indexConversation(conversation)
+        // 搜索引是派生数据，写失败不能连带会话保存失败
+        runCatching { messageFtsManager.indexConversation(conversation) }
+            .onFailure { Log.w(TAG, "indexConversation failed for ${conversation.id}", it) }
     }
 
     suspend fun deleteConversation(conversation: Conversation) {
@@ -360,6 +374,8 @@ class ConversationRepository(
         messageFtsManager.search(keyword, MessageSearchSort.RELEVANCE, assistantIds.map { it.toString() })
 
     suspend fun rebuildAllIndexes(onProgress: (current: Int, total: Int) -> Unit = { _, _ -> }) {
+        // 表结构不对时只清数据是没用的，先确保 message_fts 真的能用
+        messageFtsManager.ensureSchema()
         messageFtsManager.deleteAll()
         val allIds = conversationDAO.getAllIds()
         val total = allIds.size
@@ -370,6 +386,19 @@ class ConversationRepository(
             messageFtsManager.indexConversation(conversation)
             onProgress(index + 1, total)
         }
+    }
+
+    /**
+     * 启动自检：会话有内容但索引是空的（典型是刚导入旧备份、或旧版本没建过索引）时重建一次。
+     * 已经有索引就不动，避免每次启动都扫全库。
+     */
+    suspend fun ensureMessageIndex(): Boolean {
+        if (countConversations() <= 0) return false
+        // 表不存在或分词器不对时，count() 本身也可能失败，先保证结构可用
+        val recreated = messageFtsManager.ensureSchema()
+        if (!recreated && messageFtsManager.count() > 0) return false
+        rebuildAllIndexes()
+        return true
     }
 
     fun conversationToConversationEntity(conversation: Conversation): ConversationEntity {
@@ -487,61 +516,71 @@ class ConversationRepository(
         )
     }
 
+    /** 读取会话尾部消息，供子代理按会话 id 查阅其他聊天。 */
+    suspend fun readConversationTail(
+        conversationId: String,
+        limit: Int = 20,
+    ): List<Pair<String, String>> {
+        val nodes = messageNodeDAO.getLastNodes(conversationId, limit.coerceIn(1, 100)).reversed()
+        val result = mutableListOf<Pair<String, String>>()
+        for (node in nodes) {
+            val messages = runCatching {
+                JsonInstant.decodeFromString<List<UIMessage>>(node.messages)
+            }.getOrNull() ?: continue
+            val selected = messages.getOrNull(node.selectIndex) ?: messages.lastOrNull() ?: continue
+            val text = selected.toText().trim()
+            if (text.isNotEmpty()) result += selected.role.name.lowercase() to text
+        }
+        return result
+    }
+
     private suspend fun loadMessageNodes(conversationId: String): List<MessageNode> {
         val favoriteNodeIds = favoriteDAO
             .getFavoriteNodeIdsOfConversation(conversationId)
             .mapNotNull { runCatching { Uuid.parse(it) }.getOrNull() }
             .toSet()
 
-        return database.withTransaction {
-            val nodes = mutableListOf<MessageNode>()
+        // Read pages in one transaction; decoding and file promotion must not hold SQLite locks.
+        val entities = database.withTransaction {
+            val result = mutableListOf<me.rerere.rikkahub.data.db.entity.MessageNodeEntity>()
             var offset = 0
             val pageSize = 64
             while (true) {
                 val page = try {
                     messageNodeDAO.getNodesOfConversationPaged(conversationId, pageSize, offset)
                 } catch (e: SQLiteBlobTooBigException) {
-                    e.printStackTrace()
-                    offset += pageSize
-                    continue
+                    e.printStackTrace(); offset += pageSize; continue
                 } catch (e: CancellationException) {
-                    // CancellationException 是 IllegalStateException 的子类，必须先重新抛出，否则取消后会在事务内无限循环
                     throw e
                 } catch (e: IllegalStateException) {
-                    e.printStackTrace()
-                    offset += pageSize
-                    continue
+                    e.printStackTrace(); offset += pageSize; continue
                 }
                 if (page.isEmpty()) break
-                page.forEach { entity ->
-                    val messages = JsonInstant.decodeFromString<List<UIMessage>>(entity.messages)
-                    val nodeId = Uuid.parse(entity.id)
-                    nodes.add(
-                        MessageNode(
-                            id = nodeId,
-                            messages = messages,
-                            selectIndex = entity.selectIndex,
-                            isFavorite = favoriteNodeIds.contains(nodeId)
-                        )
-                    )
-                }
+                result += page
                 offset += page.size
             }
-            nodes
+            result
+        }
+        return withContext(Dispatchers.IO) {
+            entities.map { entity ->
+                val messages = JsonInstant.decodeFromString<List<UIMessage>>(entity.messages)
+                    .externalizeLargeParts(filesManager)
+                val nodeId = Uuid.parse(entity.id)
+                MessageNode(nodeId, messages, entity.selectIndex, favoriteNodeIds.contains(nodeId))
+            }
         }
     }
 
     private suspend fun saveMessageNodes(conversationId: String, nodes: List<MessageNode>) {
-        val entities = nodes.mapIndexed { index, node ->
-            MessageNodeEntity(
-                id = node.id.toString(),
-                conversationId = conversationId,
-                nodeIndex = index,
-                messages = JsonInstant.encodeToString(node.messages),
-                selectIndex = node.selectIndex
-            )
-        }
-        messageNodeDAO.insertAll(entities)
+        // 流式生成期间每 1.5 秒会落库一次，长会话全量删写太贵：只删掉不再存在的节点，
+        // 只写顺序或内容真正变化的节点。比较的是同一套 JSON 编码，内容没变就跳过。
+        val writes = messageNodeWrites(
+            conversationId = conversationId,
+            nodes = nodes,
+            existing = messageNodeDAO.getSnapshots(conversationId),
+        )
+        if (writes.removedIds.isNotEmpty()) messageNodeDAO.deleteByIds(writes.removedIds)
+        if (writes.upserts.isNotEmpty()) messageNodeDAO.insertAll(writes.upserts)
     }
 }
 
@@ -562,3 +601,59 @@ data class ConversationPageResult(
     val items: List<Conversation>,
     val nextOffset: Int?,
 )
+
+/** 一次节点落库真正要做的改动：删掉消失的节点，写入新增或内容/顺序变化的节点。 */
+internal data class MessageNodeWrites(
+    val removedIds: List<String>,
+    val upserts: List<MessageNodeEntity>,
+)
+
+/**
+ * 比较库里已有的节点快照与这次要落库的节点，算出需要写库的部分。
+ *
+ * 内容按 JSON 文本比较（两边用同一套编码），没变就跳过：流式生成期间每次落库都会走到这里，
+ * 长会话不能每次重写全部节点。抽成纯函数是为了能脱离 Room 测试。
+ */
+internal fun messageNodeWrites(
+    conversationId: String,
+    nodes: List<MessageNode>,
+    existing: List<MessageNodeSnapshot>,
+): MessageNodeWrites {
+    val entities = nodes.mapIndexed { index, node ->
+        MessageNodeEntity(
+            id = node.id.toString(),
+            conversationId = conversationId,
+            nodeIndex = index,
+            messages = JsonInstant.encodeToString(node.messages),
+            selectIndex = node.selectIndex,
+        )
+    }
+    val previousById = existing.associateBy { it.id }
+    val currentIds = entities.mapTo(HashSet()) { it.id }
+    val removedIds = previousById.keys - currentIds
+    val upserts = entities.filter { entity ->
+        val previous = previousById[entity.id]
+        previous == null || previous.nodeIndex != entity.nodeIndex ||
+            previous.selectIndex != entity.selectIndex || previous.messages != entity.messages
+    }
+    return MessageNodeWrites(removedIds = removedIds.toList(), upserts = upserts)
+}
+
+/** Upgrade legacy fork.14 cache references without replacing canonical text by a preview. */
+private suspend fun List<UIMessage>.externalizeLargeParts(
+    filesManager: FilesManager,
+): List<UIMessage> = withContext(Dispatchers.IO) {
+    suspend fun normalize(part: UIMessagePart): UIMessagePart = when (part) {
+        is UIMessagePart.Text -> part.copy(text = filesManager.restoreLegacyText(part.text))
+        is UIMessagePart.Tool -> part.copy(
+            input = filesManager.restoreLegacyText(part.input),
+            output = part.output.map { normalize(it) },
+        )
+        is UIMessagePart.Image -> part.copy(url = filesManager.persistHistoricalMedia(part.url))
+        is UIMessagePart.Video -> part.copy(url = filesManager.persistHistoricalMedia(part.url))
+        is UIMessagePart.Audio -> part.copy(url = filesManager.persistHistoricalMedia(part.url))
+        is UIMessagePart.Document -> part.copy(url = filesManager.persistHistoricalMedia(part.url, part.mime))
+        else -> part
+    }
+    map { message -> message.copy(parts = message.parts.map { normalize(it) }) }
+}

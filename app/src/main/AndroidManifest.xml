@@ -9,6 +9,7 @@
     android:name="android.permission.WRITE_EXTERNAL_STORAGE"
     android:maxSdkVersion="28" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
   <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
   <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
@@ -127,6 +128,14 @@
       android:name=".service.ChatGenerationForegroundService"
       android:exported="false"
       android:foregroundServiceType="dataSync" />
+    <service
+      android:name=".service.WorkspaceJobForegroundService"
+      android:exported="false"
+      android:foregroundServiceType="specialUse">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="long_running_workspace_task" />
+    </service>
     <service
       android:name=".service.MediaCreationForegroundService"
       android:exported="false"

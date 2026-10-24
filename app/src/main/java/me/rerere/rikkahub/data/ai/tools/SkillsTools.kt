@@ -11,8 +11,9 @@ import me.rerere.rikkahub.data.skills.SkillFrontmatterParser
 import me.rerere.rikkahub.data.skills.SkillMetadata
 import me.rerere.rikkahub.data.skills.SkillPaths
 
-// 与 Agent Skills 规范的 description 上限一致
-private const val MAX_SKILL_DESCRIPTION_LENGTH = 1024
+// 为控制工具清单长度，描述预览限制为 512 字符；use_skill 仍读取完整技能正文
+private const val MAX_SKILL_DESCRIPTION_LENGTH = 512
+private const val MAX_SKILLS_IN_PROMPT = 24
 
 fun createSkillTools(
     enabledSkills: Set<String>,
@@ -33,7 +34,7 @@ fun createSkillTools(
                     appendLine("**Skills**")
                     appendLine("You have access to the following skills. Use the `use_skill` tool to load a skill's instructions when the user's request matches.")
                     appendLine("<available_skills>")
-                    available.forEach { skill ->
+                    available.take(MAX_SKILLS_IN_PROMPT).forEach { skill ->
                         appendLine("  <skill>")
                         // 技能可能来自第三方导入，转义并限长，防止 name/description 闭合标签注入任意系统提示
                         appendLine("    <name>${skill.name.escapeXml()}</name>")
@@ -41,6 +42,9 @@ fun createSkillTools(
                         appendLine("  </skill>")
                     }
                     append("</available_skills>")
+                    if (available.size > MAX_SKILLS_IN_PROMPT) {
+                        appendLine("\n（还有 ${available.size - MAX_SKILLS_IN_PROMPT} 个技能未在清单中展开；需要时用 use_skill 指定名称。）")
+                    }
                     appendLine()
                 }
             },

@@ -1,5 +1,6 @@
 package me.rerere.rikkahub.data.db.dao
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -26,6 +27,12 @@ interface MessageNodeDAO {
         offset: Int
     ): List<MessageNodeEntity>
 
+    @Query(
+        "SELECT * FROM message_node WHERE conversation_id = :conversationId " +
+            "ORDER BY node_index DESC LIMIT :limit"
+    )
+    suspend fun getLastNodes(conversationId: String, limit: Int): List<MessageNodeEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(nodes: List<MessageNodeEntity>)
 
@@ -41,7 +48,21 @@ interface MessageNodeDAO {
     @Query("DELETE FROM message_node WHERE id = :nodeId")
     suspend fun deleteById(nodeId: String)
 
+    // 增量落库用：只读 id / 顺序 / 内容，避免把整张表的所有列都搬进内存
+    @Query("SELECT id, node_index, messages, select_index FROM message_node WHERE conversation_id = :conversationId")
+    suspend fun getSnapshots(conversationId: String): List<MessageNodeSnapshot>
+
+    @Query("DELETE FROM message_node WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
+
     // 消息节点数（重新生成的分支不另算）
     @Query("SELECT COUNT(*) FROM message_node")
     suspend fun countAll(): Int
 }
+
+data class MessageNodeSnapshot(
+    val id: String,
+    @ColumnInfo(name = "node_index") val nodeIndex: Int,
+    val messages: String,
+    @ColumnInfo(name = "select_index") val selectIndex: Int,
+)

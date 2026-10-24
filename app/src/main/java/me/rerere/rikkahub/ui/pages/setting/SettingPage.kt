@@ -256,6 +256,12 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         headlineContent = { Text(stringResource(R.string.setting_page_mcp)) },
                     )
                     item(
+                        onClick = { navController.navigate(Screen.SettingFork) },
+                        leadingContent = { CardGroupIcon(HugeIcons.McpServer, containerColor = containerColor, contentColor = contentColor) },
+                        supportingContent = { Text("工作区长任务、远程执行与子代理") },
+                        headlineContent = { Text("高级与长任务") },
+                    )
+                    item(
                         onClick = { navController.navigate(Screen.SettingWeb) },
                         leadingContent = { CardGroupIcon(HugeIcons.ServerStack01, containerColor = containerColor, contentColor = contentColor) },
                         supportingContent = { Text(stringResource(R.string.setting_page_web_server_desc)) },
