@@ -193,7 +193,8 @@ class ChatService(
     fun cleanup() = runCatching { sessionManager.cleanup() }
 
     private fun onSessionGenerationFinished(session: ConversationSession, cause: Throwable?) {
-        if (cause != null) session.messageQueue.pause()
+        // 取消只来自停止（已自行暂停）或删除，这里再暂停会盖掉停止后用户发送时恢复的队列
+        if (cause != null && cause !is CancellationException) session.messageQueue.pause()
         if (session.state.value.isAwaitingToolApproval) {
             session.messageQueue.failReplyWaiters(context.getString(R.string.chat_page_voice_tool_approval))
         }
@@ -222,6 +223,12 @@ class ChatService(
 
     fun getProcessingStatusFlow(conversationId: Uuid): StateFlow<String?> =
         sessionManager.getProcessingStatusFlow(conversationId)
+
+    fun getReplyMessageIdFlow(conversationId: Uuid): StateFlow<Uuid?> =
+        sessionManager.getReplyMessageIdFlow(conversationId)
+
+    fun getGenerationStartedAtFlow(conversationId: Uuid): StateFlow<Long?> =
+        sessionManager.getGenerationStartedAtFlow(conversationId)
 
     fun getConversationJobs(): Flow<Map<Uuid, Job?>> = sessionManager.getConversationJobs()
 
@@ -428,6 +435,8 @@ class ChatService(
 
     private fun sendQueuedMessage(session: ConversationSession, queued: QueuedMessage): Job {
         val conversationId = session.id
+        // 新消息开始初始化前就清掉旧回复，初始化失败或任务启动前取消也不能留下旧预览。
+        session.replyMessageId.value = null
         val job = launchGenerationJob(
             conversationId = conversationId,
             keepAliveInBackground = queued.answer,
@@ -500,6 +509,7 @@ class ChatService(
             val job = launchGenerationJob(conversationId = conversationId) {
                 try {
                     previousJob?.join()
+                    session.replyMessageId.value = null
                     ensureInitialized(session)
                     val node = session.state.value.getMessageNodeByMessageId(messageId)
                         ?: return@launchGenerationJob
@@ -588,6 +598,8 @@ class ChatService(
      */
     private suspend fun runTurn(session: ConversationSession, regenerateNodeId: Uuid? = null): TurnResult {
         val conversationId = session.id
+        // 先清理上一轮状态；确定历史后，仅为真正的续写恢复消息 ID。
+        session.replyMessageId.value = null
         // 生成开始前失败时通知只用来取消 Live Update，用不到发送者名称
         var senderName = ""
         try {
@@ -603,13 +615,6 @@ class ChatService(
                     ?: latest.messageNodes.size
                 latest.copy(chatSuggestions = emptyList()).withoutUnresumableToolCalls(untilNode)
             }
-            val turn = requestFactory.createContext(settings, conversation)
-            senderName = if (turn.assistant.useAssistantAvatar) {
-                turn.assistant.name.ifEmpty { context.getString(R.string.assistant_page_default_assistant) }
-            } else {
-                turn.model.displayName
-            }
-            warnIfToolsUnavailable(turn, conversationId)
 
             val nodes = conversation.messageNodes
             val history = if (regenerateNodeId != null) {
@@ -624,6 +629,17 @@ class ChatService(
                 regenerateNodeId != null -> regenerateNodeId
                 else -> Uuid.random()
             }
+            // 接着上一条助手消息写时就是它，否则等第一次输出。要在 createContext 之前换掉，
+            // 它会挂起也可能失败，期间或失败后不能还指着上一轮的回复
+            session.replyMessageId.value = history.lastOrNull()?.takeIf { it.role == MessageRole.ASSISTANT }?.id
+
+            val turn = requestFactory.createContext(settings, conversation)
+            senderName = if (turn.assistant.useAssistantAvatar) {
+                turn.assistant.name.ifEmpty { context.getString(R.string.assistant_page_default_assistant) }
+            } else {
+                turn.model.displayName
+            }
+            warnIfToolsUnavailable(turn, conversationId)
 
             val (request, hooks) = requestFactory.createAgent(turn, history, session.processingStatus)
             var finishReason: AgentFinishReason? = null
@@ -636,6 +652,7 @@ class ChatService(
                             session.update { it.upsertMessage(replyNodeId, event.message) }
                             // 流式内容此刻只在内存里，定时落库避免强杀丢掉整段回复
                             persistStreamingThrottled(session)
+                            session.replyMessageId.value = event.message.id
                             // 通知等边缘副作用由 ChatNotificationManager 消费；
                             // tryEmit 不挂起，事件丢失只影响单次通知更新，不能反压生成链
                             appEventBus.tryEmit(
@@ -1266,10 +1283,7 @@ class ChatService(
         messageId: Uuid
     ): Conversation {
         val source = withLoadedSession(conversationId) { it.state.value }
-        val existingTitles = conversationRepo
-            .getConversationsOfAssistant(source.assistantId)
-            .first()
-            .mapTo(mutableSetOf()) { it.title }
+        val existingTitles = conversationRepo.getTitlesOfAssistant(source.assistantId)
         val fork = source.fork(messageId, existingTitles, copyFile = ::copyChatFile)
             ?: throw NotFoundException("Message not found")
         // 新会话直接落库，打开时再从数据库加载

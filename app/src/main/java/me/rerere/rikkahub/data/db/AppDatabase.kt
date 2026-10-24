@@ -57,7 +57,8 @@ import me.rerere.rikkahub.utils.JsonInstant
     ],
     // fork.15 already used schema 31 with a different usage_record shape.
     // Keep 3.1 compatibility in a new fork schema instead of lying to Room about identity.
-    version = 33,
+    // 34: official 3.1.1 adds workspaces.type / workspaces.ssh_config (SSH remote workspace).
+    version = 34,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),
@@ -84,6 +85,8 @@ import me.rerere.rikkahub.utils.JsonInstant
         AutoMigration(from = 29, to = 30),
         // 30 -> 32 is a direct migration so official 3.0 installs get the unified table.
         // fork.15 and official 3.1 schema-31 databases use the explicit 31 -> 32 migration below.
+        // Official 3.1.1's 31 -> 32 AutoMigration is intentionally not registered: fork owns that
+        // step and schema 34 adds the two SSH workspace columns on top of fork schema 33.
     ]
 )
 @TypeConverters(TokenUsageConverter::class)

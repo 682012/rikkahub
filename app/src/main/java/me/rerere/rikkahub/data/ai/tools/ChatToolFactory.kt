@@ -11,12 +11,12 @@ import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.files.FileFolders
-import me.rerere.rikkahub.data.skills.SkillManager
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.repository.memoryId
+import me.rerere.rikkahub.data.skills.SkillManager
 import me.rerere.workspace.WorkspaceShellStatus
 import java.io.File
 import kotlin.uuid.Uuid
@@ -47,7 +47,7 @@ private val TOOL_OUTPUT_READER_TOOLS = setOf("workspace_shell", "workspace_read_
  * 因此要求同时满足两条：父对话具备本地工作区文件访问能力，且子代理实际拿到的工具里
  * 有能读 /tool_outputs 的那个。
  *
- * @param localWorkspaceFileAccess 本地工作区可用（与父侧截断判定完全同一个条件）
+ * @param localWorkspaceFileAccess 本地工作区可读 /tool_outputs（即父侧 canReadToolOutputs）
  * @param childTools 子代理最终会拿到的工具（已按 isSubagentToolAllowed 过滤）
  */
 internal fun shouldTruncateChildToolOutput(
@@ -122,6 +122,10 @@ class ChatToolFactory(
                 )
             }
         }
+        // 过长的输出存成文件让模型用 shell 按需读取；没有 shell 时模型读不到文件，只能原样返回。
+        // 文件放在本机, 只有本地 Rootfs 挂载了 /tool_outputs, 远程工作区同样读不到
+        val canReadToolOutputs = workspaceTools.isNotEmpty() &&
+            assistant.workspaceId?.let { workspaceRepository.getById(it.toString()) }?.capabilities()?.rootfs == true
         // fork: 子代理工具。childTools 里不含 subagent_*，避免无限嵌套。
         // 子代理可以额外拿到会话检索/读取工具，用来参考其他聊天。
         val childTools = (if (settings.subagent.includeChatHistory) {
@@ -133,12 +137,9 @@ class ChatToolFactory(
             // 子代理的工具可见性遵循设置，避免开关是摆设
             isSubagentToolAllowed(tool.name, settings.subagent)
         }
-        // 过长的输出存成文件让模型用 shell 按需读取；没有 shell 时模型读不到文件，只能原样返回。
-        // 父侧判定逐字沿用原条件；子代理额外确认自己真的拿到了能读 /tool_outputs 的工具。
-        val localWorkspaceFileAccess =
-            workspaceTools.isNotEmpty() && settings.workspaceRuntime.remote?.enabled != true
+        // 父侧用 canReadToolOutputs 判定；子代理还要额外确认自己真的拿到了能读 /tool_outputs 的工具。
         val childToolsForSubagent =
-            if (shouldTruncateChildToolOutput(localWorkspaceFileAccess, childTools)) {
+            if (shouldTruncateChildToolOutput(canReadToolOutputs, childTools)) {
                 childTools.map(::withOutputTruncation)
             } else childTools
         val withSubagent = if (settings.subagent.enabled) {
@@ -150,7 +151,7 @@ class ChatToolFactory(
                 conversationId = conversationId,
             )
         } else tools
-        return if (localWorkspaceFileAccess) withSubagent.map(::withOutputTruncation) else withSubagent
+        return if (canReadToolOutputs) withSubagent.map(::withOutputTruncation) else withSubagent
     }
 
     private fun withOutputTruncation(tool: Tool): Tool {
