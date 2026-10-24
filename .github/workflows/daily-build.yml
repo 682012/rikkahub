@@ -1,111 +1,167 @@
-name: Daily Build
+name: RikkaHub Daily Build (4C16G)
 
+# Installed on the default branch (master). The SOURCE below is fork/3.1.0.
 on:
-  # 每天 UTC 09:00、18:00 触发（北京时间 17:00、次日 02:00）
   schedule:
     - cron: '0 9,18 * * *'
-  # 也支持手动触发
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: rikkahub-nightly-release
+  cancel-in-progress: false
+
 jobs:
-  # 检查过去 24 小时内是否有新提交，没有则跳过构建，避免重复打包
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
-      should_build: ${{ steps.check.outputs.should_build }}
+      should_build: ${{ steps.decision.outputs.should_build }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Check for recent commits
-        id: check
+      - name: Checkout build source
+        uses: actions/checkout@v4
+        with:
+          ref: fork/3.1.0
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Check whether a build is necessary
+        id: decision
+        shell: bash
         run: |
-          # 手动触发时无条件构建
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = 'workflow_dispatch' ]; then
+            echo 'should_build=true' >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # 定时触发：仅当过去 24 小时内有新提交才构建
-          if [ -n "$(git log --since='24 hours ago' --oneline)" ]; then
-            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          # Scheduled builds only run if the selected source branch was recently updated.
+          latest=$(git log -1 --format=%ct)
+          now=$(date +%s)
+          if [ "$((now-latest))" -lt 86400 ]; then
+            echo 'should_build=true' >> "$GITHUB_OUTPUT"
           else
-            echo "should_build=false" >> "$GITHUB_OUTPUT"
-            echo "过去 24 小时无新提交，跳过构建"
+            echo 'should_build=false' >> "$GITHUB_OUTPUT"
+            echo 'No new source commit in the past 24h; skipping.'
           fi
 
   build:
     needs: check
     if: needs.check.outputs.should_build == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     permissions:
-      contents: write   # 发布 Release 需要写权限
-
+      contents: write # Only the release job can update the existing nightly prerelease.
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout fork 3.1.0 including submodules
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          submodules: recursive # 拉取子模块
+          ref: fork/3.1.0
+          submodules: recursive
+          persist-credentials: false
 
-      # 与 Android Studio 自带的 JetBrains Runtime 21 保持一致
-      - name: Set up JDK
+      - name: Runner resources and disk safety
+        shell: bash
+        run: |
+          echo "CPU: $(nproc)"
+          free -h
+          df -h /
+          available=$(df -Pk / | awk 'END {print $4}')
+          if [ "$available" -lt 8388608 ]; then
+            sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/powershell
+          fi
+          df -h /
+          available=$(df -Pk / | awk 'END {print $4}')
+          if [ "$available" -lt 6291456 ]; then
+            echo '::error::Not enough free disk space for Android build (<6 GiB)'
+            exit 1
+          fi
+
+      - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'jetbrains'
+          distribution: temurin
           java-version: '21'
-        env:
-          # jetbrains 安装器通过 GitHub API 查询版本，带上 token 避免被限流
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # web 模块的 preBuild 会执行 `pnpm run build` 构建前端，必须准备好 Node + pnpm
-      - name: Set up pnpm
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up pnpm 11
         uses: pnpm/action-setup@v4
         with:
           version: 11
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: web-ui/pnpm-lock.yaml
+      - name: Android SDK 37.2 + Build Tools 37.0.0
+        shell: bash
+        run: |
+          sdkm="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdkm" ]; then
+            sdkm="$(find "$ANDROID_HOME" -type f -name sdkmanager -print -quit)"
+          fi
+          if [ -z "$sdkm" ] || [ ! -x "$sdkm" ]; then
+            echo '::error::Android sdkmanager not found'
+            exit 1
+          fi
+          yes | "$sdkm" --licenses >/dev/null || true
+          "$sdkm" --channel=3 --install 'platforms;android-37.2' 'build-tools;37.0.0'
+          df -h /
 
-      # gradle 的 buildWebUi 任务只跑 build 不跑 install，需在此提前安装依赖
-      - name: Install web-ui dependencies
+      - name: Install Web UI dependencies
         working-directory: web-ui
         run: pnpm install --frozen-lockfile
 
-      - name: Gradle cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-
-      - name: Prepare build files
+      - name: Limit Gradle and Kotlin memory
+        shell: bash
         run: |
-          # 解码base64编码的keystore文件
-          echo "${{ secrets.KEY_BASE64 }}" | base64 -d > app/app.key
+          mkdir -p "$HOME/.gradle"
+          cat > "$HOME/.gradle/gradle.properties" <<'GRADLE'
+          org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8
+          kotlin.daemon.jvmargs=-Xmx3072m
+          org.gradle.workers.max=2
+          org.gradle.parallel=false
+          GRADLE
 
-          # 写入签名配置到local.properties
-          echo "${{ secrets.SIGNING_CONFIG }}" > local.properties
+      - name: Prepare signing and Google Services from GitHub Secrets
+        shell: bash
+        env:
+          KEY_BASE64: ${{ secrets.KEY_BASE64 }}
+          SIGNING_CONFIG: ${{ secrets.SIGNING_CONFIG }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          for key in KEY_BASE64 SIGNING_CONFIG GOOGLE_SERVICES_JSON; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Required GitHub Secret $key is missing"
+              exit 1
+            fi
+          done
+          umask 077
+          printf '%s' "$KEY_BASE64" | base64 --decode > app/app.key
+          printf '%s\n' "$SIGNING_CONFIG" > local.properties
+          printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+          python3 -m json.tool app/google-services.json >/dev/null
+          test -s app/app.key
 
-          # 写入Google Services配置
-          echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > app/google-services.json
-
-      - name: Gradle Build
+      - name: Build SIGNED release APK (R8 enabled)
+        shell: bash
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease
+          ./gradlew :app:assembleRelease --no-daemon --max-workers=2 --console=plain
+          echo 'Build output:'
+          find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -printf '%f %s bytes\n'
+          free -h
+          df -h /
 
-      # 把 APK 直接发布为 Prerelease，用户点链接即可下载单个 apk，无需登录、无需解压
-      - name: Publish nightly prerelease
+      - name: Publish/update nightly prerelease
         uses: softprops/action-gh-release@v2
-        if: success()
         with:
-          tag_name: nightly            # 固定 tag，每晚覆盖同一个「最新每日构建」
+          tag_name: nightly
+          target_commitish: fork/3.1.0
           name: Nightly Build
           prerelease: true
+          generate_release_notes: false
           body: |
-            自动每日构建（commit `${{ github.sha }}`）
-
-            > ⚠️ 开发版本，可能不稳定，仅供测试。
+            RikkaHub fork/3.1.0 nightly build.
+            Workflow: GitHub-hosted Ubuntu 4 vCPU / 16 GB runner.
+            For testing only; inspect changes before installing.
           files: app/build/outputs/apk/release/*.apk
+          fail_on_unmatched_files: true
