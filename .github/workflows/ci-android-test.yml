@@ -1,0 +1,139 @@
+name: RikkaHub CI - Safe Android build test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rikkahub-ci-test
+  cancel-in-progress: false
+
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    steps:
+      - name: Checkout fork 3.1.0 with submodules
+        uses: actions/checkout@v4
+        with:
+          ref: fork/3.1.0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Show runner resources
+        shell: bash
+        run: |
+          echo "CPU: $(nproc)"
+          free -h
+          df -h /
+
+      - name: Free optional runner disk space if necessary
+        shell: bash
+        run: |
+          before=$(df -Pk / | awk 'END {print $4}')
+          if [ "$before" -lt 8388608 ]; then
+            sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/powershell
+          fi
+          df -h /
+          available=$(df -Pk / | awk 'END {print $4}')
+          if [ "$available" -lt 6291456 ]; then
+            echo "::error::Less than 6 GiB disk space after cleanup"
+            exit 1
+          fi
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up pnpm 11
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Install Android SDK 37.2
+        shell: bash
+        run: |
+          sdkm="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$sdkm" ]; then
+            sdkm="$(find "$ANDROID_HOME" -type f -name sdkmanager -print -quit)"
+          fi
+          if [ -z "$sdkm" ] || [ ! -x "$sdkm" ]; then
+            echo "::error::Android sdkmanager not found"
+            exit 1
+          fi
+          yes | "$sdkm" --licenses >/dev/null || true
+          "$sdkm" --channel=3 --install 'platforms;android-37.2' 'build-tools;37.0.0'
+          df -h /
+
+      - name: Install Web UI dependencies
+        working-directory: web-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Set memory limits and disposable test signing
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.gradle"
+          cat > "$HOME/.gradle/gradle.properties" <<'GRADLE'
+          org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Dfile.encoding=UTF-8
+          kotlin.daemon.jvmargs=-Xmx3072m
+          org.gradle.workers.max=2
+          org.gradle.parallel=false
+          GRADLE
+          keytool -genkeypair -noprompt \
+            -keystore app/ci-test.jks \
+            -storepass ci-test-only -keypass ci-test-only \
+            -alias ci-test -keyalg RSA -keysize 2048 -validity 2 \
+            -dname 'CN=Disposable CI Test,OU=Smoke Test,O=RikkaHub'
+          cat > local.properties <<'LOCAL'
+          storeFile=ci-test.jks
+          storePassword=ci-test-only
+          keyAlias=ci-test
+          keyPassword=ci-test-only
+          LOCAL
+          python3 - <<'PY'
+          import json
+          cfg = {
+            'project_info': {
+              'project_number': '123456789012',
+              'project_id': 'ci-smoke-placeholder',
+              'storage_bucket': 'ci-smoke-placeholder.appspot.com'
+            },
+            'client': [{
+              'client_info': {
+                'mobilesdk_app_id': '1:123456789012:android:0123456789abcdef012345',
+                'android_client_info': {'package_name': 'me.rerere.rikkahub.fork'}
+              },
+              'api_key': [{'current_key': 'CI_ONLY_NOT_A_REAL_API_KEY'}]
+            }],
+            'configuration_version': '1'
+          }
+          with open('app/google-services.json', 'w', encoding='utf-8') as f:
+            json.dump(cfg, f)
+          PY
+          echo 'Test-only signing; output must not be used for real installation or release.'
+
+      - name: Build APK without R8 (compile feasibility test)
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease -PfastBuild --no-daemon --max-workers=2 --console=plain
+          free -h
+          df -h /
+          find app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -printf '%f %s bytes\n'
+
+      - name: Upload TEST ONLY APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rikkahub-ci-test-NOT-FOR-INSTALL
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 2
+          if-no-files-found: error
