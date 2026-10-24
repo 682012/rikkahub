@@ -231,3 +231,28 @@ scp app/build/outputs/apk/release/app-arm64-v8a-release.apk \
 - 资料：本目录 `AUDIT-20261024.md`；工作区 `/workspace/rikkahub-fork/AUDIT-20261024.md`；HB `/data/data1/rk3mod/audit-20261024/`。
 - 完整源码/签名备份：`audit-20261024/baseline/fork34-source-and-signing-v2.tar.gz`，2,384 文件逐个 SHA-256 校验通过。带凭据，不要外传；不带 -v2 的失败包不可恢复。
 - 回退先停构建，按最终文件清单删除本轮新增项，再恢复上述归档；不通过卸载手机 App 回退，避免丢数据。
+
+## 11. 2026-10-25 fork.36：合并官方 3.1.1
+
+- 基线：官方 `3.1.1`（commit `ad2c4430`，49 个提交），上一版 `3.1.0-fork.35` / `3000039`。
+- 方式：完整 git 三方合并。工作区仓库分支 `fork/3.1.1`，合并提交 `0ccc6b27`（fork.35 快照 `52861b90` + 官方 3.1.1）。15 个冲突文件由四路并行子代理分组处理（FTS、workspace、chat/DI、资源与构建），主线程负责数据库迁移与最终验收。
+- 官方 3.1.1 主要变更已接入：
+  - SSH 远程工作区（`WorkspaceLayout` / `WorkspaceCapabilities` / `SshConnectionPool` / `SshWorkspaceBackend`），设置页与编辑页入口完整。
+  - 后台生成悬浮窗与快速回复、overlay 权限入口。
+  - 德语 `values-de`。
+  - 记忆整理模型（`Settings.memoryModelId` + 设置页）。
+  - 工具调用 `startedAt/finishedAt` 与耗时显示。
+  - models.dev 模型能力识别、新图片裁剪、联网搜索入口移到加号菜单、压缩上下文步进器、收藏模型排序等。
+  - 安装包体积：R8 arm64 16 MB（fork.35 为 70 MB）。
+- fork 功能保留：子代理、工作区 job、远程 HTTP 执行、流式节流落库、工作区导出、技能校验、自动压缩、用量统计。
+- 数据库：`version = 34`，`identityHash 7ecc686adf1237a8596022247f9624b8`；在 fork 33 上补 `workspaces.type` / `workspaces.ssh_config`，`Migration_33_34` 幂等加列；`30→32`、`31→32`、`32→33` 迁移链保留。`33.json` 仍是 fork 结构，官方更新的 `32.json` 没有覆盖 fork 版本。
+- 搜索：采用官方增量 FTS（无 jieba、中文单字 NEAR、`message_fts_rowid` 映射），保留 fork 的 `ensureSchema` / `recreateSchema` / `count` 与查询容错。
+- 验证：
+  - `:app:testGithubDebugUnitTest` + `:workspace:testDebugUnitTest`：85 个 suite、591 项，0 失败 / 0 错误 / 0 跳过。
+  - `:app:assembleGithubRelease -PfastBuild`：BUILD SUCCESSFUL（38m39s，首次下载依赖）。
+  - `:app:assembleGithubRelease`（R8）：BUILD SUCCESSFUL（6m13s）。
+  - APK：`me.rerere.rikkahub.fork`，`3.1.1-fork.36` / `3000040`，arm64-v8a，16,328,016 字节，SHA-256 `5aefc6e3caf7492ebdc0175e328123a927b3f8b1ac32abd525f5345660fd5c6c`，V2 证书 SHA-256 `cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89`，与 fork.34/35 一致。
+- 产物：HB `/data/data1/rk3mod/rikkahub-3.1.1-fork.36.apk`；手机 `/sdcard/Download/rikkahub-3.1.1-fork.36.apk`（SHA-256 已核对一致）；GitHub `fork/3.1.1`。
+- 构建环境（HB，本次补齐）：SDK platform 37.2、build-tools 36.0.0、NDK 28.2.13676358、CMake 3.22.1。Gradle 堆调到 `-Xmx6g`：8g 时 R8 阶段 daemon 被 OOM 杀掉一次。依赖下载在构建机临时走阿里云镜像，仓库配置未改。
+- 未验证：真机安装与启动、33→34 数据库真实升级、SSH 工作区真实连接、悬浮窗 overlay 权限流程、SAF 导出、锁屏 job 存活；R8 包的运行时行为未覆盖。
+- 回退：同签名可回 `fork.35`（3000039）；数据库升到 34 后不要降级安装 33，Android 不一定允许。

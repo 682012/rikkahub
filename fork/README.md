@@ -29,11 +29,13 @@
 
 ```bash
 # 快速迭代（跳过 R8，约 5 分钟）
-./gradlew :app:assembleRelease -PfastBuild --daemon
+./gradlew :app:assembleGithubRelease -PfastBuild --daemon
 
-# 正式包
-./gradlew :app:assembleRelease --daemon
+# 正式包（R8）
+./gradlew :app:assembleGithubRelease --daemon
 ```
+
+3.1.1 起官方引入 `distribution` flavor（github / play），构建任务名带 `Github`；产物在 `app/build/outputs/apk/github/release/`。R8 需要约 6 GB 堆，`gradle.properties` 已把 `org.gradle.jvmargs` 设为 `-Xmx6g`，8 GB 在 19 GB 内存的构建机上会被 OOM 杀掉。
 
 签名配置在 `local.properties`（不入库）：
 

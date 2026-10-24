@@ -1,6 +1,16 @@
 # 与原版的差异 / Differences from upstream
 
-基线：RikkaHub `3.1.0`（commit `eeef60b2`）；上一个 fork 基线是 `3.0.0`（`55a108a4`）。
+基线：RikkaHub `3.1.1`（commit `ad2c4430`）；上一版基于 `3.1.0`（`eeef60b2`）。
+
+## fork.36：合并官方 3.1.1（2026-10-24）
+
+- 合并官方 3.1.1 的 49 个提交：SSH 远程工作区、后台生成悬浮窗与快速回复、德语、记忆整理模型设置、工具调用执行耗时、models.dev 模型能力识别
+- 界面跟进官方改动：图片裁剪重做、联网搜索入口移到加号菜单、压缩上下文保留条数改步进器、收藏模型排序、连按返回闪退等修复
+- 数据库 schema 34：在 fork 33 上补 `workspaces.type` / `workspaces.ssh_config`，兼容官方 3.1.1 的 SSH 工作区；`30→32`、`31→32`、`32→33` 迁移链保留，33→34 幂等加列
+- 全文搜索采用官方增量索引（去掉 jieba 词典，中文单字 NEAR 匹配），保留 fork 的 `ensureSchema` 分词器检测与重建兜底
+- 工作区工具改用官方 `WorkspaceLayout` / `capabilities`：SSH 工作区不暴露本地写文件与 job 工具；fork 的工作区 job、远程 HTTP 执行、超时配置保留
+- 子代理工具保留；父对话工具输出外置改用官方 `capabilities().rootfs` 判断，SSH/远程工作区不再误截断
+- 版本 `3.1.1-fork.36` / `3000040`
 
 ## fork.35：审计修复与回归测试（2026-10-24）
 
