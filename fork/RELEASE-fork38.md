@@ -42,13 +42,15 @@
 
 机器可读摘要见 [verification/fork38.json](verification/fork38.json)。这些结果不等于“没有未知错误”或“所有手机均已验证”。
 
-## 已验私有构建的标识
+## 下载与校验
 
-用于核对对应源码，不表示本仓库公开分发 APK：
+**[下载 fork.38 通用 APK](https://github.com/682012/rikkahub/releases/download/v3.1.1-fork.38/rikkahub-3.1.1-fork.38.apk)** · [Release 与校验文件](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.38) · [对应源码](https://github.com/682012/rikkahub/tree/v3.1.1-fork.38)
+
+此次上传的是已验原包，没有因上传而重编译；固定版本归档保留 APK、SHA256SUMS 与源码 tag，后续可重复下载：
 - 通用构建 ABI：arm64-v8a、x86_64；19,214,408 字节。
 - APK SHA-256：`8499915d634a9376a834e919da43416921f71e77fb768780704d091b8024d9f3`。
 - 数据库仍为 schema 34；同签名 fork 可常规升级，官方包名/签名不同，不能直接覆盖官方版。
-- 本次发布仅同步源码、版本标记及说明，不上传安装包、不触发旧 nightly 工作流。
+- 源码同步后，按维护者确认补发这份 APK；不触发旧 nightly 工作流，也不覆盖其资产。安装前备份聊天与设置，不要为了升级先卸载 App。
 
 ## 明确没有做的事
 

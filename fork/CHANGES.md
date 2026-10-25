@@ -14,7 +14,7 @@
 - JVM 1392 项登记：1391 通过、0 失败、1 项可选 PDF 语料测试跳过；Android API34 模拟器 50 项全通过；Python 11/SQLite 38 及 Unicode 分片检查通过
 - 最终 R8 + lintVital 通过，签名与前版一致；用户手机生产库升级、厂商通知与锁屏保活未验
 - 首页按更严格的“5 组新增 + 2 项增强”重排，不把官方已有能力或 bug 修复凑成新功能；Material 依赖作为已验普通源码提交
-- 本次仅推源码与说明，不上传 APK，不触发 nightly。完整变化见 [RELEASE-fork38.md](RELEASE-fork38.md)
+- 源码同步后补发同一份已验 APK 至 [固定版本 Release](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.38)，附 SHA256SUMS 并保留对应源码 tag；不重编译、不触发 nightly。完整变化见 [RELEASE-fork38.md](RELEASE-fork38.md)
 
 ## fork.37：3.1.1 合并后检修（2026-10-25）
 

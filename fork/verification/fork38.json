@@ -12,18 +12,6 @@
     "majorEnhancements": 2,
     "bugFixesCountedAsFeatures": false
   },
-  "privateBuild": {
-    "abis": [
-      "arm64-v8a",
-      "x86_64"
-    ],
-    "bytes": 19214408,
-    "sha256": "8499915d634a9376a834e919da43416921f71e77fb768780704d091b8024d9f3",
-    "r8": true,
-    "lintVital": true,
-    "sameSigningCertificateAsPreviousFork": true,
-    "publicBinaryRelease": false
-  },
   "jvm": {
     "registered": 1392,
     "passed": 1391,
@@ -51,5 +39,24 @@
     "vendor notification behavior",
     "locked-screen survival",
     "all SAF providers"
-  ]
+  ],
+  "build": {
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ],
+    "bytes": 19214408,
+    "sha256": "8499915d634a9376a834e919da43416921f71e77fb768780704d091b8024d9f3",
+    "r8": true,
+    "lintVital": true,
+    "sameSigningCertificateAsPreviousFork": true,
+    "publicBinaryRelease": true
+  },
+  "release": {
+    "tag": "v3.1.1-fork.38",
+    "url": "https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.38",
+    "apkUrl": "https://github.com/682012/rikkahub/releases/download/v3.1.1-fork.38/rikkahub-3.1.1-fork.38.apk",
+    "auditedPublicSourceCommit": "6f6c428194b596d38e02d25cc1400bd9924fb4e5",
+    "rebuiltForUpload": false
+  }
 }

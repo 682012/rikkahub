@@ -4,9 +4,17 @@
 
 **当前版本：`3.1.1-fork.38` / `3000042` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
 
-> 与官方团队没有隶属关系。本仓库记录个人修改，不提供面向公众的 APK 分发或技术支持。官方渠道下载的是官方版，不是此分支。上游版权与 AGPL-3.0 许可证保持不变。
+> 与官方团队没有隶属关系。本仓库记录个人修改，并在 GitHub Releases 保存已验安装包，方便重复下载；不提供官方或面向终端用户的技术支持。官方渠道下载的是官方版，不是此分支。上游版权与 AGPL-3.0 许可证保持不变。
 
 [完整功能对比](fork/FEATURES.md) · [fork.38 更新与验收](fork/RELEASE-fork38.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
+
+## 下载与重复使用
+
+**[下载 fork.38 通用 APK（18.3 MiB）](https://github.com/682012/rikkahub/releases/download/v3.1.1-fork.38/rikkahub-3.1.1-fork.38.apk)** · [版本说明与 SHA-256](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.38) · [最新正式版](https://github.com/682012/rikkahub/releases/latest)
+
+固定版本链接不会随 nightly 被覆盖；每个正式版本保留对应源码 tag、APK 与校验文件。直接安装不需要编译环境，也不会附带维护者的聊天、账号或服务凭据。
+
+同包名、同签名的 fork.36/37 可按常规覆盖升级，先备份聊天和设置；不要为升级先卸载。官方包与本分支不同，不能直接覆盖官方版。需要重新编译时见 [构建与维护](fork/README.md)，签名密钥和本机配置自行准备。
 
 ## 相比官方，到底增加了什么？
 
@@ -77,4 +85,4 @@
 
 ### English summary
 
-Unofficial personal fork of upstream RikkaHub **3.1.1**. Five added workflows: subagents, background workspace jobs, an optional HTTP execution backend, automatic context compression, and ZIP workspace migration. Two major enhancements: configurable retry policy and a per-conversation usage panel. Linux/SSH workspaces, MCP, Skills, history tools and global usage statistics already exist upstream. fork.38 adds ZIP import and fixed/random retry waits, with **50 passing Android emulator tests** and **1391 passing JVM tests plus one optional skipped test**. See the [comparison](fork/FEATURES.md), [release notes](fork/RELEASE-fork38.md) and [limitations](DISCLAIMER.md). No public binary distribution or end-user support is offered.
+Unofficial personal fork of upstream RikkaHub **3.1.1**. Five added workflows: subagents, background workspace jobs, an optional HTTP execution backend, automatic context compression, and ZIP workspace migration. Two major enhancements: configurable retry policy and a per-conversation usage panel. Linux/SSH workspaces, MCP, Skills, history tools and global usage statistics already exist upstream. fork.38 adds ZIP import and fixed/random retry waits, with **50 passing Android emulator tests** and **1391 passing JVM tests plus one optional skipped test**. See the [comparison](fork/FEATURES.md), [release notes](fork/RELEASE-fork38.md) and [limitations](DISCLAIMER.md). Verified APKs and SHA-256 checksums are archived in [GitHub Releases](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.38) for repeat downloads; no end-user support is offered.

@@ -11,6 +11,6 @@
 
 按用途分为 5 组新增工作流（子代理、后台任务、HTTP 执行、自动压缩、ZIP 工作区迁移）及 2 项主要增强（重试策略、单会话用量）。SSH、MCP、Skills、历史检索与全局统计继承官方，不计为分支原创。
 
-此仓库仅记录个人源码修改，不提供面向公众的 APK 分发或技术支持。官方渠道提供的是官方版，包名、签名与本分支不同。上游项目介绍、官方渠道、赞助及贡献者信息见 [rikkahub/rikkahub](https://github.com/rikkahub/rikkahub)。
+此仓库记录个人源码修改，并在 [GitHub Releases](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.38) 提供已验 APK 与校验文件，方便重复下载；不提供官方或面向终端用户的技术支持。官方渠道提供的是官方版，包名、签名与本分支不同。上游项目介绍、官方渠道、赞助及贡献者信息见 [rikkahub/rikkahub](https://github.com/rikkahub/rikkahub)。
 
 许可证：[AGPL-3.0](LICENSE)。声明：[个人改版](DISCLAIMER.md) / [修改记录](NOTICE.md)。
