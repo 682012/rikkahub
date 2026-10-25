@@ -1,93 +1,77 @@
-> **个人改版 / Personal Fork**：本仓库是 RikkaHub 的非官方个人修改版，仅供自用，不提供 APK、安装教程或技术支持，与原作者无关。详见 [DISCLAIMER.md](../DISCLAIMER.md) 与 [NOTICE.md](../NOTICE.md)。
+# 个人分支：构建与维护
 
-# RikkaHub Fork（基于 3.1.0）
+本目录记录 RikkaHub 非官方个人分支。用户可见功能与官方差异统一放在 [仓库首页](../README.md) 和 [完整差异表](FEATURES.md)，本页只维护构建与回退流程。
 
-个人维护分支。在官方 3.1.0 上补：子代理、工作区长任务与远程执行、单会话用量、自动上下文压缩。
+## 当前基线
 
-## 与上游的关系
+| 项目 | 值 |
+|---|---|
+| 官方基线 | `3.1.1` / `ad2c4430` |
+| 维护分支 | `fork/3.1.1` |
+| 当前版本 | `3.1.1-fork.37` / `3000041` |
+| 包名 | `me.rerere.rikkahub.fork` |
+| 数据库 | schema 34；不是官方 schema 编号 |
+| 已验证产物 | R8 release，arm64-v8a，16,340,840 字节 |
+| APK SHA-256 | `b243e2788628112ad2be660957a56a1b74961e67ba3d523a3968496e4652c919` |
 
-- 基线：`rikkahub/rikkahub` 的 `3.1.0`（fork.16 起）
-- 版本号：`3.1.0-fork.N`；versionCode 独立递增，fork.35 为 `3000039`，不要再按 N 直接计算
-- 包名：`me.rerere.rikkahub.fork`（可与官方、其他分支共存）
-- 签名固定，后续版本可直接覆盖升级
+`master` 保留上游镜像，`fork/3.1.0`、`fork/3.0.0` 为历史分支。不要把旧分支、旧打包产物或构建后追加的源码修改当作上述已验证包。
 
-## 功能
-
-与官方版本的功能差异见 [CHANGES.md](CHANGES.md)。2026-10-24 审计、修复、验证边界和回退见 [AUDIT-20261024.md](AUDIT-20261024.md)。
-
-- 子代理：`subagent_run / wait / result / list / cancel`，独立上下文、并发上限、fallback 模型、结果落盘
-- 子代理可读取其他会话：`recent_chats / conversation_search / conversation_read`
-- 工作区：命令超时可配（0 = 不限），`workspace_job_start/status/kill` 后台任务，前台服务保活
-- 远程执行：`POST /exec` 与 `/job/*`，可把长任务交给服务器
-- 用量：`usage_record` 表，聊天页顶栏“用量”查看单会话明细
-- 自动压缩：上下文达到模型 `contextLength` 的阈值时插入摘要检查点，不删历史
-- 大会话 OOM：大块内容外置到 `filesDir/msg_cache`，图片转 `file://` 仍正常显示
+此仓库仅记录个人修改，不提供公开 APK 分发或技术支持。上游版权保留，详见 [声明](../DISCLAIMER.md)、[修改记录](../NOTICE.md) 与 [许可证](../LICENSE)。
 
 ## 构建
 
-需要 JDK 21、Android SDK 37.2、Gradle 9.6。
+环境：JDK 21、Android SDK 37.2、Gradle 9.6；本次构建使用 build-tools 36.0.0、NDK 28.2.13676358、CMake 3.22.1。
 
 ```bash
-# 快速迭代（跳过 R8，约 5 分钟）
+# 快速编译，不进行 R8，不能当作正式优化包验证
 ./gradlew :app:assembleGithubRelease -PfastBuild --daemon
 
-# 正式包（R8）
+# 正式 GitHub flavor：R8 + release lintVital
 ./gradlew :app:assembleGithubRelease --daemon
+
+# JVM 回归，--rerun 表示真实执行测试任务
+./gradlew :app:testGithubDebugUnitTest --rerun :workspace:testDebugUnitTest --rerun \
+  :ai:testDebugUnitTest --rerun :common:testDebugUnitTest --rerun
+
+# 仅编译/打包 Android 仪器测试，不能声称已在设备执行
+./gradlew :app:assembleGithubDebugAndroidTest
 ```
 
-3.1.1 起官方引入 `distribution` flavor（github / play），构建任务名带 `Github`；产物在 `app/build/outputs/apk/github/release/`。R8 需要约 6 GB 堆，`gradle.properties` 已把 `org.gradle.jvmargs` 设为 `-Xmx6g`，8 GB 在 19 GB 内存的构建机上会被 OOM 杀掉。
+APK 目录：`app/build/outputs/apk/github/release/`。官方 3.1.1 引入 `github/play` flavor，旧 `apk/release/*.apk` 路径不再适用；CI 构建和上传均已指定 GitHub flavor。维护分支工作流仅保留手动触发，避免切换首页后自动发布 nightly；本轮不运行工作流或上传 APK。历史 nightly 不代表当前源码已发布的安装包。
 
-签名配置在 `local.properties`（不入库）：
+`gradle.properties` 配置约 6 GiB Gradle 堆；实际峰值还包括 Kotlin、R8、原生构建和操作系统，不能按堆大小推算整机内存。不要并发启动多份 release 构建。
 
-```
-storeFile=/path/to/fork.jks
-storePassword=***
+`material3/material-color-utilities` 在本分支作为普通目录提交，无需再初始化该目录的 submodule。Google Services 使用本机占位配置，不能提交真实服务凭据。
+
+## 签名与私密配置
+
+签名参数在不入库的 `local.properties` 中：
+
+```properties
+storeFile=/private/path/fork.jks
+storePassword=<local-secret>
 keyAlias=fork
-keyPassword=***
+keyPassword=<local-secret>
 ```
 
-`material3/material-color-utilities` 是上游的 git submodule，本仓库以普通目录提交，克隆后无需再初始化。
+保持同一签名才能覆盖升级本分支。不要把 keystore、口令、API key、远程 token、真实聊天数据库或手机备份提交进仓库。签名不同或包名不同不能覆盖官方版，源码归档也不能代替数据备份。
 
-`app/google-services.json` 是占位配置，仅用于通过编译；不要填真实 Firebase 凭据。
+## HTTP 执行后端
 
-## 远程执行服务
+实现位于 `rk-exec-server.py`，服务端要求非空 `RK_EXEC_TOKEN`，默认监听回环；执行根目录与任务日志目录由 `RK_EXEC_ROOT`、`RK_EXEC_JOBS` 指定。客户端要求 HTTPS，回环地址例外。
 
-`fork/rk-exec-server.py`，部署在个人服务器：
+HTTP 只接管本地类型工作区的 shell/job，不接管 SSH 工作区，也不提供远端文件工具。令牌代表远端命令执行权限，并可能包含在设置备份里；不要分享服务凭据或备份。
 
-```bash
-python3 rk-exec-server.py   # 监听 127.0.0.1:18080
-```
+## 合并上游与版本记录
 
-环境变量：
-
-- `RK_EXEC_TOKEN`：Bearer token
-- `RK_EXEC_ROOT`：执行根目录
-- `RK_EXEC_JOBS`：后台任务日志目录
-
-服务端强制要求非空 `RK_EXEC_TOKEN`，否则拒绝启动；客户端只接受 HTTPS（本机回环可用 HTTP）。
-公网入口用 nginx 带 TLS 反代，不要直接暴露。
-
-远程模式只提供 `workspace_shell` 与 `workspace_job_*`；本地文件工具不会读取或写入远程目录。
-
-## 升级上游
-
-```bash
-FORK_ROOT=/path/to/this/repo ./scripts/sync-upstream.sh 3.0.1
-```
-
-脚本会下载新 tag，逐个对比侵入点文件，把差异输出到 `/tmp/rk-upstream-<tag>/patches`。合并后先跑 `-PfastBuild` 验证。
-
-侵入点集中在：`Settings.kt`、`ChatToolFactory.kt`、`ChatRequestFactory.kt`、`WorkspaceTools.kt`、`WorkspaceRepository.kt`、`ConversationRepository.kt`、`ChatService.kt`、`AppDatabase.kt`、`RouteActivity.kt`、`SettingPage.kt`、`AndroidManifest.xml`、`app/build.gradle.kts`。
+- 当前使用 Git 三方合并上游 tag，保留官方基线提交与 fork 历史。旧 `fork/scripts/sync-upstream.sh` 只是按固定文件清单导出差异的辅助脚本，不能替代全仓合并审查。
+- 版本号和 `versionCode` 独立递增；不能再套用早期 `3000000 + fork.N` 公式。
+- 当前差异见 [FEATURES.md](FEATURES.md)，按版本变化见 [CHANGES.md](CHANGES.md)。
+- [HANDOFF.md](HANDOFF.md) 记录历史维护现场；不是用户说明，旧章节中的路径、版本与状态仅代表当时情况。
+- [AUDIT-20261025.md](AUDIT-20261025.md) 记录 fork.37 的 950 项 JVM 回归、R8 构建和未真机验证范围。后续只改文档不会扩大真机验证结论。
 
 ## 回退
 
-- 代码：`git checkout <上一个 tag>`，重新构建
-- 数据：安装前导出备份；schema 升级不可逆，跨版本回退需要恢复备份
-- 签名：keystore 单独备份，丢失后无法覆盖升级
+先备份聊天、设置和工作区，再升级。源码用 Git 历史或已核验归档回退；已经变化的手机数据库要单独处理，不能靠降级安装解决，也不能先卸载 App 再找数据。
 
-## 已知限制
-
-- 用量从写入该表之后开始统计，历史消息不补记
-- 自动压缩依赖模型设置里的 `contextLength` 准确
-- `SubagentTask.steps` 实际是工具调用次数
-- 消息分页尚未实现，超大会话靠外置缓解
+跨分支结构对齐只修改 staging 副本；不认识的表可能被移除，不能承诺任意分支的业务数据全量兼容。ZIP 导出只含文件区，不含 Rootfs/权限/链接；此版没有 ZIP 导入。

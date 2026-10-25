@@ -16,6 +16,8 @@ import me.rerere.rikkahub.R
  * 通知构建器的配置 DSL
  */
 class NotificationConfig {
+    /** Optional identity namespace; null preserves the existing untagged notifications. */
+    var tag: String? = null
     var title: String = ""
     var content: String = ""
     var subText: String? = null
@@ -42,10 +44,12 @@ object NotificationUtil {
      * 检查是否有通知权限
      */
     fun hasNotificationPermission(context: Context): Boolean {
-        return ActivityCompat.checkSelfPermission(
-            context,
-            Manifest.permission.POST_NOTIFICATIONS
-        ) == PackageManager.PERMISSION_GRANTED
+        // POST_NOTIFICATIONS does not exist before Android 13.
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
     }
 
     /**
@@ -71,7 +75,7 @@ object NotificationUtil {
         val notificationConfig = NotificationConfig().apply(config)
         val notification = buildNotification(context, channelId, notificationConfig)
 
-        NotificationManagerCompat.from(context).notify(notificationId, notification.build())
+        NotificationManagerCompat.from(context).notify(notificationConfig.tag, notificationId, notification.build())
         return true
     }
 
@@ -119,8 +123,8 @@ object NotificationUtil {
     /**
      * 取消通知
      */
-    fun cancel(context: Context, notificationId: Int) {
-        NotificationManagerCompat.from(context).cancel(notificationId)
+    fun cancel(context: Context, notificationId: Int, tag: String? = null) {
+        NotificationManagerCompat.from(context).cancel(tag, notificationId)
     }
 
     /**
@@ -143,6 +147,6 @@ fun Context.sendNotification(
 /**
  * Context 扩展函数，取消通知
  */
-fun Context.cancelNotification(notificationId: Int) {
-    NotificationUtil.cancel(this, notificationId)
+fun Context.cancelNotification(notificationId: Int, tag: String? = null) {
+    NotificationUtil.cancel(this, notificationId, tag)
 }

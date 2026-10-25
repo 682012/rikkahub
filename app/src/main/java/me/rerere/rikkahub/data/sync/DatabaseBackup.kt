@@ -5,6 +5,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import io.requery.android.database.sqlite.SQLiteDatabase
 import io.requery.android.database.sqlite.SQLiteDatabaseConfiguration
 import me.rerere.rikkahub.data.db.SQLiteConfiguration
+import me.rerere.rikkahub.data.db.migrations.legacyMemoryArchivePath
 import me.rerere.rikkahub.data.db.migrations.legacyMemoriesToProfile
 import me.rerere.rikkahub.data.model.MemoryFile
 import java.io.File
@@ -64,8 +65,11 @@ internal object DatabaseBackup {
      * 只做结构对齐，不做业务数据合并；多出来的表会被删除，缺的列用目标库的
      * 默认值补齐。原备份不受影响。
      */
-    fun alignToTarget(context: Context, databaseFile: File): Boolean {
-        val targetFile = context.getDatabasePath(SQLiteConfiguration.DATABASE_NAME)
+    fun alignToTarget(
+        context: Context,
+        databaseFile: File,
+        targetFile: File = context.getDatabasePath(SQLiteConfiguration.DATABASE_NAME),
+    ): Boolean {
         if (!targetFile.isFile || targetFile.length() == 0L) return false
         val targetHash = identityHash(context, targetFile) ?: return false
         val stagedHash = identityHash(context, databaseFile)
@@ -193,16 +197,28 @@ internal object DatabaseBackup {
         return result
     }
 
+    /**
+     * Indexes that belong to managed tables only.
+     *
+     * `message_fts` (FTS5) and its shadow tables are created outside Room and are never dropped by
+     * [alignToTarget]. Replaying their CREATE statements would therefore fail with "index ... already
+     * exists" — the FTS rowid index is not `IF NOT EXISTS` — so both the comparison and the replay are
+     * limited to indexes whose `tbl_name` is a managed table. FTS compatibility is still checked
+     * separately through [ftsColumns].
+     */
     private fun indexSql(database: SQLiteDatabase): Map<String, String> {
         val result = linkedMapOf<String, String>()
         database.rawQuery(
-            "SELECT name, sql FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL",
+            "SELECT name, sql, tbl_name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL",
             null,
         ).use { cursor ->
             while (cursor.moveToNext()) {
                 val name = cursor.getString(0) ?: continue
                 val sql = cursor.getString(1) ?: continue
-                if (!name.startsWith("sqlite_autoindex")) result[name] = sql
+                val table = cursor.getString(2) ?: continue
+                if (name.startsWith("sqlite_autoindex")) continue
+                if (!table.isManagedTable()) continue
+                result[name] = sql
             }
         }
         return result
@@ -254,7 +270,7 @@ internal object DatabaseBackup {
             )
             database.execSQL(
                 "INSERT OR REPLACE INTO memory_file (assistant_id, path, content, updated_at) VALUES (?, ?, ?, ?)",
-                arrayOf<Any?>(assistantId, "_legacy/imported_memories_$now.md", contents.joinToString("\n"), now),
+                arrayOf<Any?>(assistantId, legacyMemoryArchivePath(now), contents.joinToString("\n"), now),
             )
         }
     }

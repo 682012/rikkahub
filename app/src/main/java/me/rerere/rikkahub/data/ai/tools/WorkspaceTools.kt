@@ -12,7 +12,10 @@ import me.rerere.ai.ui.DiffMetadata
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.toMetadata
 import me.rerere.rikkahub.data.files.FilesManager
+import me.rerere.rikkahub.data.repository.WorkspaceExecutionBackend
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.repository.effectiveExecutionBackend
+import me.rerere.rikkahub.data.repository.jobToolsAvailable
 import me.rerere.rikkahub.data.datastore.WorkspaceRuntimeSettings
 import me.rerere.rikkahub.utils.generateUnifiedDiff
 import me.rerere.workspace.WorkspaceCapabilities
@@ -53,19 +56,20 @@ suspend fun createWorkspaceTools(
     val shellCwd = cwd?.let(layout::relativeToWorkspace)
 
     val capabilities = workspace.capabilities()
-    // fork: 远程 HTTP 执行后端自带 /job/* 接口; 本地 job 需要 PRoot Rootfs。
-    // 官方 SSH 工作区既无 rootfs 也不走 fork 的 HTTP 远程执行, 因此不给 job 工具。
-    val jobToolsAvailable = runtime.remote?.enabled == true || capabilities.rootfs
+    // fork: 后端只有三种。全局 HTTP 远程开关只作用于 LOCAL 工作区；SSH 工作区永远走 SSH 后端，
+    // 既没有 fork 的 /job 接口，也不该退化成在本地 proot 里跑远端路径。
+    val backend = effectiveExecutionBackend(workspace.isSsh(), runtime)
+    val jobsAvailable = jobToolsAvailable(capabilities, backend)
 
     return buildList {
-        add(createReadFileTool(workspaceId, layout, ::needsApproval, workspaceRepository))
+        add(createReadFileTool(workspaceId, layout, ::needsApproval, workspaceRepository, backend))
         if (capabilities.fileWriteTools) {
             add(createWriteFileTool(workspaceId, layout, ::needsApproval, workspaceRepository))
             add(createEditFileTool(workspaceId, layout, ::needsApproval, workspaceRepository))
         }
-        add(createShellTool(workspaceId, layout, ::needsApproval, workspaceRepository, shellCwd, runtime))
-        if (jobToolsAvailable) {
-            add(createJobStartTool(workspaceId, layout, ::needsApproval, workspaceRepository, shellCwd, runtime))
+        add(createShellTool(workspaceId, layout, ::needsApproval, workspaceRepository, shellCwd, runtime, backend))
+        if (jobsAvailable) {
+            add(createJobStartTool(workspaceId, layout, ::needsApproval, workspaceRepository, shellCwd, runtime, backend))
             add(createJobStatusTool(workspaceId, ::needsApproval, workspaceRepository))
             add(createJobKillTool(workspaceId, ::needsApproval, workspaceRepository))
         }
@@ -84,13 +88,18 @@ private fun createReadFileTool(
     layout: WorkspaceLayout,
     needsApproval: (String) -> Boolean,
     workspaceRepository: WorkspaceRepository,
+    backend: WorkspaceExecutionBackend = WorkspaceExecutionBackend.LOCAL_ROOTFS,
 ) = Tool(
     name = "workspace_read_file",
-    description = """
-        Read a file using the assistant's bound workspace Rootfs. Paths must be absolute inside Rootfs.
-        Use ${layout.workspaceDir} for the workspace files area.
-        Supports UTF-8 text files and image files (png, jpg, jpeg, gif, webp, bmp, svg, heic, heif, avif, ico).
-    """.trimIndent().replace("\n", " "),
+    description = (if (backend == WorkspaceExecutionBackend.SSH) {
+        "Read a file over SFTP from the assistant's bound SSH workspace host. Paths are absolute on that host; " +
+            "use ${layout.workspaceDir} for the workspace files area. " +
+            "Supports UTF-8 text files and image files (png, jpg, jpeg, gif, webp, bmp, svg, heic, heif, avif, ico)."
+    } else {
+        "Read a file using the assistant's bound workspace Rootfs. Paths must be absolute inside Rootfs. " +
+            "Use ${layout.workspaceDir} for the workspace files area. " +
+            "Supports UTF-8 text files and image files (png, jpg, jpeg, gif, webp, bmp, svg, heic, heif, avif, ico)."
+    }).replace("\n", " "),
     parameters = {
         InputSchema.Obj(
             properties = buildJsonObject {
@@ -242,24 +251,51 @@ private fun createShellTool(
     workspaceRepository: WorkspaceRepository,
     defaultCwd: String? = null,
     runtime: WorkspaceRuntimeSettings = WorkspaceRuntimeSettings(),
+    backend: WorkspaceExecutionBackend = WorkspaceExecutionBackend.LOCAL_ROOTFS,
 ) = Tool(
     name = "workspace_shell",
     description = buildString {
-        append(
-            "Run a shell command in the assistant's bound workspace Rootfs. The workspace files area is mounted at ${layout.workspaceDir}. "
-        )
+        // 描述必须与仓库里真正执行的后端一致：SSH 不是 Rootfs，也没有 job 工具
+        when (backend) {
+            WorkspaceExecutionBackend.SSH -> {
+                append("Run a shell command on the assistant's bound SSH workspace host. ")
+                append("The workspace files area on that host is ${layout.workspaceDir}. ")
+            }
+            WorkspaceExecutionBackend.REMOTE_HTTP -> {
+                append("Run a shell command on the configured REMOTE execution server. ")
+                append("/workspace is not mounted there; cwd is relative to the remote workdir. ")
+                append("Local file tools are not available in this mode; use shell commands for remote file operations. ")
+            }
+            WorkspaceExecutionBackend.LOCAL_ROOTFS -> {
+                append("Run a shell command in the assistant's bound workspace Rootfs. The workspace files area is mounted at ${layout.workspaceDir}. ")
+            }
+        }
         append("Use cwd for a path relative to the workspace files root. ")
         if (!defaultCwd.isNullOrBlank()) {
             append("Defaults to '$defaultCwd'. ")
         }
         append("Timeout defaults to ${runtime.commandTimeoutSec}s")
         if (runtime.maxTimeoutSec > 0) append(", max ${runtime.maxTimeoutSec}s") else append(", 0 means no limit")
-        append(". For anything that may outlive the timeout use workspace_job_start instead.")
-        if (runtime.remote?.enabled == true) {
-            append(" Shell commands run on the configured REMOTE server. /workspace is not mounted there; cwd is relative to the remote workdir. workspace_read_file/write_file/edit_file remain LOCAL and do not access remote files. Use shell commands for remote file operations.")
-        } else append(" Requires Rootfs to be installed and ready.")
+        append(".")
+        when (backend) {
+            WorkspaceExecutionBackend.SSH -> {
+                append(" Long-running commands belong in the SSH terminal; workspace_job_start is not available for SSH workspaces.")
+            }
+            WorkspaceExecutionBackend.REMOTE_HTTP -> {
+                append(" For anything that may outlive the timeout use workspace_job_start instead.")
+            }
+            WorkspaceExecutionBackend.LOCAL_ROOTFS -> {
+                append(" For anything that may outlive the timeout use workspace_job_start instead.")
+                append(" Requires Rootfs to be installed and ready.")
+            }
+        }
     },
     parameters = {
+        val cwdBase = if (backend == WorkspaceExecutionBackend.SSH) {
+            "Working directory relative to the SSH workspace directory (${layout.workspaceDir})."
+        } else {
+            "Working directory relative to the workspace files root."
+        }
         InputSchema.Obj(
             properties = buildJsonObject {
                 put("command", buildJsonObject {
@@ -271,9 +307,9 @@ private fun createShellTool(
                     put(
                         "description",
                         if (!defaultCwd.isNullOrBlank()) {
-                            "Working directory relative to the workspace files root. Defaults to '$defaultCwd'."
+                            "$cwdBase Defaults to '$defaultCwd'."
                         } else {
-                            "Working directory relative to the workspace files root. Defaults to root."
+                            "$cwdBase Defaults to root."
                         }
                     )
                 })
@@ -322,15 +358,21 @@ private fun createJobStartTool(
     workspaceRepository: WorkspaceRepository,
     defaultCwd: String? = null,
     runtime: WorkspaceRuntimeSettings = WorkspaceRuntimeSettings(),
+    backend: WorkspaceExecutionBackend = WorkspaceExecutionBackend.LOCAL_ROOTFS,
 ) = Tool(
     name = "workspace_job_start",
     description = buildString {
-        append("Start a long-running command in the workspace Rootfs and return immediately. ")
+        // 只有 LOCAL 与 HTTP 远程会有这个工具（SSH 由 jobToolsAvailable 挡掉），描述跟着实际后端走
+        if (backend == WorkspaceExecutionBackend.REMOTE_HTTP) {
+            append("Start a long-running command on the configured REMOTE execution server and return immediately. ")
+        } else {
+            append("Start a long-running command in the workspace Rootfs and return immediately. ")
+        }
         append("Use this for builds, installs and scripts that must not be killed by a tool timeout. ")
         append("Check progress with workspace_job_status and stop it with workspace_job_kill. ")
         append("Output is written to a per-job log; job files are kept for ${runtime.keepJobsDays} days.")
-        if (runtime.remote?.enabled == true) {
-            append(" Jobs run on the configured REMOTE server; cwd is relative to the remote workdir.")
+        if (backend == WorkspaceExecutionBackend.REMOTE_HTTP) {
+            append(" cwd is relative to the remote workdir; the workspace files area is not mounted there.")
         }
     },
     parameters = {

@@ -42,16 +42,28 @@ def trim(text: bytes) -> tuple[str, bool]:
 
 
 def read_tail(path: str, lines: int) -> tuple[str, bool]:
+    """返回 (日志尾部, truncated)。
+
+    truncated 表示"调用方拿到的不是完整日志"：字节裁剪和行裁剪任一发生都必须为真。
+    之前只在文件 > MAX_TAIL 时才置真，按行丢掉的头部日志会被当成完整输出（review P2）。
+    少行文件、空文件、不存在的日志都不算截断，避免误报。
+    """
     try:
         size = os.path.getsize(path)
         with open(path, "rb") as fh:
-            fh.seek(max(0, size - MAX_TAIL))
+            if size > MAX_TAIL:
+                fh.seek(size - MAX_TAIL)
             raw = fh.read()
-        text = raw.decode("utf-8", "replace")
-        tail = "\n".join(text.splitlines()[-lines:])
-        return tail, size > MAX_TAIL
     except FileNotFoundError:
         return "", False
+    byte_cut = len(raw) < size
+    if byte_cut:
+        # 从字符中间切进 UTF-8 序列时跳过续字节，避免 tail 以 U+FFFD 开头
+        while raw and raw[0] & 0xC0 == 0x80:
+            raw = raw[1:]
+    all_lines = raw.decode("utf-8", "replace").splitlines()
+    keep = max(1, int(lines))
+    return "\n".join(all_lines[-keep:]), byte_cut or len(all_lines) > keep
 
 
 class Handler(BaseHTTPRequestHandler):

@@ -124,7 +124,10 @@ class RemoteExecutionClient {
                 override fun onResponse(call: Call, response: Response) {
                     try {
                         response.use {
-                            check(it.isSuccessful) { "Remote request $path failed: HTTP ${it.code}" }
+                            if (!it.isSuccessful) {
+                                // 先读有限的一小段 body，否则"目录不存在""槽位已满"全被压成 HTTP 4xx（review P4）。
+                                error(remoteHttpFailure(path, it.code, readErrorSnippet(it.body), config.token))
+                            }
                             val stream = it.body?.byteStream() ?: error("Empty remote response")
                             val sink = java.io.ByteArrayOutputStream()
                             val buffer = ByteArray(8_192)
@@ -149,6 +152,90 @@ class RemoteExecutionClient {
 
 private fun JsonObject.primitive(key: String): JsonPrimitive? = this[key] as? JsonPrimitive
 private fun JsonObject.string(key: String): String? = primitive(key)?.contentOrNull
+
+/** 错误响应最多读取/回显的字节数。错误信息只用于模型自纠，不需要整页 body。 */
+internal const val REMOTE_ERROR_BODY_LIMIT = 2 * 1024
+
+/** 单条错误原因的最大字符数（远小于 body 上限，给 HTTP 码等前缀留余量）。 */
+private const val REMOTE_ERROR_REASON_LIMIT = 200
+
+// 错误信息可能被模型原样转述给用户，所以凭据、完整 URL 一律不回显。
+private val REMOTE_BEARER_PATTERN = Regex("(?i)bearer\\s+[A-Za-z0-9._~+/=-]+")
+private val REMOTE_URL_PATTERN = Regex("(?i)\\bhttps?://[^\\s\"'<>]+")
+private val REMOTE_HTML_TAG = Regex("<[^<>]{0,400}>")
+private val REMOTE_WHITESPACE = Regex("\\s+")
+private val REMOTE_JSON_REASON_FRAGMENT =
+    Regex("\"(?:error|message)\"\\s*:\\s*\"([^\"]{1,400})\"")
+
+/**
+ * 从错误响应 body 里取一段可读原因。
+ *
+ * 顺序：JSON `error` → JSON `message` → 截断/非 JSON 时的字段片段 → 安全摘要。
+ * 都取不到返回 null（调用方只报 HTTP 码）。服务端 rk-exec-server.py 的错误统一是
+ * `{"error": ...}`，反代/网关那边则常是 HTML 错误页。
+ */
+internal fun remoteErrorReason(body: String?, secret: String? = null): String? {
+    val text = body?.trim().orEmpty()
+    if (text.isEmpty()) return null
+    val json = runCatching { Json.parseToJsonElement(text) }.getOrNull() as? JsonObject
+    val fromJson = json?.let { obj -> obj.string("error") ?: obj.string("message") }
+    // body 被 2KiB 上限截断时 JSON 解析必然失败，退一步从片段里捞字段，别把 '{' 回显给模型。
+    val fromFragment = REMOTE_JSON_REASON_FRAGMENT.find(text)?.groupValues?.get(1)
+    return sanitizeRemoteReason(fromJson ?: fromFragment ?: text.replace(REMOTE_HTML_TAG, " "), secret)
+}
+
+/** 折叠空白、屏蔽凭据/URL、按上限截断（超长只留开头，避免把整页 HTML 塞进上下文）。 */
+private fun sanitizeRemoteReason(raw: String, secret: String?): String? {
+    val redacted = if (secret.isNullOrEmpty()) raw else raw.replace(secret, "[redacted]")
+    val text = redacted.replace(REMOTE_BEARER_PATTERN, "Bearer [redacted]")
+        .replace(REMOTE_URL_PATTERN, "[url]")
+        .replace(REMOTE_WHITESPACE, " ")
+        .trim()
+    if (text.isEmpty()) return null
+    return if (text.length <= REMOTE_ERROR_REASON_LIMIT) text
+    else text.take(REMOTE_ERROR_REASON_LIMIT - 1).trimEnd() + "…"
+}
+
+/** 统一的 HTTP 失败信息：只带 endpoint 路径，不带 baseUrl/query，避免泄露主机与凭据。 */
+internal fun remoteHttpFailure(path: String, httpCode: Int, body: String?, secret: String? = null): String {
+    val reason = remoteErrorReason(body, secret)
+    return if (reason == null) "Remote request $path failed: HTTP $httpCode"
+    else "Remote request $path failed: HTTP $httpCode: $reason"
+}
+
+/** Error details are optional: cap both their byte count and total network waiting time. */
+internal const val REMOTE_ERROR_SNIPPET_TIMEOUT_MILLIS = 2_000L
+
+/**
+ * Read a bounded error preview even when successful requests allow unlimited time. Preserve bytes
+ * already received on a stalled body, then restore the response source's original timeout state.
+ */
+private fun readErrorSnippet(body: ResponseBody?): String {
+    if (body == null) return ""
+    val buffer = ByteArray(REMOTE_ERROR_BODY_LIMIT)
+    val source = body.source()
+    val timeout = source.timeout()
+    val oldTimeout = timeout.timeoutNanos()
+    val oldDeadline = if (timeout.hasDeadline()) timeout.deadlineNanoTime() else null
+    val previewTimeout = TimeUnit.MILLISECONDS.toNanos(REMOTE_ERROR_SNIPPET_TIMEOUT_MILLIS)
+    val previewDeadline = System.nanoTime() + previewTimeout
+    timeout.timeout(if (oldTimeout == 0L) previewTimeout else minOf(oldTimeout, previewTimeout), TimeUnit.NANOSECONDS)
+    timeout.deadlineNanoTime(oldDeadline?.let { minOf(it, previewDeadline) } ?: previewDeadline)
+    var filled = 0
+    try {
+        runCatching {
+            while (filled < buffer.size) {
+                val read = source.read(buffer, filled, buffer.size - filled)
+                if (read <= 0) break
+                filled += read
+            }
+        }
+    } finally {
+        timeout.timeout(oldTimeout, TimeUnit.NANOSECONDS)
+        if (oldDeadline == null) timeout.clearDeadline() else timeout.deadlineNanoTime(oldDeadline)
+    }
+    return String(buffer, 0, filled, Charsets.UTF_8)
+}
 
 /**
  * RemoteExecutionSettings.requestTimeoutSec -> 单次 HTTP 请求的超时（秒）。

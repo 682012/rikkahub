@@ -1,7 +1,7 @@
-# RikkaHub Fork 交接文档（fork.34 基线 → fork.35 审计修复）
+# RikkaHub Fork 交接文档（当前 3.1.1 / fork.37）
 
 > 用途：给其他模型/维护者审查当前 APK 与源码。文中“已验证/未验证”按实际执行情况标注，没有实测过的不会写成已验证。
-> 最后更新：2026-10-24。第 1 节保留 fork.34 原包作为回退基线；本轮修复、验证和未发布状态见第 10 节及 AUDIT-20261024.md。
+> 最后更新：2026-10-25。第 1 节保留 fork.34 历史基线；当前 fork.37 的修复、验证、产物和未验边界见第 12 节及 AUDIT-20261025.md。
 
 ## 1. 产物
 
@@ -256,3 +256,29 @@ scp app/build/outputs/apk/release/app-arm64-v8a-release.apk \
 - 构建环境（HB，本次补齐）：SDK platform 37.2、build-tools 36.0.0、NDK 28.2.13676358、CMake 3.22.1。Gradle 堆调到 `-Xmx6g`：8g 时 R8 阶段 daemon 被 OOM 杀掉一次。依赖下载在构建机临时走阿里云镜像，仓库配置未改。
 - 未验证：真机安装与启动、33→34 数据库真实升级、SSH 工作区真实连接、悬浮窗 overlay 权限流程、SAF 导出、锁屏 job 存活；R8 包的运行时行为未覆盖。
 - 回退：同签名可回 `fork.35`（3000039）；数据库升到 34 后不要降级安装 33，Android 不一定允许。
+
+## 12. 2026-10-25 fork.37：合并后代码检修
+
+- 审查基线：`fork/3.1.1` / `05c4952b`。本节记录上轮审查结束状态：当时未提交、未推 GitHub、未安装到手机、未改生产数据库或部署远程执行服务；后续源码发布与文档整理见第 13 节。
+- 版本：`3.1.1-fork.37 / 3000041`；数据库仍是 schema 34，无新 schema 版本。
+- 数据层：官方 3.1.1 版本 32 的用量表在进入 33 时归一化；记忆路径冲突保留较新规范内容并无损归档另一份；同版本备份对齐不重放未受管 FTS 索引；旧记忆原文归档用绝对路径。
+- 工作区：全局 HTTP 后端不再覆盖 SSH；就绪状态、工具、job、描述与实际后端统一；本地 ZIP 导出不列 SSH；只有本机 Rootfs 真能读取外置文件时才截断长工具输出；SSH 的零超时按不限处理且仍能中断。
+- 持久化：超大行不再整页跳过，分页失败时整体按 SQL code point 分片回退；保存快照与子代理会话尾部读取同样保护，尾部查询只读请求的最近节点。历史内联媒体转换失败不会阻断 metadata 保存/删除，原始数据保留。
+- 远程诊断：日志按字节或按行裁剪都标截断；HTTP 错误保留有界、脱敏的原因，错误预览最多等 2 秒，成功响应 1 MiB 上限与正常请求 0=不限语义保留。CI task 与 APK 路径均切到 GitHub flavor，缺产物明确失败，本轮未触发云端运行。
+- 通知：Live Update 按会话 UUID tag 隔离，工作区 job 独立 ID 2005，兼容 Android 13 以下通知权限；未重构全局前台服务计数，也未增加子代理审批豁免。
+- 真实测试：最终四模块均用 `--rerun` 执行，App 618 + Workspace 55 + AI 271 + Common 6 = 950 项、136 个 suite，0 失败/错误/跳过；包括尾部大行四项、无限 HTTP 请求的慢错误正文两项与半截 JSON 错误一项。Python 11 项与 SQLite 迁移/对齐模拟 38 项通过；200 节点及超过 2 MiB emoji 行的 SQL 分片 SHA 核验通过。验收日志 `stage4-tests.log` / `stage4-test-counts.json`。
+- 正式构建：`:app:assembleGithubRelease :app:assembleGithubDebugAndroidTest`，补漏后的最终生产源码重新跑 R8 + lintVital，BUILD SUCCESSFUL（8m54s，退出码 0，`stage3-build.log`）；仪器测试 APK 仅编译/打包，未运行。第一轮 16m39s 的旧包已单独备份。
+- 产物：HB `/data/data1/rk3mod/rikkahub-3.1.1-fork.37.apk`；工作区 `/workspace/rk311/apk/rikkahub-3.1.1-fork.37.apk`；手机 `/sdcard/Download/rikkahub-3.1.1-fork.37.apk`，三份 SHA 一致；未自动安装。
+- APK：16,340,840 字节，arm64-v8a，V2 证书与 fork.36 一致；SHA-256 `b243e2788628112ad2be660957a56a1b74961e67ba3d523a3968496e4652c919`。
+- 尚未真机验证：安装启动、真实数据库升级、SSH 真机连接、通知与权限显示、SAF、锁屏保活。Android 测试 APK 的构建不等于运行了仪器测试。
+- 保留限制：HTTP 服务重启后的旧任务仍可能脱管；没有用可能误杀的 PID 领养掩盖这一点。超大会话仍完整加载，不能保证任意大小都不 OOM。
+- 备份：主线程核验的工作区 Git 基线 `/workspace/reviews/rikkahub-05c4952b-20261025/baseline.tar` 及 `baseline.tar.sha256`；此前压缩副本 `/workspace/reviews/rk311-20261025/baseline-05c4952b.tar.gz` 仍保留。HB `/data/data1/rk3mod/audit-20261025/host-baseline-src311.tar.gz` 含本地配置，勿外传。回退代码前先停构建、按修改清单恢复，不能用卸载 App 代替数据备份。
+
+## 13. 2026-10-25 源码同步与 GitHub 说明整理
+
+- 本轮将第 12 节封存的 fork.37 修复提交到 `fork/3.1.1`，未增加应用功能、未重编 APK、未安装或修改手机数据。
+- 新增 `FEATURES.md`：对比固定官方 3.1.1/ad2c4430，按独立用途计 6 组新增能力；8 个新工具端点不拆成 8 个功能，官方已有历史检索不重复计数。
+- 重写仓库首页与语言导航，区分新增、增强、官方共有和未实现项；移除过期 3.0.0 当前对照表，更新 NOTICE 与维护文档。
+- 明确官方已支持 SSH、请求记录/全局用量、MCP/Skills、历史检索等；本分支没有 ZIP 导入与 30–60 秒重试间隔设置，不用其他会话的计划替代已审计代码。
+- GitHub 首页使用维护分支，`master` 上游镜像不改写；About 与主页链接指向本分支差异说明。为避免切换默认分支后顺带自动发 nightly，维护分支 CI 仅保留手动触发；本轮不发 APK、不启动云端构建。发布结果以远端提交核验和知识库同步记录为准。
+- 本轮仅改公开说明，不扩大 950 项 JVM、R8、真机未验的结论；APK 对应的生产源码 SHA 清单保持一致。

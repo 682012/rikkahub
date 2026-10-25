@@ -325,6 +325,57 @@ class SshWorkspaceBackendTest {
         assertEquals("ok", backend.executeCommand("echo ok", "", 10_000, null).stdout.trim())
     }
 
+    /**
+     * fork: `commandTimeoutSec = 0` / `maxTimeoutSec` 为 0 时工具会传 timeoutMillis = 0（表示不限制）。
+     * 旧实现把 deadline 直接算成 `nanoTime() + 0`，循环条件立刻为假，命令刚发出去就被 kill，
+     * 模型拿到 exitCode = -1 / timedOut = true 的空结果。PRoot 与 HTTP 远程都按"不限制"处理，
+     * SSH 必须一致。
+     */
+    @Test
+    fun zeroOrNegativeTimeoutMeansNoLimit() {
+        val backend = backend()
+
+        val zero = backend.executeCommand("echo unlimited", cwd = "", timeoutMillis = 0, stdin = null)
+        assertFalse(zero.timedOut)
+        assertEquals(0, zero.exitCode)
+        assertEquals("unlimited", zero.stdout.trim())
+
+        val negative = backend.executeCommand("echo negative", cwd = "", timeoutMillis = -5, stdin = null)
+        assertFalse(negative.timedOut)
+        assertEquals(0, negative.exitCode)
+        assertEquals("negative", negative.stdout.trim())
+    }
+
+    @Test
+    fun execTimeoutNanosTreatsNonPositiveAsUnlimited() {
+        assertEquals(Long.MAX_VALUE, execTimeoutNanos(0))
+        assertEquals(Long.MAX_VALUE, execTimeoutNanos(-1))
+        assertEquals(10_000_000_000L, execTimeoutNanos(10_000))
+        // 溢出保护: 秒数上限乘 1e6 会变负数, 必须按不限制处理而不是"立刻超时"
+        assertEquals(Long.MAX_VALUE, execTimeoutNanos(Long.MAX_VALUE / 1_000))
+    }
+
+    /** 不设超时只是不等 deadline, 取消仍然要立即返回并杀掉远端 channel */
+    @Test
+    fun unlimitedCommandIsStillCancellableByInterrupt() {
+        val backend = backend()
+        val finished = CountDownLatch(1)
+        val failure = AtomicReference<Throwable?>()
+        val worker = thread(start = true, isDaemon = true) {
+            try {
+                backend.executeCommand("sleep 30", cwd = "", timeoutMillis = 0, stdin = null)
+            } catch (e: Throwable) {
+                failure.set(e)
+            } finally {
+                finished.countDown()
+            }
+        }
+        Thread.sleep(300)
+        worker.interrupt()
+        assertTrue("被中断的 exec 应立即返回", finished.await(10, TimeUnit.SECONDS))
+        assertTrue("中断应转换成 InterruptedException", failure.get() is InterruptedException)
+    }
+
     @Test
     fun commandIsNotRerunWhenExecRequestTimesOut() {
         SshConnectionPool(channelTimeoutMillis = 500).use { slowPool ->

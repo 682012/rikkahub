@@ -13,51 +13,10 @@ val Migration_31_32 = object : Migration(31, 32) {
             normalizeConversationEntity(db)
             createMissingTargetTables(db)
             migrateLegacyMemory(db)
-            val columns = tableColumns(db, "usage_record")
-            if (columns.isEmpty()) {
-                createUsageRecordTable(db, "usage_record")
-                createUsageRecordIndexes(db)
-            } else {
-                val oldIndexes = db.query(
-                    "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'usage_record'"
-                ).use { cursor ->
-                    buildList {
-                        while (cursor.moveToNext()) cursor.getString(0)?.let(::add)
-                    }
-                }.filterNot { it.startsWith("sqlite_autoindex") }
-                oldIndexes.forEach { db.execSQL("DROP INDEX IF EXISTS `${it.replace("`", "``")}`") }
-
-                createUsageRecordTable(db, "usage_record_new")
-                fun col(name: String, fallback: String): String =
-                    if (name in columns) "`${name}`" else fallback
-                val prompt = "COALESCE(${col("prompt_tokens", "0")}, 0)"
-                val completion = "COALESCE(${col("completion_tokens", "0")}, 0)"
-                val cached = "COALESCE(${col("cached_tokens", "0")}, 0)"
-                db.execSQL(
-                    """
-                    INSERT INTO `usage_record_new` (
-                        id, created_at, source, provider_id, model_id, model_name, assistant_id,
-                        conversation_id, node_id, prompt_tokens, completion_tokens, cached_tokens, total_tokens
-                    )
-                    SELECT
-                        ${col("id", "lower(hex(randomblob(16)))")},
-                        ${col("created_at", "0")},
-                        COALESCE(${col("source", "'CHAT'")}, 'CHAT'),
-                        ${col("provider_id", "NULL")},
-                        ${col("model_id", "NULL")},
-                        ${col("model_name", "NULL")},
-                        ${col("assistant_id", "NULL")},
-                        ${col("conversation_id", "NULL")},
-                        ${col("node_id", "NULL")},
-                        $prompt, $completion, $cached,
-                        COALESCE(${col("total_tokens", "$prompt + $completion")}, $prompt + $completion)
-                    FROM `usage_record`
-                    """.trimIndent()
-                )
-                db.execSQL("DROP TABLE `usage_record`")
-                db.execSQL("ALTER TABLE `usage_record_new` RENAME TO `usage_record`")
-                createUsageRecordIndexes(db)
-            }
+            // Official 3.1/3.1.1 ships an 11-column `id INTEGER AUTOINCREMENT` usage_record while the
+            // fork table has a TEXT id plus node_id/total_tokens. The shared helper keeps 31 -> 32 and
+            // 32 -> 33 on one normalization path (see normalizeUsageRecord).
+            normalizeUsageRecord(db)
             backfillUsageIfEmpty(db)
             db.setTransactionSuccessful()
         } finally {
@@ -113,6 +72,16 @@ internal fun createMissingTargetTables(db: SupportSQLiteDatabase) {
     createUsageRecordIndexes(db)
 }
 
+/**
+ * Archive path for the raw legacy memories kept beside the generated profile.
+ *
+ * The leading slash is required: `memory_file` paths are stored as `/...` and every read/write goes
+ * through `MemoryFile.normalizePath` + an exact-path lookup (`MemoryDAO.getFile`). A relative path is
+ * listed in the UI but can never be opened, saved or deleted again — the row is orphaned. This is the
+ * same defect the schema 32 -> 33 repair fixes for `Migration_27_28`'s old rows.
+ */
+internal fun legacyMemoryArchivePath(now: Long): String = "/_legacy/imported_memories_$now.md"
+
 /** excp schema 31 stores memories in MemoryEntity; target 32 uses memory_file. */
 internal fun migrateLegacyMemory(db: SupportSQLiteDatabase) {
     val hasLegacy = db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='MemoryEntity'").use { it.moveToFirst() }
@@ -134,7 +103,7 @@ internal fun migrateLegacyMemory(db: SupportSQLiteDatabase) {
         )
         db.execSQL(
             "INSERT OR REPLACE INTO `memory_file` (assistant_id, path, content, updated_at) VALUES (?, ?, ?, ?)",
-            arrayOf<Any?>(assistantId, "/_legacy/imported_memories_$now.md", contents.joinToString("\n"), now),
+            arrayOf<Any?>(assistantId, legacyMemoryArchivePath(now), contents.joinToString("\n"), now),
         )
     }
 }
@@ -175,6 +144,106 @@ private fun tableColumns(db: SupportSQLiteDatabase, table: String): Set<String> 
             while (cursor.moveToNext()) cursor.getString(1)?.let(::add)
         }
     }
+
+/** Column name -> declared type, used to tell an official INTEGER-id table from the fork TEXT one. */
+internal fun tableColumnTypes(db: SupportSQLiteDatabase, table: String): Map<String, String> =
+    db.query("PRAGMA table_info(`$table`)").use { cursor ->
+        buildMap {
+            while (cursor.moveToNext()) {
+                val name = cursor.getString(1) ?: continue
+                put(name, cursor.getString(2) ?: "")
+            }
+        }
+    }
+
+/** Target schema-34 columns of usage_record, in the order Room declares them. */
+internal val usageRecordColumns = listOf(
+    "id", "created_at", "source", "provider_id", "model_id", "model_name", "assistant_id",
+    "conversation_id", "node_id", "prompt_tokens", "completion_tokens", "cached_tokens", "total_tokens",
+)
+
+/** Column names alone do not prove a fork table is valid (older branches had DEFAULT 0 drift). */
+private fun hasCanonicalUsageConstraints(db: SupportSQLiteDatabase): Boolean {
+    val textColumns = setOf("id", "source", "provider_id", "model_id", "model_name", "assistant_id", "conversation_id", "node_id")
+    val requiredColumns = setOf("id", "created_at", "source", "prompt_tokens", "completion_tokens", "cached_tokens", "total_tokens")
+    return db.query("PRAGMA table_info(`usage_record`)").use { cursor ->
+        var matches = true
+        while (cursor.moveToNext()) {
+            val name = cursor.getString(1)
+            val type = if (name in textColumns) "TEXT" else "INTEGER"
+            matches = matches && cursor.getString(2).equals(type, ignoreCase = true) &&
+                (cursor.getInt(3) != 0) == (name in requiredColumns) &&
+                cursor.isNull(4) && cursor.getInt(5) == (if (name == "id") 1 else 0)
+        }
+        matches
+    }
+}
+
+/**
+ * Normalize any schema-31/32 `usage_record` into the fork table, in place and idempotently.
+ *
+ * Official 3.1/3.1.1 declares `id INTEGER PRIMARY KEY AUTOINCREMENT` with 11 columns; the fork table
+ * is a TEXT id plus node_id/total_tokens. Room validates every column, so a database that came from
+ * official 3.1.1 (schema 32) fails validation — and a backup aligned to it fails the import check —
+ * unless this runs before 32 -> 33. A fork-shaped table is a no-op apart from recreating indexes.
+ *
+ * Existing ids, token counts and an existing total_tokens survive; when the column is missing
+ * total_tokens is prompt + completion. INTEGER ids are CAST so the TEXT column really stores text.
+ */
+internal fun normalizeUsageRecord(db: SupportSQLiteDatabase) {
+    val actual = tableColumnTypes(db, "usage_record")
+    if (actual.isEmpty()) {
+        createUsageRecordTable(db, "usage_record")
+        createUsageRecordIndexes(db)
+        return
+    }
+    val idIsText = actual["id"]?.contains("TEXT", ignoreCase = true) == true
+    if (idIsText && actual.keys == usageRecordColumns.toSet() && hasCanonicalUsageConstraints(db)) {
+        createUsageRecordIndexes(db)
+        return
+    }
+    val oldIndexes = db.query(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'usage_record' AND sql IS NOT NULL"
+    ).use { cursor ->
+        buildList { while (cursor.moveToNext()) cursor.getString(0)?.let(::add) }
+    }.filterNot { it.startsWith("sqlite_autoindex") }
+    oldIndexes.forEach { db.execSQL("DROP INDEX IF EXISTS `${it.replace("`", "``")}`") }
+
+    createUsageRecordTable(db, "usage_record_new")
+    fun col(name: String, fallback: String): String = if (name in actual) "`$name`" else fallback
+    val prompt = "COALESCE(${col("prompt_tokens", "0")}, 0)"
+    val completion = "COALESCE(${col("completion_tokens", "0")}, 0)"
+    val cached = "COALESCE(${col("cached_tokens", "0")}, 0)"
+    val total = "COALESCE(${col("total_tokens", "$prompt + $completion")}, $prompt + $completion)"
+    val id = when {
+        "id" !in actual -> "lower(hex(randomblob(16)))"
+        actual.getValue("id").contains("INT", ignoreCase = true) -> "CAST(`id` AS TEXT)"
+        else -> "`id`"
+    }
+    db.execSQL(
+        """
+        INSERT INTO `usage_record_new` (
+            id, created_at, source, provider_id, model_id, model_name, assistant_id,
+            conversation_id, node_id, prompt_tokens, completion_tokens, cached_tokens, total_tokens
+        )
+        SELECT
+            $id,
+            ${col("created_at", "0")},
+            COALESCE(${col("source", "'CHAT'")}, 'CHAT'),
+            ${col("provider_id", "NULL")},
+            ${col("model_id", "NULL")},
+            ${col("model_name", "NULL")},
+            ${col("assistant_id", "NULL")},
+            ${col("conversation_id", "NULL")},
+            ${col("node_id", "NULL")},
+            $prompt, $completion, $cached, $total
+        FROM `usage_record`
+        """.trimIndent()
+    )
+    db.execSQL("DROP TABLE `usage_record`")
+    db.execSQL("ALTER TABLE `usage_record_new` RENAME TO `usage_record`")
+    createUsageRecordIndexes(db)
+}
 
 internal fun createUsageRecordTable(db: SupportSQLiteDatabase, table: String) {
     db.execSQL(

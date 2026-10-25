@@ -1,105 +1,71 @@
-> **个人改版 / Personal Fork**
-> 本仓库是 RikkaHub 的非官方个人修改版，仅供自用，不提供 APK、安装教程或技术支持，与原作者无关。
-> This is an unofficial personal fork for private use only. See [DISCLAIMER.md](DISCLAIMER.md) and [NOTICE.md](NOTICE.md).
->
-> 上游 / Upstream: https://github.com/rikkahub/rikkahub
+# RikkaHub · 个人增强分支
 
-<div align="center">
-  <img src="docs/icon.png" alt="App Icon" width="100" />
-  <h1>RikkaHub</h1>
+基于 [RikkaHub 官方 3.1.1](https://github.com/rikkahub/rikkahub/tree/3.1.1) 的非官方个人分支，重点补充多任务协作、长任务执行和长对话的数据保护。
 
-A native Android LLM chat client that supports switching between different providers for
-conversations 🤖💬
+**当前维护版本：`3.1.1-fork.37` / `3000041` · 分支：`fork/3.1.1` · 数据库：schema 34。**
 
-Click to join our Discord server 👉 [【RikkaHub】](https://discord.gg/9weBqxe5c4)
+> 本仓库与官方团队无隶属关系。这里只记录个人修改，不提供面向公众的 APK 分发、安装教程或技术支持。官方渠道下载的是官方版，不是本分支。上游版权与 AGPL-3.0 许可证保持不变。
 
-[简体中文](README_ZH_CN.md) | [繁體中文](README_ZH_TW.md) | English
-</div>
+[完整差异与源码依据](fork/FEATURES.md) · [版本记录](fork/CHANGES.md) · [构建与维护](fork/README.md) · [fork.37 审查与验证](fork/AUDIT-20261025.md) · [修改声明](NOTICE.md)
 
-<div align="center">
-  <img src="docs/img/poster.png" alt="RikkaHub" width="800" />
-</div>
+## 到底比官方多了什么？
 
-## 🚀 Download
+**相对官方 3.1.1，按独立用途归为 6 组新增能力。** 不按按钮、接口数量或 bug 修复凑数；官方本来就有的 SSH、MCP、技能和历史检索也不计入新增。
 
-🔗 [Download from Website](https://rikka-ai.com/download) (Recommended)
+| 新增能力组 | 官方 3.1.1 | 本分支的增量 |
+|---|---|---|
+| 1. 子代理协作 | 没有内置子代理任务管理 | `subagent_run/wait/result/list/cancel`；独立上下文与模型，默认并发 2、可设 1–4，排队、取消、超时、结果落盘 |
+| 2. 工作区后台任务 | 有 shell，超时默认 30 秒、上限 600 秒 | 新增 `workspace_job_start/status/kill`；任务日志与状态查询；默认/最大超时可配置，0 表示不限；本地任务申请前台服务 |
+| 3. HTTP 远程执行 | 已有 SSH 工作区，没有本分支的 HTTP 执行协议 | 自托管 `/exec` 和 `/job/…` 后端，让本地工作区的 shell/job 交给服务器；与 SSH 分开路由 |
+| 4. 单会话用量面板 | 已有请求用量记录和全局统计 | 聊天页按会话汇总请求记录、输入/输出/缓存、命中率与模型明细；纳入关联子代理用量 |
+| 5. 自动上下文压缩 | 有手动压缩与检查点 | 达到配置阈值时自动生成摘要；可选独立压缩模型，默认阈值 80%；保留原始历史和本轮输入 |
+| 6. 工作区文件 ZIP 导出 | 没有本分支的文件区 ZIP 导出入口 | 选择本地工作区和保存位置，带进度、取消与失败提示；排除缓存、构建目录、任务日志和符号链接 |
 
-🔗 [Download from Google Play](https://play.google.com/store/apps/details?id=me.rerere.rikkahub)
+工具数量另算：前两组增加 **5 个子代理工具 + 3 个后台任务工具**。`recent_chats`、`conversation_search`、`conversation_read` 是官方已有工具，本分支让子代理也能按设置复用，不能再算 3 个“独创功能”。
 
-> [!WARNING]
-> There are many forked versions of RikkaHub. Issues with forks are unrelated to RikkaHub, so please use forks with caution to avoid privacy leaks or excessive permission requests.
+## 已有能力做了哪些增强？
 
-## 💖 Sponsors
+- **聊天持久化与大行读取**：流式生成期间按约 1.5 秒节流保存，节点差分写入；CursorWindow 溢出时按 SQL 字符分片读回全文，不再跳过整页。读取完整不等于任意大历史都不会 OOM。
+- **备份与记忆迁移**：在 staging 副本中对齐部分同版本异分支结构；兼容用量表差异；冲突记忆保留两份内容，旧记忆原文留档。不是任意分支无损互转，也不是数据库任意降级。
+- **网络重试次数**：自动重试可开关，最大次数可设 0–100，主对话与子代理共用；只重试匹配的网络异常，不保证所有 429/5xx 都会重试。
+- **工具与技能保护**：长输出仅在确能读取本机外置文件时转存；SSH/HTTP 模式保留原文；增加技能元数据校验，并修正各执行后端的能力描述和工具可见性。
+- **搜索与后台细节**：搜索页默认覆盖全部助手；增加 FTS 自检与容错，修复多会话进度通知、前台服务通知身份和旧版 Android 权限判断。
 
-| Sponsor | Description |
-|:---:|:---|
-| <img src="docs/sponsors/aihubmix.png" alt="Aihubmix" width="50" /><br /><b>Aihubmix</b> | Thanks to <a href="https://aihubmix.com?aff=pG7r">aihubmix.com</a> for their financial support. We recommend using aihubmix as a one-stop shop for mainstream models worldwide. (OpenAI, Claude, Google Gemini, DeepSeek, Qwen, and hundreds more). |
-| <img src="docs/sponsors/api-mart.png" alt="APIMart" width="50" /><br /><b><a href="https://go.apimart.ai/gh-rikkahub">APIMart</a></b> | Thanks to APIMart for sponsoring this project! APIMart is a low-cost API platform for AI image & video generation — GPT-Image-2 from $0.006/image, 160+ images per dollar. One async API covers both image and video: submit a task, get an ID, fetch results via polling or callback. Batch tens of thousands of images without timeouts, switch models without changing code. Pay-as-you-go with no monthly fee — <a href="https://go.apimart.ai/gh-rikkahub">sign up here</a> to get started. |
-| <img src="docs/sponsors/suixiang.jpg" alt="随想AI中转" width="50" /><br /><b><a href="https://sui-xiang.com">随想AI中转</a></b> | 感谢<a href="https://sui-xiang.com">随想AI中转</a>对本项目的赞助！随想AI中转 是一家可靠高效的 API 中继服务提供商，提供 Claude、Codex、Gemini 等的中继服务。注重隐私的中转站·无数据倒卖·无模型掺水，隐私，透明，极速售后。新账户注册每日签到就送 0.5 元测试额度，充值额度 1:1，无需订阅，按量付费。多线路冗余、跨区域容灾、自动故障切换，长链路 SSE 不中断。99.9% 可用性，关键调用从不掉队。 |
-| <img src="docs/sponsors/ztest.png" alt="真测 ztest.ai" width="50" /><br /><b><a href="https://ztest.ai">真测 ztest.ai</a></b> | 感谢<a href="https://ztest.ai">真测 ztest.ai</a>对本项目的赞助！真测 ztest.ai 是一个 AI 中转站模型检测平台，检测结果数据全公开，23 项探针覆盖协议、身份、能力、内容完整性、安全性、性能六大维度，交叉印证识别伪造与降级。作为独立第三方验证平台，实时监测 AI 中转站的模型真实性、响应质量与服务可用性。 |
-| <img src="docs/sponsors/maru.png" alt="MaruCode" width="50" /><br /><b><a href="https://api.muteki.site/register?aff=Rikkahub&promo=Rikkahub">MaruCode</a></b> | <b><a href="https://api.muteki.site/register?aff=Rikkahub&promo=Rikkahub">MaruCode</a></b> 是一家偶尔做做慈善的小破站 API，自营号池，主要提供 Codex、Claude Code、GPT Image 等主流模型，支持 Websocket 协议，明码标价(Codex 0.25x, CC 1.5x)，透明汇率(1:1)，<a href="https://api.muteki.site/register?aff=Rikkahub&promo=Rikkahub">新用户注册送 2 刀</a>。<a href="https://images-2.muteki.site">生图工作台🖼️</a> |
-| <img src="docs/sponsors/naapi.png" alt="NaAPI 钠API" width="50" /><br /><b><a href="https://naapi.cc/register?aff=rikkahub">NaAPI 钠API</a></b> | Thanks to <a href="https://naapi.cc/register?aff=rikkahub">NaAPI</a> (naapi.cc) for sponsoring this project! NaAPI is an OpenAI-compatible LLM gateway that reliably serves 300+ models from OpenAI, Anthropic, Google and others at discounted pricing. One base URL and one key is all you need: multi-line redundancy with automatic failover keeps long SSE streams alive, and pricing is strictly pay-as-you-go with a 1:1 top-up ratio — no subscription, no hidden markup. |
+本分支不会提升模型本身的智力，也不保证更低费用。子代理、压缩和网络重试都可能增加模型请求与用量。
 
-## ✨ Features
+## 哪些是继承官方的？
 
-- 🎨 Material 3 Expressive design and 🌙 Dark mode
-- 📦 Workspace: a proot-based Linux agent environment
-- 🎬 Media generation (image and video)
-- 🔄 Multiple AI Provider Support: custom API / URL / models (all OpenAI, Google, Anthropic compatible api)
-- 🖼️ Multimodal input support (Image, Text Documentation, PDF, Docx)
-- 🖥️ Web access for multi-platform use
-- 🛠️ MCP and Skills support
-- 📝 Markdown Rendering (with code highlighting, Latex formulas, tables, Mermaid)
-- 🔍 Search capabilities (Exa, Tavily, Zhipu, LinkUp, Brave, Perplexity, etc.)
-- 🧩 Prompt variables (model name, time, etc.)
-- 🤳 QR code export and import for providers
-- 🤖 Agent customization
-- 🧠 File-based memory
-- 📝 AI Translation
-- 🌐 Custom HTTP request headers and request bodies
-- 💌 Silly Tavern character card import
+多供应商聊天、MCP、Skills、记忆文件与整理、会话历史工具、全局用量统计、本地 PRoot 工作区、SSH/SFTP 工作区、Web UI、语音、媒体生成、后台生成悬浮窗、快速回复、工具耗时和 models.dev 能力识别等均来自上游。它们不作为上述 6 组新增能力宣传。
 
-## ✨ Development
+原项目介绍、官方渠道、赞助和贡献者信息请查看 [上游项目](https://github.com/rikkahub/rikkahub)；本仓库不将上游赞助关系表述为自己的合作关系。
 
-> [!IMPORTANT]
-> This project does not accept pull requests (PRs).
+## 使用边界
 
-This project is developed using [Android Studio](https://developer.android.com/studio).
+- 子代理默认关闭；不支持嵌套、独立费用预算或子代理内审批/续跑。需要审批的操作交给父对话，不绕过权限。
+- SSH 工作区没有 `workspace_job_*`；HTTP 执行模式不提供远端文件读写工具，用 shell 处理文件。HTTP 后端需要自己部署，并保护访问令牌。
+- ZIP 只导出文件区，不含 Linux Rootfs，不保留 Unix 权限/符号链接，不是原子快照。可能包含私钥等文件，不能公开分享。**此版没有工作区 ZIP 导入功能。**
+- 此版可调的是重试次数，**没有 30–60 秒重试间隔设置**；间隔仍按 1、2、4…秒指数退避，最高 60 秒。
+- 前台服务降低被回收的概率，不等于强杀后任务续跑或锁屏永不掉线；HTTP 服务重启也不会自动接管旧任务。
+- 包名为 `me.rerere.rikkahub.fork`，与官方版共存，不能覆盖官方包；导入备份前另存副本，不能直接降级已升级的数据库。
 
-Technology stack documentation:
+## 这次验证到了哪里？
 
-- [Kotlin](https://kotlinlang.org/) (Development language)
-- [Koin](https://insert-koin.io/) (Dependency Injection)
-- [Jetpack Compose](https://developer.android.com/jetpack/compose) (UI framework)
-- [DataStore](https://developer.android.com/topic/libraries/architecture/datastore) (Preference data
-  storage)
-- [Room](https://developer.android.com/training/data-storage/room) (Database)
-- [Coil](https://coil-kt.github.io/coil/) (Image loading)
-- [Material 3 Expressive](https://m3.material.io/) (UI design)
-- [Navigation 3](https://developer.android.com/guide/navigation/navigation-3) (Navigation)
-- [Okhttp](https://square.github.io/okhttp/) (HTTP client)
-- [kotlinx.serialization](https://github.com/Kotlin/kotlinx.serialization) (JSON serialization)
+| 项目 | fork.37 已验证范围 |
+|---|---|
+| JVM 回归 | App / Workspace / AI / Common 共 **950 项、136 个 suite**；0 失败、0 错误、0 跳过 |
+| 辅助核验 | Python 11 项通过；SQLite 迁移、索引对齐及超过 2 MiB 的 emoji 消息分片模拟通过 |
+| 正式构建 | GitHub release 的 **R8 与 lintVital 已实际执行并通过**，不是跳过 R8 的 fastBuild 包 |
+| Android 仪器测试 | 测试 APK 已编译/打包，**未在真机运行** |
+| 尚未验收 | 真机安装启动、真实数据库升级、通知权限、SAF、SSH 真机连接、锁屏保活 |
 
-> [!TIP]
-> You need a `google-services.json` file at `app` folder to build the app.
+验证对应审查封存源码；不能把测试数量当成“所有功能真机正常”或“没有未知错误”。详细记录见 [审查报告](fork/AUDIT-20261025.md)。
 
-## 💰 Donate
+## 源码与许可
 
-* [Ko-fi](https://ko-fi.com/reovodev)
-* [爱发电](https://afdian.com/a/reovo)
+- 官方基线：`3.1.1` / `ad2c4430`；当前维护分支：`fork/3.1.1`。`master` 保留作上游镜像，不代表个人增强版。
+- 构建命令、签名配置和回退说明：[维护文档](fork/README.md)。
+- 版权归上游作者及各修改者；许可证：[GNU AGPL-3.0](LICENSE)。另见 [个人改版声明](DISCLAIMER.md) 与 [修改声明](NOTICE.md)。
 
-## ⭐ Star History
+### English summary
 
-If you like this project, please give it a star ⭐
-
-<a href="https://www.star-history.com/?type=date&repos=re-ovo%2Frikkahub">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&theme=dark&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=re-ovo/rikkahub&type=date&legend=top-left&sealed_token=qSytWeq7LkzQQViTjK0MYlvvA_qkfuwjOxOqgbRpLUZZwok5rO6LXhpVL7Mq-q3o89BfKpzE7g66BCy18H6eiqTsD8czD0J-HejLqmHy-npcvCTHu11wZw" />
- </picture>
-</a>
-
-## 📄 License
-
-This project is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0).
+Unofficial personal fork of RikkaHub **3.1.1**, not affiliated with upstream. Six added capability groups: subagents, background workspace jobs, an optional HTTP execution backend, a per-conversation usage panel, automatic context compression, and local workspace ZIP export. SSH workspaces, MCP, Skills, history tools and global usage statistics already exist upstream and are not claimed as new. The fork also hardens persistence, migration and tool-output handling. See the [comparison](fork/FEATURES.md) and [validation boundaries](fork/AUDIT-20261025.md). No public APK distribution or end-user support is offered.

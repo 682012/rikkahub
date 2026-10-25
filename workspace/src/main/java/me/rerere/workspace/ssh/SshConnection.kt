@@ -108,8 +108,11 @@ internal class SshConnection private constructor(
             null
         }
         try {
-            val deadline = System.nanoTime() + timeoutMillis * 1_000_000
-            while (!channel.isClosed && System.nanoTime() < deadline) {
+            // timeoutMillis <= 0 表示不限制, 与 WorkspaceShellRunner.readResult 和
+            // RemoteExecutionClient.execute 一致; 用已等待时长比较, 不拼绝对 deadline, 大超时也不会溢出
+            val startedAt = System.nanoTime()
+            val limitNanos = execTimeoutNanos(timeoutMillis)
+            while (!channel.isClosed && System.nanoTime() - startedAt < limitNanos) {
                 Thread.sleep(EXEC_POLL_INTERVAL_MS)
             }
             val finished = channel.isClosed
@@ -319,6 +322,22 @@ internal fun <T> awaitInterruptibly(
         future.whenComplete { result, error -> if (error == null) onAbandoned(result) else onAbandonedFailure() }
         throw e
     }
+}
+
+/**
+ * exec 的等待上限（纳秒）。
+ *
+ * 0 与负值都表示"不限制"：设置里的 `commandTimeoutSec = 0`、工具描述里的
+ * "0 means no limit"，以及 PRoot 的 `Process.readResult` 和 HTTP 远程的
+ * `RemoteExecutionClient.execute` 都是这个语义。旧实现把超时直接拼成
+ * `System.nanoTime() + timeoutMillis * 1_000_000`，0 会让循环条件立刻为假，
+ * 于是刚启动的命令马上被 kill，返回 exitCode = -1 / timedOut = true。
+ * 超大值（秒数上限约 9.2e15，乘 1e6 后溢出成负数）同样按不限制处理。
+ */
+internal fun execTimeoutNanos(timeoutMillis: Long): Long = when {
+    timeoutMillis <= 0L -> Long.MAX_VALUE
+    timeoutMillis > Long.MAX_VALUE / 1_000_000L -> Long.MAX_VALUE
+    else -> timeoutMillis * 1_000_000L
 }
 
 /** 是否因线程中断而失败: JSch 会把读管道时的 InterruptedIOException 包进 SftpException 等异常里 */

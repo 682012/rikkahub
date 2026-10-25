@@ -30,7 +30,7 @@ private const val TAG = "WorkspaceJobFgs"
 class WorkspaceJobForegroundService : Service() {
     companion object {
         private const val CHANNEL_ID = "workspace_jobs"
-        private const val NOTIFICATION_ID = 2003
+        private const val NOTIFICATION_ID = WORKSPACE_JOB_NOTIFICATION_ID
         private const val ACTION_ACQUIRE = "me.rerere.rikkahub.action.WORKSPACE_JOB_ACQUIRE"
         private const val ACTION_RELEASE = "me.rerere.rikkahub.action.WORKSPACE_JOB_RELEASE"
         private const val EXTRA_JOB_ID = "job_id"

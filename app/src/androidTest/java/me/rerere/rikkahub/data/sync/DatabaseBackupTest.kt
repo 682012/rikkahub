@@ -88,4 +88,56 @@ class DatabaseBackupTest {
         }
         assertTrue("Corrupt backup must not be published", failed)
     }
+
+    /**
+     * Same user_version, real structural drift, and an FTS index that already exists in the staged
+     * file. `message_fts*` tables are never dropped by the alignment, so replaying their CREATE INDEX
+     * used to abort with "index ... already exists"; only managed-table indexes may be replayed.
+     */
+    @Test fun sameVersionAlignReplaysOnlyManagedIndexes() {
+        val target = File(directory, "target")
+        createAlignFixture(target)
+        val staged = File(directory, "staged")
+        target.copyTo(staged)
+        open(staged).use { database ->
+            database.execSQL("CREATE TABLE legacy_extra (id INTEGER PRIMARY KEY)")
+            database.execSQL("INSERT INTO memory_file (assistant_id, path, content, updated_at) VALUES ('a', '/x.md', 'kept', 1)")
+        }
+
+        assertTrue(DatabaseBackup.alignToTarget(context, staged, target))
+
+        open(staged).use { database ->
+            assertEquals("kept", database.stringForQuery("SELECT content FROM memory_file WHERE path = '/x.md'", null))
+            assertEquals(
+                0L,
+                database.longForQuery("SELECT COUNT(*) FROM sqlite_master WHERE name = 'legacy_extra'", null),
+            )
+            assertEquals(
+                "the existing FTS index must survive the alignment",
+                1L,
+                database.longForQuery(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' " +
+                        "AND name = 'index_message_fts_rowid_conversation_id'",
+                    null,
+                ),
+            )
+        }
+    }
+
+    private fun createAlignFixture(file: File) = open(file).use { database ->
+        database.execSQL(
+            "CREATE TABLE memory_file (assistant_id TEXT NOT NULL, path TEXT NOT NULL, " +
+                "content TEXT NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(assistant_id, path))"
+        )
+        database.execSQL(
+            "CREATE VIRTUAL TABLE message_fts USING fts5(text, node_id UNINDEXED, message_id UNINDEXED, " +
+                "conversation_id UNINDEXED, title UNINDEXED, update_at UNINDEXED, tokenize = 'simple')"
+        )
+        database.execSQL("CREATE TABLE message_fts_rowid(fts_rowid INTEGER PRIMARY KEY, conversation_id TEXT NOT NULL)")
+        database.execSQL("CREATE INDEX index_message_fts_rowid_conversation_id ON message_fts_rowid(conversation_id)")
+        database.execSQL("INSERT INTO memory_file (assistant_id, path, content, updated_at) VALUES ('a', '/seed.md', 'seed', 1)")
+        database.execSQL("CREATE TABLE room_master_table (id INTEGER PRIMARY KEY, identity_hash TEXT)")
+        database.execSQL("INSERT INTO room_master_table (id, identity_hash) VALUES (42, 'align-hash')")
+        database.version = 34
+    }
 }

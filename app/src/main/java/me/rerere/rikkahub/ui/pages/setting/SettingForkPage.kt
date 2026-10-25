@@ -164,7 +164,13 @@ fun SettingForkPage(vm: SettingVM = koinViewModel()) {
                             }
                         },
                         headlineContent = { Text("启用远程执行") },
-                        supportingContent = { Text("长时间任务交给服务器执行，不受 Android 后台限制。") },
+                        supportingContent = {
+                            Text(
+                                "长时间任务交给服务器执行，不受 Android 后台限制。" +
+                                    "只对本地工作区生效：SSH 工作区的命令始终在 SSH 主机上执行，不被这个开关改道，" +
+                                    "也没有 /job 后台任务接口。"
+                            )
+                        },
                     )
                     formItem(headlineContent = { Text("服务地址") }) {
                         OutlinedTextField(
@@ -340,7 +346,9 @@ fun SettingForkPage(vm: SettingVM = koinViewModel()) {
                                 "把所选工作区的 /workspace 打成 zip，跳过缓存、构建目录、任务日志和符号链接；不含 Linux 系统。这不是完整系统备份，私密文件也可能在内，请勿公开分享。",
                                 style = MaterialTheme.typography.bodySmall,
                             )
-                            exportWorkspaces.forEach { workspace ->
+                            // 文件不在本机的工作区 (SSH) 导出必然失败, 并且会先把所选文件截成 0 字节
+                            val exportableWorkspaces = exportWorkspaces.filter { it.capabilities().localFiles }
+                            exportableWorkspaces.forEach { workspace ->
                                 OutlinedButton(
                                     enabled = !exporting && exportWorkspaceId == null,
                                     onClick = {
@@ -348,6 +356,12 @@ fun SettingForkPage(vm: SettingVM = koinViewModel()) {
                                         exportLauncher.launch("rikkahub-workspace-${System.currentTimeMillis()}.zip")
                                     },
                                 ) { Text("导出 ${workspace.name}") }
+                            }
+                            if (exportableWorkspaces.isEmpty()) {
+                                Text(
+                                    "没有可导出的工作区：SSH 远程工作区的文件不在本机，导出会得到空包。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
                             }
                             if (exporting || exportStatus.isNotBlank()) {
                                 LinearProgressIndicator(

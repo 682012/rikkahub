@@ -10,14 +10,18 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.ai.mcp.McpManager
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.datastore.Settings
+import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.files.FileFolders
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
+import me.rerere.rikkahub.data.repository.WorkspaceExecutionBackend
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.repository.effectiveExecutionBackend
+import me.rerere.rikkahub.data.repository.isToolAvailableOnBackend
 import me.rerere.rikkahub.data.repository.memoryId
+import me.rerere.rikkahub.data.repository.workspaceToolsReady
 import me.rerere.rikkahub.data.skills.SkillManager
-import me.rerere.workspace.WorkspaceShellStatus
 import java.io.File
 import kotlin.uuid.Uuid
 
@@ -55,6 +59,25 @@ internal fun shouldTruncateChildToolOutput(
     childTools: List<Tool>,
 ): Boolean = localWorkspaceFileAccess && childTools.any { it.name in TOOL_OUTPUT_READER_TOOLS }
 
+/**
+ * 父对话/子代理能否读回被外置的全文。
+ *
+ * `/tool_outputs` 由 RepositoryModule 挂进本地 PRoot Rootfs 的挂载表，只有 LOCAL 后端能 `cat` 到；
+ * HTTP 远程的 shell 跑在服务器上，SSH 走 SFTP，两者都读不到本机 filesDir，外置只会把
+ * “可用输出”变成“一条读不到的路径”。所以这里必须按有效后端判断，而不是只看工作区有没有 rootfs。
+ *
+ * @param backend 有效执行后端（[effectiveExecutionBackend]），无工作区时为 null
+ * @param workspaceTools 本次真正给出的 workspace 工具，空表示连 shell 都没有
+ * @param workspaceHasRootfs 工作区能力里的 rootfs
+ */
+internal fun canReadToolOutputs(
+    backend: WorkspaceExecutionBackend?,
+    workspaceTools: List<Tool>,
+    workspaceHasRootfs: Boolean,
+): Boolean = backend == WorkspaceExecutionBackend.LOCAL_ROOTFS &&
+    workspaceTools.isNotEmpty() &&
+    workspaceHasRootfs
+
 class InvalidMcpServerNamesException(val names: List<String>) :
     IllegalStateException("Invalid MCP server names: ${names.joinToString(", ")}")
 
@@ -76,10 +99,15 @@ class ChatToolFactory(
         workspaceCwd: String? = null,
         conversationId: Uuid? = null,
     ): List<Tool> {
+        // fork: 工作区实体只取一次，后端选择、工具可见性与输出外置共用同一份判断
+        val workspace = assistant.workspaceId?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { workspaceRepository.getById(it) }
+        val backend = effectiveExecutionBackend(workspace, settings.workspaceRuntime)
         val workspaceTools = createWorkspaceToolsIfReady(
-            assistant.workspaceId?.toString(),
-            workspaceCwd,
-            settings.workspaceRuntime,
+            workspace = workspace,
+            cwd = workspaceCwd,
+            runtime = settings.workspaceRuntime,
         )
         val tools = buildList {
             if (assistant.enableMemory) {
@@ -122,10 +150,13 @@ class ChatToolFactory(
                 )
             }
         }
-        // 过长的输出存成文件让模型用 shell 按需读取；没有 shell 时模型读不到文件，只能原样返回。
-        // 文件放在本机, 只有本地 Rootfs 挂载了 /tool_outputs, 远程工作区同样读不到
-        val canReadToolOutputs = workspaceTools.isNotEmpty() &&
-            assistant.workspaceId?.let { workspaceRepository.getById(it.toString()) }?.capabilities()?.rootfs == true
+        // 过长的输出存成文件让模型用 shell 按需读取；没有 shell / 读不到本地文件区时只能原样返回。
+        // 文件放在本机 filesDir，只有 LOCAL Rootfs 挂载了 /tool_outputs：HTTP 远程与 SSH 都读不到。
+        val canReadLocalOutputs = canReadToolOutputs(
+            backend = backend,
+            workspaceTools = workspaceTools,
+            workspaceHasRootfs = workspace?.capabilities()?.rootfs == true,
+        )
         // fork: 子代理工具。childTools 里不含 subagent_*，避免无限嵌套。
         // 子代理可以额外拿到会话检索/读取工具，用来参考其他聊天。
         val childTools = (if (settings.subagent.includeChatHistory) {
@@ -137,9 +168,9 @@ class ChatToolFactory(
             // 子代理的工具可见性遵循设置，避免开关是摆设
             isSubagentToolAllowed(tool.name, settings.subagent)
         }
-        // 父侧用 canReadToolOutputs 判定；子代理还要额外确认自己真的拿到了能读 /tool_outputs 的工具。
+        // 父侧用 canReadLocalOutputs 判定；子代理还要额外确认自己真的拿到了能读 /tool_outputs 的工具。
         val childToolsForSubagent =
-            if (shouldTruncateChildToolOutput(canReadToolOutputs, childTools)) {
+            if (shouldTruncateChildToolOutput(canReadLocalOutputs, childTools)) {
                 childTools.map(::withOutputTruncation)
             } else childTools
         val withSubagent = if (settings.subagent.enabled) {
@@ -151,7 +182,7 @@ class ChatToolFactory(
                 conversationId = conversationId,
             )
         } else tools
-        return if (canReadToolOutputs) withSubagent.map(::withOutputTruncation) else withSubagent
+        return if (canReadLocalOutputs) withSubagent.map(::withOutputTruncation) else withSubagent
     }
 
     private fun withOutputTruncation(tool: Tool): Tool {
@@ -186,23 +217,24 @@ class ChatToolFactory(
     }
 
     private suspend fun createWorkspaceToolsIfReady(
-        workspaceId: String?,
+        workspace: WorkspaceEntity?,
         cwd: String?,
         runtime: me.rerere.rikkahub.data.datastore.WorkspaceRuntimeSettings,
     ): List<Tool> {
-        if (workspaceId.isNullOrBlank()) return emptyList()
-        val workspace = workspaceRepository.getById(workspaceId) ?: return emptyList()
-        if (workspace.shellStatus != WorkspaceShellStatus.READY.name && runtime.remote?.enabled != true) {
+        if (workspace == null) return emptyList()
+        // 后端先定下来，再按它判断“就绪”和“这个工具在该后端下有没有意义”：
+        // SSH 不再因为全局 HTTP 开关而被点亮 job 工具，也不会被整体绕过就绪检查。
+        val backend = effectiveExecutionBackend(workspace.isSsh(), runtime)
+        if (!workspaceToolsReady(backend, workspace.shellStatus)) {
             Log.d(
                 TAG,
-                "createWorkspaceToolsIfReady: skip workspace tools, workspace=$workspaceId, status=${workspace.shellStatus}"
+                "createWorkspaceToolsIfReady: skip workspace tools, workspace=${workspace.id}, " +
+                    "status=${workspace.shellStatus}, backend=$backend"
             )
             return emptyList()
         }
-        return createWorkspaceTools(workspaceId, workspaceRepository, cwd, runtime).filter {
-            if (runtime.remote?.enabled == true) {
-                it.name == "workspace_shell" || it.name.startsWith("workspace_job_")
-            } else workspace.shellStatus == WorkspaceShellStatus.READY.name
+        return createWorkspaceTools(workspace.id, workspaceRepository, cwd, runtime).filter {
+            isToolAvailableOnBackend(it.name, backend)
         }
     }
 }

@@ -29,6 +29,37 @@ enum class MessageSearchSort(val orderBy: String) {
 private const val TAG = "MessageFtsManager"
 
 /**
+ * message_fts 的列，顺序与建表语句一致。查询（search）和增量写入（indexConversation）都按名字引用，
+ * 少一列就会抛 "no such column"，所以结构检查按列名比对而不是只看分词器。
+ */
+internal val messageFtsColumns = listOf("text", "node_id", "message_id", "conversation_id", "title", "update_at")
+
+/**
+ * 已有的 message_fts 能否直接沿用：分词器必须是 simple，且列要覆盖 [messageFtsColumns]。
+ *
+ * 只看分词器不够：别的分支/早期原型留下的 message_fts 可能列不同，而 CREATE VIRTUAL TABLE
+ * IF NOT EXISTS 不会修正它。这种表在 onOpen 的回填（SELECT ... conversation_id FROM message_fts）
+ * 就会抛错，让数据库整个打不开；即便侥幸存下来，查询和索引写入也全都会失败。
+ */
+internal fun isUsableMessageFtsSchema(sql: String?, columns: Collection<String>): Boolean =
+    sql != null &&
+        sql.contains("tokenize", ignoreCase = true) &&
+        sql.contains("simple", ignoreCase = true) &&
+        columns.containsAll(messageFtsColumns)
+
+internal const val CREATE_MESSAGE_FTS_SQL = """
+    CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
+        text,
+        node_id UNINDEXED,
+        message_id UNINDEXED,
+        conversation_id UNINDEXED,
+        title UNINDEXED,
+        update_at UNINDEXED,
+        tokenize = 'simple'
+    )
+"""
+
+/**
  * 建立消息索引用到的表，每次打开数据库时调用。
  *
  * message_fts 是 FTS5 虚表，除 rowid 外的列都无法用索引定位，按 conversation_id 删除会扫描全部消息；
@@ -36,19 +67,14 @@ private const val TAG = "MessageFtsManager"
  * title、update_at 两列已不再写入，搜索时从 conversationentity 读取，保留只是为了已有索引不用重建。
  */
 internal fun createMessageFtsTables(db: SupportSQLiteDatabase) {
-    db.execSQL(
-        """
-        CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
-            text,
-            node_id UNINDEXED,
-            message_id UNINDEXED,
-            conversation_id UNINDEXED,
-            title UNINDEXED,
-            update_at UNINDEXED,
-            tokenize = 'simple'
-        )
-        """.trimIndent()
-    )
+    db.execSQL(CREATE_MESSAGE_FTS_SQL.trimIndent())
+    if (!messageFtsColumns.all { it in existingFtsColumns(db) }) {
+        // 遗留结构撑不起当前查询：索引是派生数据，重建而不是让每次开库都抛错
+        Log.w(TAG, "message_fts has an incompatible column set, recreating")
+        db.execSQL("DROP TABLE IF EXISTS message_fts")
+        db.execSQL("DROP TABLE IF EXISTS message_fts_rowid")
+        db.execSQL(CREATE_MESSAGE_FTS_SQL.trimIndent())
+    }
     val hasRowidTable = db.query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'message_fts_rowid'")
         .use { it.moveToFirst() }
     if (hasRowidTable) return
@@ -65,6 +91,12 @@ internal fun createMessageFtsTables(db: SupportSQLiteDatabase) {
         db.endTransaction()
     }
 }
+
+/** 列名（PRAGMA table_info），缺表或不是虚表时为空。 */
+private fun existingFtsColumns(db: SupportSQLiteDatabase): List<String> =
+    db.query("PRAGMA table_info(`message_fts`)").use { cursor ->
+        buildList { while (cursor.moveToNext()) cursor.getString(1)?.let(::add) }
+    }
 
 private class IndexedMessage(val rowid: Long, val nodeId: String, val text: String)
 
@@ -87,9 +119,7 @@ class MessageFtsManager(private val database: AppDatabase) {
         val sql = db.query(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'message_fts'"
         ).use { if (it.moveToFirst()) it.getString(0) else null }
-        val usable = sql != null &&
-            sql.contains("tokenize", ignoreCase = true) &&
-            sql.contains("simple", ignoreCase = true)
+        val usable = isUsableMessageFtsSchema(sql, existingFtsColumns(db))
         if (usable) {
             // 缺 rowid 映射表时 deleteAll/indexConversation 会直接抛错，这里补齐
             createMessageFtsTables(db)

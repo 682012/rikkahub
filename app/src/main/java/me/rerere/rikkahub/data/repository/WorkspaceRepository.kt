@@ -2,6 +2,7 @@ package me.rerere.rikkahub.data.repository
 
 import android.util.Log
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -60,7 +61,14 @@ class WorkspaceRepository(
     private val jobManager = WorkspaceJobManager(manager)
     private val workspaceFilesExporter = WorkspaceFilesExporter()
     private val remoteClient = me.rerere.rikkahub.data.repository.RemoteExecutionClient()
-    private val jobMonitorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // 这个协程只负责"任务结束后释放前台服务"。launch 里逃出来的异常没人接就是进程级崩溃
+    // (job.json 被清理或损坏时 status 会抛 "Job not found"), 这里只记日志;
+    // 服务释放写在 finally 里, 监视失败也不会漏掉 release。
+    private val jobMonitorScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e ->
+            Log.e(TAG, "Workspace job monitor failed", e)
+        }
+    )
 
     private fun appContext(): android.content.Context = context.applicationContext
 
@@ -358,6 +366,11 @@ class WorkspaceRepository(
         onProgress: (done: Long, total: Long, current: String) -> Unit = { _, _, _ -> },
     ) = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        // 文件不在本机的工作区 (如 SSH) 导出必然失败, 而且导出入口先以 "wt" 打开目标文件,
+        // 失败后用户只剩一个被截成 0 字节的文件, 所以这里先拒绝。
+        require(workspace.capabilities().localFiles) {
+            "Workspace files are not on this device: ${workspace.name}"
+        }
         val root = manager.filesDir(workspace.root)
         require(root.isDirectory) { "Workspace files directory missing" }
         val summary = workspaceFilesExporter.export(root, outputStream, onProgress)
@@ -390,8 +403,12 @@ class WorkspaceRepository(
     ): WorkspaceCommandResult {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         // fork: 远程后端优先。长任务交给服务器，避免 Android 后台限制。
-        val remote = settingsStore.awaitLoaded().workspaceRuntime.remote
-        if (allowRemote && remote?.enabled == true) {
+        // 全局 HTTP 开关只对 LOCAL 工作区生效；SSH 工作区永远走 SSH 后端，命令与文件都在同一台机器。
+        val remote = effectiveRemoteExecution(
+            isSsh = workspace.isSsh(),
+            runtime = settingsStore.awaitLoaded().workspaceRuntime,
+        )
+        if (allowRemote && remote != null) {
             require(remote.baseUrl.isNotBlank()) { "Remote base URL is empty" }
             require(stdin == null) { "Remote shell does not support stdin" }
             val remoteCwd = listOf(remote.workdir.trimEnd('/'), cwd.trimStart('/'))
@@ -412,13 +429,15 @@ class WorkspaceRepository(
         timeoutMillis: Long = 0L,
     ): WorkspaceJobInfo = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
-        val remote = settingsStore.awaitLoaded().workspaceRuntime.remote
-        if (remote?.enabled == true) {
+        val runtime = settingsStore.awaitLoaded().workspaceRuntime
+        // fork: 全局 HTTP 开关只对 LOCAL 生效。SSH 没有 job 通道，也不能退回到本地 proot 里跑远端路径。
+        val remote = effectiveRemoteExecution(isSsh = workspace.isSsh(), runtime = runtime)
+        if (remote != null) {
             require(remote.baseUrl.isNotBlank()) { "Remote base URL is empty" }
             return@withContext remoteClient.startJob(remote, command, remoteCwd(remote.workdir, cwd))
         }
+        check(!workspace.isSsh()) { SSH_JOB_UNSUPPORTED_MESSAGE }
         manager.ensureWorkspace(workspace.root)
-        val runtime = settingsStore.awaitLoaded().workspaceRuntime
         jobManager.prune(workspace.root, runtime.keepJobsDays)
         // Start the foreground service before starting work. A denied FGS must not leave an untracked task.
         val serviceId = Uuid.random().toString()
@@ -447,23 +466,30 @@ class WorkspaceRepository(
         tailLines: Int = 80,
     ): WorkspaceJobStatus = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
-        val remote = settingsStore.awaitLoaded().workspaceRuntime.remote
-        if (remote?.enabled == true) {
+        val remote = effectiveRemoteExecution(
+            isSsh = workspace.isSsh(),
+            runtime = settingsStore.awaitLoaded().workspaceRuntime,
+        )
+        if (remote != null) {
             require(remote.baseUrl.isNotBlank()) { "Remote base URL is empty" }
             return@withContext remoteClient.jobStatus(remote, jobId, tailLines)
         }
+        check(!workspace.isSsh()) { SSH_JOB_UNSUPPORTED_MESSAGE }
         jobManager.status(workspace.root, jobId, tailLines)
     }
 
     suspend fun killJob(id: String, jobId: String): Boolean = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
-        val remote = settingsStore.awaitLoaded().workspaceRuntime.remote
-        if (remote?.enabled == true) {
+        val remote = effectiveRemoteExecution(
+            isSsh = workspace.isSsh(),
+            runtime = settingsStore.awaitLoaded().workspaceRuntime,
+        )
+        if (remote != null) {
             require(remote.baseUrl.isNotBlank()) { "Remote base URL is empty" }
             return@withContext remoteClient.killJob(remote, jobId)
         }
-        val killed = jobManager.kill(workspace.root, jobId)
-        killed
+        check(!workspace.isSsh()) { SSH_JOB_UNSUPPORTED_MESSAGE }
+        jobManager.kill(workspace.root, jobId)
     }
 
     suspend fun listJobs(id: String): List<WorkspaceJobInfo> = withContext(Dispatchers.IO) {

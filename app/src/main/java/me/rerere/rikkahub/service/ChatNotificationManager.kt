@@ -119,9 +119,10 @@ class ChatNotificationManager(
 
         context.sendNotification(
             channelId = CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID,
-            // 更新前台服务正在使用的同一条通知，避免重复显示生成进度。
-            notificationId = ChatGenerationForegroundService.NOTIFICATION_ID
+            // Each conversation owns its progress notification; never replace the FGS notification.
+            notificationId = CHAT_LIVE_UPDATE_NOTIFICATION_ID
         ) {
+            tag = chatLiveUpdateNotificationTag(conversationId)
             title = senderName
             content = contentText
             subText = statusText
@@ -164,8 +165,8 @@ class ChatNotificationManager(
 
     private fun cancelLiveUpdateNotification(conversationId: Uuid) {
         liveUpdateLastSentAt.remove(conversationId)
-        // 前台服务持有通知时系统会保留它；启动失败时则清理普通 ongoing 通知。
-        context.cancelNotification(ChatGenerationForegroundService.NOTIFICATION_ID)
+        // Cancel only this conversation; the shared foreground-service notification has a separate identity.
+        context.cancelNotification(CHAT_LIVE_UPDATE_NOTIFICATION_ID, chatLiveUpdateNotificationTag(conversationId))
     }
 
     private fun getPendingIntent(context: Context, conversationId: Uuid): PendingIntent {
