@@ -16,6 +16,7 @@ import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.conversationIntent
+import me.rerere.rikkahub.utils.cancelNotification
 import org.koin.android.ext.android.inject
 import kotlin.uuid.Uuid
 
@@ -89,6 +90,7 @@ class ChatGenerationForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        activeGenerations.values.toSet().forEach(::cancelConversationProgress)
         activeGenerations.clear()
         if (isForeground) {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -119,7 +121,8 @@ class ChatGenerationForegroundService : Service() {
     }
 
     private fun release(intent: Intent, startId: Int) {
-        intent.getStringExtra(EXTRA_GENERATION_ID)?.let(activeGenerations::remove)
+        val released = intent.getStringExtra(EXTRA_GENERATION_ID)?.let(activeGenerations::remove)
+        if (released != null && released !in activeGenerations.values) cancelConversationProgress(released)
         if (activeGenerations.isEmpty()) {
             // Only stop if no newer start request is queued. A pending ACQUIRE came from
             // startForegroundService(), and stopping before it calls startForeground() crashes
@@ -148,6 +151,12 @@ class ChatGenerationForegroundService : Service() {
             Log.e(TAG, "Failed to enter foreground", e)
             activeGenerations.clear()
             stopSelf()
+        }
+    }
+
+    private fun cancelConversationProgress(id: String) {
+        runCatching { Uuid.parse(id) }.getOrNull()?.let { conversationId ->
+            cancelNotification(CHAT_LIVE_UPDATE_NOTIFICATION_ID, chatLiveUpdateNotificationTag(conversationId))
         }
     }
 

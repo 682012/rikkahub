@@ -13,6 +13,7 @@ import java.nio.file.Path
 import java.nio.file.LinkOption
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
+import java.nio.file.attribute.FileTime
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -24,6 +25,7 @@ import java.util.zip.ZipOutputStream
  *
  * 约定：
  * - 按目录名剪枝：[skippedDirNames] 命中的目录整棵跳过（`SKIP_SUBTREE`），不枚举其中的文件；
+ * - 目录本身也写成条目（名字尾随 `/`，无内容），空目录因此能和 [WorkspaceFilesImporter] 无损往返；
  * - 不跟随符号链接：`Files.walkFileTree` 默认不跟随，链接本身作为“跳过项”计数，内容不导出
  *   （当前导出不保留符号链接和 Unix 权限，跟随还可能包含工作区外的内容）；
  * - 特殊文件（FIFO/socket/设备）同样跳过并计数，避免读 FIFO 卡死导出；
@@ -43,10 +45,15 @@ class WorkspaceFilesExporter(
 
     /** 一次导出的结果。被跳过的条目未进入备份，调用方应记录并说明导出边界。 */
     data class Summary(
+        /** 导出的普通文件数（不含目录条目）。 */
         val entryCount: Int,
         val byteCount: Long,
         val skippedSymlinks: Int,
         val skippedSpecialFiles: Int,
+        /** 导出的目录条目数（含空目录）。导入端据此无损还原目录结构。 */
+        val directoryCount: Int = 0,
+        val prunedDirCount: Int = 0,
+        val prunedDirExamples: List<String> = emptyList(),
     ) {
         val skippedTotal: Int get() = skippedSymlinks + skippedSpecialFiles
     }
@@ -56,12 +63,15 @@ class WorkspaceFilesExporter(
         val relativePath: String,
         val sizeBytes: Long,
         val modifiedAtMillis: Long,
+        val isDirectory: Boolean = false,
     )
 
     private class ScanResult(
         val entries: List<Entry>,
         val skippedSymlinks: Int,
         val skippedSpecialFiles: Int,
+        val prunedDirCount: Int,
+        val prunedDirExamples: List<String>,
     )
 
     /**
@@ -83,8 +93,14 @@ class WorkspaceFilesExporter(
             for (entry in scan.entries) {
                 currentCoroutineContext().ensureActive()
                 val zipEntry = ZipEntry(entry.relativePath)
-                if (entry.modifiedAtMillis > 0L) zipEntry.time = entry.modifiedAtMillis
+                if (entry.modifiedAtMillis > 0L) zipEntry.setLastModifiedTime(FileTime.fromMillis(entry.modifiedAtMillis))
                 zip.putNextEntry(zipEntry)
+                if (entry.isDirectory) {
+                    // 目录条目只有名字（尾随 /），不写内容；导入端按名字重建，空目录因此不会丢
+                    zip.closeEntry()
+                    onProgress(minOf(copied, total), total, entry.relativePath)
+                    continue
+                }
                 try {
                     // use {} 是 inline，suspend 调用可以直接写在里面
                     Files.newInputStream(entry.path, LinkOption.NOFOLLOW_LINKS).use { input ->
@@ -114,11 +130,15 @@ class WorkspaceFilesExporter(
             // 文件在扫描后变短，进度补到 100%，避免界面停在 99%
             onProgress(total, total, "")
         }
+        val directoryCount = scan.entries.count { it.isDirectory }
         return Summary(
-            entryCount = scan.entries.size,
+            entryCount = scan.entries.size - directoryCount,
             byteCount = copied,
             skippedSymlinks = scan.skippedSymlinks,
             skippedSpecialFiles = scan.skippedSpecialFiles,
+            directoryCount = directoryCount,
+            prunedDirCount = scan.prunedDirCount,
+            prunedDirExamples = scan.prunedDirExamples,
         )
     }
 
@@ -130,13 +150,31 @@ class WorkspaceFilesExporter(
         val entries = ArrayList<Entry>()
         var skippedSymlinks = 0
         var skippedSpecialFiles = 0
+        var prunedDirCount = 0
+        val prunedDirExamples = ArrayList<String>()
         Files.walkFileTree(
             rootPath,
             object : SimpleFileVisitor<Path>() {
                 override fun preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult {
                     context.ensureActive()
                     val name = dir.fileName?.toString()
-                    if (dir != rootPath && name != null && name in skippedDirNames) return FileVisitResult.SKIP_SUBTREE
+                    if (dir != rootPath && name != null && name in skippedDirNames) {
+                        prunedDirCount++
+                        if (prunedDirExamples.size < 12) prunedDirExamples += rootPath.relativize(dir).toString()
+                        return FileVisitResult.SKIP_SUBTREE
+                    }
+                    if (dir != rootPath) {
+                        // 目录也写成条目（尾随 /）：否则导入端无法还原空目录
+                        entries.add(
+                            Entry(
+                                path = dir,
+                                relativePath = rootPath.relativize(dir).joinToString("/") { it.toString() } + "/",
+                                sizeBytes = 0L,
+                                modifiedAtMillis = attrs.lastModifiedTime().toMillis(),
+                                isDirectory = true,
+                            )
+                        )
+                    }
                     return FileVisitResult.CONTINUE
                 }
 
@@ -162,7 +200,7 @@ class WorkspaceFilesExporter(
                 // 导出直接失败，而不是悄悄少打包一批文件却报告成功。
             },
         )
-        return ScanResult(entries, skippedSymlinks, skippedSpecialFiles)
+        return ScanResult(entries, skippedSymlinks, skippedSpecialFiles, prunedDirCount, prunedDirExamples)
     }
 
     companion object {

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="retry_settings_delay_title">Retry wait</string>
+    <string name="retry_settings_delay_desc_fixed">Waits a fixed %1$d s before every retry.</string>
+    <string name="retry_settings_delay_desc_range">Waits a random %1$d–%2$d s before every retry. Each wait lands inside this range; it does not grow.</string>
+    <string name="retry_settings_preset_fixed_30">30 s</string>
+    <string name="retry_settings_preset_fixed_60">60 s</string>
+    <string name="retry_settings_preset_range">30–60 s</string>
+    <string name="retry_settings_preset_custom">Custom</string>
+    <string name="retry_settings_custom_min">Shortest wait (seconds)</string>
+    <string name="retry_settings_custom_max">Longest wait (seconds)</string>
+    <string name="retry_settings_custom_desc">1 to 600 seconds. Equal values mean a fixed wait; otherwise every retry waits a random length inside the range.</string>
+    <string name="retry_settings_max_retries_desc">0 to 100. 0 disables retries even when automatic retry is on. How long to wait is set below.</string>
+</resources>

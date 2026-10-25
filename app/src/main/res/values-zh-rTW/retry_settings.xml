@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="retry_settings_delay_title">重試等待</string>
+    <string name="retry_settings_delay_desc_fixed">每次重試前固定等待 %1$d 秒。</string>
+    <string name="retry_settings_delay_desc_range">每次重試前在 %1$d~%2$d 秒之間隨機等待，每次都會落在這個區間裡，不會逐次增加。</string>
+    <string name="retry_settings_preset_fixed_30">30 秒</string>
+    <string name="retry_settings_preset_fixed_60">60 秒</string>
+    <string name="retry_settings_preset_range">30~60 秒</string>
+    <string name="retry_settings_preset_custom">自訂</string>
+    <string name="retry_settings_custom_min">最短等待（秒）</string>
+    <string name="retry_settings_custom_max">最長等待（秒）</string>
+    <string name="retry_settings_custom_desc">1~600 秒。兩端填一樣的數字就是固定等待，否則每次在區間裡隨機取一個時長。</string>
+    <string name="retry_settings_max_retries_desc">0~100 次，0 表示不重試。每次等多久在下面設定。</string>
+</resources>

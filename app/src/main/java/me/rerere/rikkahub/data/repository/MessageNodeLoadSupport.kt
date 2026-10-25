@@ -148,14 +148,24 @@ internal suspend fun loadSnapshotsResilient(
  * 是否属于“这一行太大，装不进 CursorWindow”。
  *
  * Android 上 SQLite 抛 `SQLiteBlobTooBigException`；Room 有时把它包成 `IllegalStateException("... CursorWindow ...")`。
- * 只有消息里明确提到窗口/太大时才当作可降级，其它 `IllegalStateException` 不是我们的场景。
+ * requery 的受限原生窗口还可能返回 `Couldn't read row N column M`，且堆栈来自 CursorWindow.nativeGet*。
+ * 只对此精确的原生窗口信号允许一次完整分片回退，不吞其它 IllegalStateException。
+ * 回退读取失败仍整体抛错，不返回残缺快照。
  */
+private val NATIVE_WINDOW_ROW_ERROR = Regex("^Couldn't read row [0-9]+ column [0-9]+$")
+
 internal fun isCursorWindowOverflow(error: Throwable): Boolean {
     var current: Throwable? = error
     var depth = 0
     while (current != null && depth < 8) {
         if (current.javaClass.simpleName == "SQLiteBlobTooBigException") return true
         val message = current.message.orEmpty()
+        if (current is IllegalStateException && NATIVE_WINDOW_ROW_ERROR.matches(message) &&
+            current.stackTrace.any { frame ->
+                frame.className == "io.requery.android.database.CursorWindow" &&
+                    frame.methodName.startsWith("nativeGet")
+            }
+        ) return true
         if (message.contains("CursorWindow", ignoreCase = true) ||
             message.contains("Row too big", ignoreCase = true) ||
             message.contains("blob too big", ignoreCase = true) ||

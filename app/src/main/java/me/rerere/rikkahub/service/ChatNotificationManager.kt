@@ -22,6 +22,7 @@ import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.model.GenerationPhase
 import me.rerere.rikkahub.data.model.generationPhase
+import me.rerere.rikkahub.utils.NotificationUtil
 import me.rerere.rikkahub.utils.cancelNotification
 import me.rerere.rikkahub.utils.sendNotification
 import java.util.concurrent.ConcurrentHashMap
@@ -41,6 +42,7 @@ class ChatNotificationManager(
     eventBus: AppEventBus,
     private val settingsStore: SettingsStore,
 ) {
+    private val notificationLock = Any()
     private val isForeground = MutableStateFlow(false)
     private val liveUpdateLastSentAt = ConcurrentHashMap<Uuid, Long>()
 
@@ -50,19 +52,29 @@ class ChatNotificationManager(
             ProcessLifecycleOwner.get().lifecycle.addObserver(
                 LifecycleEventObserver { _, event ->
                     when (event) {
-                        Lifecycle.Event.ON_START -> isForeground.value = true
+                        Lifecycle.Event.ON_START -> {
+                            isForeground.value = true
+                            appScope.launch(Dispatchers.IO) {
+                                synchronized(notificationLock) { clearStaleLiveUpdates() }
+                            }
+                        }
                         Lifecycle.Event.ON_STOP -> isForeground.value = false
                         else -> {}
                     }
                 }
             )
         }
+        appScope.launch(Dispatchers.IO) {
+            synchronized(notificationLock) { clearStaleLiveUpdates() }
+        }
         appScope.launch(Dispatchers.Default) {
             eventBus.events.collect { event ->
-                when (event) {
-                    is AppEvent.ChatGenerationUpdate -> handleGenerationUpdate(event)
-                    is AppEvent.ChatGenerationEnded -> handleGenerationEnded(event)
-                    else -> {}
+                synchronized(notificationLock) {
+                    when (event) {
+                        is AppEvent.ChatGenerationUpdate -> handleGenerationUpdate(event)
+                        is AppEvent.ChatGenerationEnded -> handleGenerationEnded(event)
+                        else -> {}
+                    }
                 }
             }
         }
@@ -133,6 +145,9 @@ class ChatNotificationManager(
             contentIntent = getPendingIntent(context, conversationId)
             requestPromotedOngoing = true
             shortCriticalText = chipText
+            // A progress card is advisory. Five minutes without an update clears it;
+            // the separate foreground service and the running task are not stopped.
+            timeoutAfterMs = CHAT_LIVE_UPDATE_NOTIFICATION_TIMEOUT_MS
         }
     }
 
@@ -167,6 +182,11 @@ class ChatNotificationManager(
         liveUpdateLastSentAt.remove(conversationId)
         // Cancel only this conversation; the shared foreground-service notification has a separate identity.
         context.cancelNotification(CHAT_LIVE_UPDATE_NOTIFICATION_ID, chatLiveUpdateNotificationTag(conversationId))
+    }
+
+    private fun clearStaleLiveUpdates() {
+        liveUpdateLastSentAt.clear()
+        NotificationUtil.cancelWhere(context, ::isChatLiveUpdateNotification)
     }
 
     private fun getPendingIntent(context: Context, conversationId: Uuid): PendingIntent {

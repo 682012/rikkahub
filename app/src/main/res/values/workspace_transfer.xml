@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="workspace_transfer_title">Workspace files</string>
+    <string name="workspace_transfer_import">Import ZIP as a new workspace</string>
+    <string name="workspace_transfer_import_desc">Accepts earlier workspace exports. Creates a separate local workspace; never overwrites existing files, chats or settings.</string>
+    <string name="workspace_transfer_export">Export a workspace</string>
+    <string name="workspace_transfer_export_desc">Exports /workspace files only. Skips caches, build outputs, task logs and symbolic links. Does not include Linux or executable permissions. The archive may contain private files; do not share it publicly.</string>
+    <string name="workspace_transfer_boundary">Keep this page open until the transfer finishes. Imported files do not include Linux; install it in the new workspace before running commands. Old ZIP exports do not preserve symbolic links or executable permissions.</string>
+    <string name="workspace_transfer_no_local">No local workspace available to export.</string>
+    <string name="workspace_transfer_pick_export">Choose a workspace to export</string>
+    <string name="workspace_transfer_pick_zip">Choose ZIP and import</string>
+    <string name="workspace_transfer_structure">Archive layout</string>
+    <string name="workspace_transfer_bare">Files at ZIP root (earlier exports)</string>
+    <string name="workspace_transfer_wrapper_workspace">Strip one workspace/ directory</string>
+    <string name="workspace_transfer_wrapper_files">Strip one files/ directory</string>
+    <string name="workspace_transfer_no_overwrite">A new local workspace will be created. Leave the archive layout unchanged unless all files are inside the selected outer directory.</string>
+    <string name="workspace_transfer_name_default">Imported workspace</string>
+    <string name="workspace_transfer_open">Open imported workspace</string>
+    <string name="workspace_transfer_preparing">Preparing…</string>
+    <string name="workspace_transfer_cannot_read">Cannot read the selected ZIP</string>
+    <string name="workspace_transfer_cannot_write">Cannot write to the selected file</string>
+    <string name="workspace_transfer_missing">The selected workspace no longer exists</string>
+    <string name="workspace_transfer_local_only">Only local workspaces can be exported</string>
+    <string name="workspace_transfer_import_progress">%1$d files · %2$s</string>
+    <string name="workspace_transfer_import_done">Imported “%1$s”. Install Linux in the new workspace before running commands. Restore executable permissions where needed.</string>
+    <string name="workspace_transfer_export_done">Export completed</string>
+    <string name="workspace_transfer_cancelled">Import cancelled. No existing workspace was changed.</string>
+    <string name="workspace_transfer_failed">Import failed: %1$s</string>
+    <string name="workspace_transfer_export_cancelled">Export cancelled. The destination ZIP may be incomplete.</string>
+    <string name="workspace_transfer_export_failed">Export failed: %1$s. The destination ZIP may be incomplete.</string>
+    <string name="workspace_transfer_export_stats">Exported %1$d files · %2$s</string>
+    <string name="workspace_transfer_export_skips">Skipped %1$d directories, %2$d symbolic links and %3$d special files.</string>
+    <string name="workspace_transfer_import_stats">%1$d files · %2$s · %3$d files without saved executable permissions.</string>
+    <string name="workspace_transfer_skip_rebuildable">Skip caches and build directories</string>
+    <string name="workspace_transfer_full_desc">Turn off to include all regular files, including .git, build, cache and tmp directories. Task logs (.jobs), symbolic links and special files are always excluded.</string>
+</resources>

@@ -94,6 +94,27 @@ data class Settings(
     }
 }
 
+/** 重试等待的取法：固定秒数，或每次在区间里随机。 */
+@Serializable
+enum class RetryDelayMode {
+    @SerialName("fixed")
+    FIXED,
+
+    @SerialName("range")
+    RANGE,
+}
+
+/**
+ * 归一化之后的重试等待配置：秒数一定落在 [NetworkSetting.MIN_RETRY_DELAY_SECONDS]~[NetworkSetting.MAX_RETRY_DELAY_SECONDS]，
+ * 且 [minSeconds] <= [maxSeconds]。界面和重试策略都读这个，不直接读原始字段。
+ */
+data class RetryDelayConfig(
+    val mode: RetryDelayMode,
+    val fixedSeconds: Int,
+    val minSeconds: Int,
+    val maxSeconds: Int,
+)
+
 @Serializable
 data class NetworkSetting(
     val userAgent: String = "",
@@ -103,7 +124,43 @@ data class NetworkSetting(
     val enableAutoRetry: Boolean = true,
     /** 自动重试的最大次数，0 表示不重试（总开关打开也无效）。 */
     val maxRetries: Int = 3,
-)
+    /**
+     * 重试前怎么等。默认固定 60 秒：旧版本只写了"单次等待最长 60 秒"，
+     * 实际是 1s、2s、4s……的指数退避，改成本字段之后等的时长由用户决定。
+     */
+    val retryDelayMode: RetryDelayMode = RetryDelayMode.FIXED,
+    /** [RetryDelayMode.FIXED] 时每次重试前固定的秒数。 */
+    val retryDelaySeconds: Int = DEFAULT_RETRY_DELAY_SECONDS,
+    /** [RetryDelayMode.RANGE] 时区间下界（含）。 */
+    val retryDelayMinSeconds: Int = DEFAULT_RETRY_DELAY_MIN_SECONDS,
+    /** [RetryDelayMode.RANGE] 时区间上界（含）。 */
+    val retryDelayMaxSeconds: Int = DEFAULT_RETRY_DELAY_MAX_SECONDS,
+) {
+    /**
+     * 把可能存在坏值的原始字段归整成一份合法配置。
+     *
+     * - 秒数越界（0、负数、超过 600）直接夹到 1~600，不因为一个坏值丢掉整个配置；
+     * - 区间写反了就互换两端，等价于用户想要的区间。
+     */
+    fun normalizedRetryDelay(): RetryDelayConfig {
+        val low = retryDelayMinSeconds.coerceIn(MIN_RETRY_DELAY_SECONDS, MAX_RETRY_DELAY_SECONDS)
+        val high = retryDelayMaxSeconds.coerceIn(MIN_RETRY_DELAY_SECONDS, MAX_RETRY_DELAY_SECONDS)
+        return RetryDelayConfig(
+            mode = retryDelayMode,
+            fixedSeconds = retryDelaySeconds.coerceIn(MIN_RETRY_DELAY_SECONDS, MAX_RETRY_DELAY_SECONDS),
+            minSeconds = minOf(low, high),
+            maxSeconds = maxOf(low, high),
+        )
+    }
+
+    companion object {
+        const val MIN_RETRY_DELAY_SECONDS = 1
+        const val MAX_RETRY_DELAY_SECONDS = 600
+        const val DEFAULT_RETRY_DELAY_SECONDS = 60
+        const val DEFAULT_RETRY_DELAY_MIN_SECONDS = 30
+        const val DEFAULT_RETRY_DELAY_MAX_SECONDS = 60
+    }
+}
 
 @Serializable
 enum class ChatFontFamily {

@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import me.rerere.ai.agent.AgentHooks
 import me.rerere.ai.agent.AgentRequest
+import me.rerere.ai.agent.RetryDelay
 import me.rerere.ai.agent.RetryPolicy
 import me.rerere.ai.agent.StepRequest
 import me.rerere.ai.agent.withRetry
@@ -35,6 +36,8 @@ import me.rerere.rikkahub.data.ai.transformers.onGenerationFinish
 import me.rerere.rikkahub.data.ai.transformers.transformThinkTags
 import me.rerere.rikkahub.data.ai.transformers.transforms
 import me.rerere.rikkahub.data.ai.transformers.visualTransforms
+import me.rerere.rikkahub.data.datastore.NetworkSetting
+import me.rerere.rikkahub.data.datastore.RetryDelayMode
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.model.Assistant
@@ -46,6 +49,7 @@ import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.repository.memoryId
 import kotlin.time.Clock
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 private const val TAG = "ChatRequestFactory"
@@ -315,9 +319,30 @@ internal fun backgroundTextGenerationParams(
     sessionId = sessionId.toString(),
 )
 
+/**
+ * 主对话和子代理共用的唯一重试策略构造函数。
+ *
+ * 关了自动重试就是 [RetryPolicy.NONE]；开着时次数夹在 0~100（0 也等于不重试），
+ * 等待时长按设置里的固定秒数或随机区间来，不再走 ai 模块默认的指数退避——
+ * 设置页写"每次 30~60 秒随机"，实际等待就必须真的落在 30~60 秒里。
+ */
 internal fun Settings.retryPolicy() =
     if (networkSetting.enableAutoRetry) {
-        RetryPolicy(maxRetries = networkSetting.maxRetries.coerceIn(0, 100))
+        networkSetting.toRetryPolicy()
     } else {
         RetryPolicy.NONE
     }
+
+internal fun NetworkSetting.toRetryPolicy(): RetryPolicy {
+    val delay = normalizedRetryDelay()
+    return RetryPolicy(
+        maxRetries = maxRetries.coerceIn(0, 100),
+        delayMode = when (delay.mode) {
+            RetryDelayMode.FIXED -> RetryDelay.Fixed(delay.fixedSeconds.seconds)
+            RetryDelayMode.RANGE -> RetryDelay.RandomRange(
+                min = delay.minSeconds.seconds,
+                max = delay.maxSeconds.seconds,
+            )
+        },
+    )
+}

@@ -13,11 +13,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Card
 import androidx.compose.material3.LargeFlexibleTopAppBar
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -29,9 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -41,6 +36,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.ai.provider.ModelType
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.rikkahub.Screen
+import me.rerere.rikkahub.ui.context.LocalNavController
+import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceTransferCard
+import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceTransferVM
 import me.rerere.rikkahub.data.datastore.RemoteExecutionSettings
 import me.rerere.rikkahub.data.datastore.SubagentSettings
 import me.rerere.rikkahub.data.datastore.WorkspaceRuntimeSettings
@@ -52,8 +51,6 @@ import me.rerere.rikkahub.ui.components.ui.switchItem
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.utils.plus
 import org.koin.androidx.compose.koinViewModel
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.CancellationException
 import kotlin.uuid.Uuid
 
 /**
@@ -63,6 +60,8 @@ import kotlin.uuid.Uuid
  */
 @Composable
 fun SettingForkPage(vm: SettingVM = koinViewModel()) {
+    val transferVM: WorkspaceTransferVM = koinViewModel()
+    val navController = LocalNavController.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val runtime = settings.workspaceRuntime
     val sub = settings.subagent
@@ -288,90 +287,8 @@ fun SettingForkPage(vm: SettingVM = koinViewModel()) {
             }
 
             item {
-                val exportContext = LocalContext.current
-                val exportRepo = remember {
-                    org.koin.java.KoinJavaComponent.getKoin()
-                        .get<me.rerere.rikkahub.data.repository.WorkspaceRepository>()
-                }
-                val exportWorkspaces by exportRepo.listFlow().collectAsStateWithLifecycle(emptyList())
-                val exportScope = rememberCoroutineScope()
-                var exporting by remember { mutableStateOf(false) }
-                var exportWorkspaceId by rememberSaveable { mutableStateOf<String?>(null) }
-                var exportProgress by remember { mutableStateOf(0f) }
-                var exportStatus by remember { mutableStateOf("") }
-                val exportLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.CreateDocument("application/zip")
-                ) { uri ->
-                    val workspaceId = exportWorkspaceId
-                    exportWorkspaceId = null
-                    if (uri != null && workspaceId != null) {
-                        exporting = true
-                        exportProgress = 0f
-                        exportStatus = "准备中…"
-                        exportScope.launch {
-                            try {
-                                requireNotNull(exportContext.contentResolver.openOutputStream(uri, "wt")) {
-                                    "无法写入所选文件"
-                                }.use { os ->
-                                    exportRepo.exportWorkspaceFiles(workspaceId, os) { done, total, current ->
-                                        exportProgress = if (total > 0) done.toFloat() / total else 0f
-                                        exportStatus = "${done / 1024 / 1024} / ${total / 1024 / 1024} MB · $current"
-                                    }
-                                }
-                                exportProgress = 1f
-                                exportStatus = "导出完成"
-                            } catch (e: CancellationException) {
-                                exportStatus = "导出已取消，目标文件可能不完整"
-                                throw e
-                            } catch (e: Exception) {
-                                exportStatus = "导出失败: ${e.message}；目标文件可能不完整"
-                            } finally {
-                                exporting = false
-                            }
-                        }
-                    } else if (uri != null) {
-                        exportStatus = "导出未开始：工作区选择已失效，请重新选择"
-                    }
-                }
-
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("工作区导出", style = MaterialTheme.typography.titleSmall)
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text("选择要导出的工作区")
-                            Text(
-                                "把所选工作区的 /workspace 打成 zip，跳过缓存、构建目录、任务日志和符号链接；不含 Linux 系统。这不是完整系统备份，私密文件也可能在内，请勿公开分享。",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            // 文件不在本机的工作区 (SSH) 导出必然失败, 并且会先把所选文件截成 0 字节
-                            val exportableWorkspaces = exportWorkspaces.filter { it.capabilities().localFiles }
-                            exportableWorkspaces.forEach { workspace ->
-                                OutlinedButton(
-                                    enabled = !exporting && exportWorkspaceId == null,
-                                    onClick = {
-                                        exportWorkspaceId = workspace.id
-                                        exportLauncher.launch("rikkahub-workspace-${System.currentTimeMillis()}.zip")
-                                    },
-                                ) { Text("导出 ${workspace.name}") }
-                            }
-                            if (exportableWorkspaces.isEmpty()) {
-                                Text(
-                                    "没有可导出的工作区：SSH 远程工作区的文件不在本机，导出会得到空包。",
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                            if (exporting || exportStatus.isNotBlank()) {
-                                LinearProgressIndicator(
-                                    progress = { exportProgress },
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
-                                Text(exportStatus, style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    }
+                WorkspaceTransferCard(transferVM) { id ->
+                    navController.navigate(Screen.WorkspaceDetail(id))
                 }
             }
 

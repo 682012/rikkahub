@@ -1,0 +1,55 @@
+{
+  "versionName": "3.1.1-fork.38",
+  "versionCode": 3000042,
+  "upstream": {
+    "tag": "3.1.1",
+    "commit": "ad2c4430"
+  },
+  "applicationId": "me.rerere.rikkahub.fork",
+  "databaseSchema": 34,
+  "capabilityCounting": {
+    "addedWorkflows": 5,
+    "majorEnhancements": 2,
+    "bugFixesCountedAsFeatures": false
+  },
+  "privateBuild": {
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ],
+    "bytes": 19214408,
+    "sha256": "8499915d634a9376a834e919da43416921f71e77fb768780704d091b8024d9f3",
+    "r8": true,
+    "lintVital": true,
+    "sameSigningCertificateAsPreviousFork": true,
+    "publicBinaryRelease": false
+  },
+  "jvm": {
+    "registered": 1392,
+    "passed": 1391,
+    "failed": 0,
+    "errors": 0,
+    "skipped": 1,
+    "skipReason": "PdfCorpusTest.extractCorpus requires an optional local PDF corpus"
+  },
+  "android": {
+    "platform": "Android API 34 x86_64 KVM emulator",
+    "tests": 50,
+    "passed": 50,
+    "failed": 0,
+    "skipped": 0
+  },
+  "python": {
+    "passed": 11
+  },
+  "sqliteSimulation": {
+    "passed": 38,
+    "additionalUnicodeChunkChecks": true
+  },
+  "notVerified": [
+    "user phone production database upgrade",
+    "vendor notification behavior",
+    "locked-screen survival",
+    "all SAF providers"
+  ]
+}

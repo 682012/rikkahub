@@ -106,3 +106,42 @@ internal fun isToolAvailableOnBackend(
 /** SSH 工作区没有 job 通道时的统一报错，避免误落本地 proot */
 internal const val SSH_JOB_UNSUPPORTED_MESSAGE =
     "SSH workspaces do not support background jobs; run the command in workspace_shell or the SSH terminal"
+
+/**
+ * `listJobs` 能给出什么结果的判定。
+ *
+ * Repository 里原来的实现是盲读本地 jobManager，也就是不分后端直接读本地 PRoot 的任务目录：
+ * SSH 工作区会列出另一台机器上根本没发生过的任务，HTTP 远程则根本还没有 list 端点。
+ * 这两种情况都只能明确"不支持"，不能退化成本地结果让模型误信。
+ *
+ * 这里不新增任何 HTTP/list 功能：HTTP 后端在真正实现 list 端点前一律 unsupported。
+ */
+internal sealed interface JobListingVerdict {
+    /** 允许读本地 jobManager */
+    data object Allowed : JobListingVerdict
+
+    /** 明确不支持；[message] 用于直接返回给模型 */
+    data class Unsupported(val message: String) : JobListingVerdict
+
+    /** 工作区不存在：保持 Repository 原有的空表结果，不改报错文案 */
+    data object NoWorkspace : JobListingVerdict
+}
+
+internal const val REMOTE_HTTP_JOB_LIST_UNSUPPORTED_MESSAGE =
+    "The remote HTTP job backend does not implement job listing yet; ask for a specific job id with workspace_job_status instead"
+
+/**
+ * 当前后端下 `listJobs` 是否可读本地任务。
+ *
+ * - LOCAL_ROOTFS：允许（唯一有本地 job 目录的后端）；
+ * - SSH：不支持（job 概念在本地 proot，远端任务不存在于这里）；
+ * - REMOTE_HTTP：不支持（list 端点未实现），也不能回落到本地；
+ * - 工作区不存在（backend == null）：前面 dao 查询已经落回空表，这里返回 [JobListingVerdict.NoWorkspace]
+ *   只用于表达"没有后端可选"，语义上既不是允许也不是后端不支持。
+ */
+internal fun assertLocalJobListing(backend: WorkspaceExecutionBackend?): JobListingVerdict = when (backend) {
+    WorkspaceExecutionBackend.LOCAL_ROOTFS -> JobListingVerdict.Allowed
+    WorkspaceExecutionBackend.SSH -> JobListingVerdict.Unsupported(SSH_JOB_UNSUPPORTED_MESSAGE)
+    WorkspaceExecutionBackend.REMOTE_HTTP -> JobListingVerdict.Unsupported(REMOTE_HTTP_JOB_LIST_UNSUPPORTED_MESSAGE)
+    null -> JobListingVerdict.NoWorkspace
+}

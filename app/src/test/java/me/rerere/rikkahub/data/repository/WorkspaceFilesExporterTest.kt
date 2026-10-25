@@ -44,8 +44,12 @@ class WorkspaceFilesExporterTest {
         val summary = WorkspaceFilesExporter().export(root, out) { _, _, _ -> }
 
         val names = zipNames(out.toByteArray())
-        assertEquals(listOf("a.txt", "src/deep/b.py"), names.sorted())
+        // 目录也作为条目导出（尾随 /），空目录才能在导入端无损还原
+        assertEquals(listOf("a.txt", "src/", "src/deep/", "src/deep/b.py"), names.sorted())
         assertEquals(2, summary.entryCount)
+        assertEquals(2, summary.directoryCount)
+        assertEquals(5, summary.prunedDirCount)
+        assertTrue(summary.prunedDirExamples.contains(".git"))
         assertEquals("hello".length + "print(1)".length.toLong(), summary.byteCount)
     }
 

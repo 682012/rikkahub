@@ -146,6 +146,55 @@ class WorkspaceExecutionPolicyTest {
         )
     }
 
+    // --- listJobs 后端策略 -----------------------------------------------------
+
+    @Test
+    fun `local workspace may list the local job directory`() {
+        val backend = effectiveExecutionBackend(isSsh = false, runtime = runtime(null))
+        assertEquals(WorkspaceExecutionBackend.LOCAL_ROOTFS, backend)
+        assertEquals(JobListingVerdict.Allowed, assertLocalJobListing(backend))
+    }
+
+    @Test
+    fun `ssh workspace cannot list local jobs`() {
+        // 全局远程开关打开也不能把 SSH 变成"可列本地任务"
+        val backend = effectiveExecutionBackend(isSsh = true, runtime = runtime(enabledRemote))
+        val verdict = assertLocalJobListing(backend)
+        assertEquals(WorkspaceExecutionBackend.SSH, backend)
+        assertTrue(verdict is JobListingVerdict.Unsupported)
+        assertEquals(SSH_JOB_UNSUPPORTED_MESSAGE, (verdict as JobListingVerdict.Unsupported).message)
+    }
+
+    @Test
+    fun `http remote has no list endpoint so listing stays unsupported`() {
+        val backend = effectiveExecutionBackend(isSsh = false, runtime = runtime(enabledRemote))
+        assertEquals(WorkspaceExecutionBackend.REMOTE_HTTP, backend)
+        val verdict = assertLocalJobListing(backend)
+        assertTrue(verdict is JobListingVerdict.Unsupported)
+        val message = (verdict as JobListingVerdict.Unsupported).message
+        assertEquals(REMOTE_HTTP_JOB_LIST_UNSUPPORTED_MESSAGE, message)
+        // 提示必须引导到按 id 查询，而不是让模型以为"没有任务"
+        assertTrue(message.contains("workspace_job_status"))
+    }
+
+    @Test
+    fun `missing workspace is neither allowed nor an unsupported backend`() {
+        // 工作区不存在时由 Repository 原来的空表路径处理，这里只表达"没有后端"，既不报不支持也不读本地
+        assertEquals(JobListingVerdict.NoWorkspace, assertLocalJobListing(null))
+    }
+
+    @Test
+    fun `listing verdict follows the same backend as job commands`() {
+        // 同一份后端判定：enable 时 LOCAL 变 HTTP，那么 listJobs 也必须一起变成 unsupported
+        val local = runtime(null)
+        assertEquals(JobListingVerdict.Allowed, assertLocalJobListing(effectiveExecutionBackend(isSsh = false, runtime = local)))
+        assertTrue(assertLocalJobListing(effectiveExecutionBackend(isSsh = false, runtime = runtime(enabledRemote))) is JobListingVerdict.Unsupported)
+        assertEquals(
+            JobListingVerdict.Allowed,
+            assertLocalJobListing(effectiveExecutionBackend(isSsh = false, runtime = runtime(disabledRemote))),
+        )
+    }
+
     @Test
     fun `local rootfs keeps every workspace tool`() {
         val backend = effectiveExecutionBackend(isSsh = false, runtime = runtime(null))

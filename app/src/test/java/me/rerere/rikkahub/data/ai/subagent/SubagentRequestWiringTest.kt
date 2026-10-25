@@ -1,11 +1,12 @@
 package me.rerere.rikkahub.data.ai.subagent
 
 import java.io.IOException
-import kotlin.time.Duration
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.runBlocking
 import me.rerere.ai.agent.AgentRequest
+import me.rerere.ai.agent.RetryDelay
 import me.rerere.ai.agent.withRetry
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.Model
@@ -15,7 +16,9 @@ import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.TextGenerationResult
 import me.rerere.ai.ui.StreamChunk
 import me.rerere.ai.ui.UIMessage
+import me.rerere.rikkahub.data.ai.retryPolicy
 import me.rerere.rikkahub.data.datastore.NetworkSetting
+import me.rerere.rikkahub.data.datastore.RetryDelayMode
 import me.rerere.rikkahub.data.datastore.Settings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -107,8 +110,9 @@ class SubagentRequestWiringTest {
 
     @Test
     fun `network failure is retried the configured number of times`() {
+        // 等待时长现在由设置决定（默认固定 60 秒），测试里换成 0 秒免得真的等
         val policy = request(settings(enableAutoRetry = true, maxRetries = 2)).retry
-            .copy(initialDelay = Duration.ZERO, maxDelay = Duration.ZERO)
+            .copy(delayMode = RetryDelay.fixed(0))
         var attempts = 0
         runBlocking {
             runCatching { withRetry(policy) { attempts++; throw IOException("connection reset") } }
@@ -132,5 +136,43 @@ class SubagentRequestWiringTest {
         }
         assertEquals(1, attempts)
         assertEquals(0, retryNotified)
+    }
+
+    @Test
+    fun `subagent waits with the configured delay mode`() {
+        val setting = Settings(
+            networkSetting = NetworkSetting(
+                enableAutoRetry = true,
+                maxRetries = 3,
+                retryDelayMode = RetryDelayMode.RANGE,
+                retryDelayMinSeconds = 30,
+                retryDelayMaxSeconds = 60,
+            ),
+        )
+
+        val delay = request(setting).retry.delayMode
+
+        assertTrue("子代理的等待也要跟着设置走随机区间", delay is RetryDelay.RandomRange)
+        assertEquals(30.seconds, (delay as RetryDelay.RandomRange).min)
+        assertEquals(60.seconds, delay.max)
+    }
+
+    @Test
+    fun `subagent and main chat use one retry policy`() {
+        val setting = Settings(
+            networkSetting = NetworkSetting(
+                enableAutoRetry = true,
+                maxRetries = 4,
+                retryDelayMode = RetryDelayMode.FIXED,
+                retryDelaySeconds = 45,
+            ),
+        )
+
+        val main = setting.retryPolicy()
+        val subagent = request(setting).retry
+
+        assertEquals(main.maxRetries, subagent.maxRetries)
+        assertEquals(main.delayMode, subagent.delayMode)
+        assertEquals(RetryDelay.Fixed(45.seconds), subagent.delayMode)
     }
 }

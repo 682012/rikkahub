@@ -58,6 +58,7 @@ import org.koin.androidx.compose.koinViewModel
 
 @Composable
 fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
+    val transferVM: WorkspaceTransferVM = koinViewModel()
     val navController = LocalNavController.current
     val workspaces by vm.workspaces.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
@@ -88,6 +89,9 @@ fun WorkspacePage(vm: WorkspaceVM = koinViewModel()) {
             contentPadding = innerPadding + PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            item {
+                WorkspaceTransferCard(transferVM) { id -> navController.navigate(Screen.WorkspaceDetail(id)) }
+            }
             if (workspaces.isEmpty()) {
                 item {
                     ExtensionEmptyState(

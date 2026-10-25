@@ -60,6 +60,7 @@ class WorkspaceRepository(
 ) {
     private val jobManager = WorkspaceJobManager(manager)
     private val workspaceFilesExporter = WorkspaceFilesExporter()
+    private val workspaceFilesImporter = WorkspaceFilesImporter()
     private val remoteClient = me.rerere.rikkahub.data.repository.RemoteExecutionClient()
     // 这个协程只负责"任务结束后释放前台服务"。launch 里逃出来的异常没人接就是进程级崩溃
     // (job.json 被清理或损坏时 status 会抛 "Job not found"), 这里只记日志;
@@ -79,6 +80,9 @@ class WorkspaceRepository(
 
     suspend fun checkIntegrity() = withContext(Dispatchers.IO) {
         val workspaces = dao.getAll()
+        val base = manager.workspaceDir("import-cleanup-probe").absoluteFile.parentFile
+        if (base != null) runCatching { WorkspaceImportStaging.cleanupOnce(base) }
+            .onFailure { Log.w(TAG, "Import staging cleanup failed", it) }
         for (workspace in workspaces) {
             // 文件不在本机的工作区 (如远程) 没有本地目录和 Rootfs
             if (!workspace.capabilities().localFiles) continue
@@ -363,8 +367,9 @@ class WorkspaceRepository(
     suspend fun exportWorkspaceFiles(
         id: String,
         outputStream: OutputStream,
+        skipRebuildable: Boolean = true,
         onProgress: (done: Long, total: Long, current: String) -> Unit = { _, _, _ -> },
-    ) = withContext(Dispatchers.IO) {
+    ): WorkspaceFilesExporter.Summary = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: error("Workspace not found: $id")
         // 文件不在本机的工作区 (如 SSH) 导出必然失败, 而且导出入口先以 "wt" 打开目标文件,
         // 失败后用户只剩一个被截成 0 字节的文件, 所以这里先拒绝。
@@ -373,13 +378,94 @@ class WorkspaceRepository(
         }
         val root = manager.filesDir(workspace.root)
         require(root.isDirectory) { "Workspace files directory missing" }
-        val summary = workspaceFilesExporter.export(root, outputStream, onProgress)
-        if (summary.skippedTotal > 0) {
+        val exporter = if (skipRebuildable) workspaceFilesExporter
+            else WorkspaceFilesExporter(skippedDirNames = setOf(".jobs"))
+        val summary = exporter.export(root, outputStream, onProgress)
+        if (summary.skippedTotal > 0 || summary.prunedDirCount > 0) {
             Log.w(
                 TAG,
                 "export ${workspace.root}: skipped ${summary.skippedSymlinks} symlink(s) and " +
                     "${summary.skippedSpecialFiles} special file(s)",
             )
+        }
+        summary
+    }
+
+    /**
+     * 把一个 ZIP 的文件内容导入为全新的本地工作区，不覆盖旧工作区。
+     *
+     * 语义（安全优先，绝不覆盖任何现有数据）：
+     * - 目标是新建 workspace：新 id、新目录 `workspaces/<id>`。当前工作区、其它工作区、数据库里的旧记录、
+     *   设置、LinuxRootfs 全程不参与，不会被写入或删除；
+     * - 解包在 `workspaces/.import-<id>` 里完成，全部校验通过后才 rename 成正式目录，最后才写 DAO。
+     *   任一步失败（含协程取消、DB 写失败）都只删除本次的临时目录，不会留下"有记录没文件"的幽灵工作区；
+     * - ZIP 里只有 `files/`（即 /workspace 文件区）。**包内不含 LinuxRootfs**，导入后的工作区 shell 状态是
+     *   DISABLED，需要时按现有流程再安装 rootfs；
+     * - fork 旧版 [exportWorkspaceFiles] 产出的裸 ZIP 可以直接导入；旧包没有 Unix 权限位、也不含符号链接，
+     *   导入后文件统一 0644（可执行位丢失），[WorkspaceFilesImporter.Summary.permissionsAreGuessed] 会为 true；
+     * - [stripWrapper] 非空时显式剥掉一层外层包装目录（如 `workspace/`、`files/`），不做自动猜测。
+     *
+     * 阻塞读输入流，必须在 IO 线程调用（内部已切 Dispatchers.IO）。[input] 由本方法负责关闭。
+     *
+     * @return 新建工作区及导入统计；[onCommitted] 在注册成功后调用，即使此时取消也保留结果。
+     */
+    suspend fun importWorkspaceFiles(
+        name: String,
+        input: InputStream,
+        stripWrapper: String? = null,
+        onCommitted: (WorkspaceImportResult) -> Unit = {},
+        onProgress: (bytes: Long, files: Int, current: String) -> Unit = { _, _, _ -> },
+    ): WorkspaceImportResult = withContext(Dispatchers.IO) {
+        try {
+            val finalName = name.trim().ifBlank { "Workspace" }
+            require(!isNameTaken(finalName, excludeId = null)) {
+            "Workspace name already exists: $finalName"
+            }
+            val id = Uuid.random().toString()
+            val now = System.currentTimeMillis()
+            val workspace = WorkspaceEntity(
+            id = id,
+            name = finalName,
+            root = id,
+            createdAt = now,
+            updatedAt = now,
+            lastAccessAt = now,
+            )
+            val finalDir = manager.workspaceDir(workspace.root)
+            // 临时目录放在 workspace 根目录下、用新 id 命名：与目标目录同文件系统，发布只需要 rename；
+            // 目录名只含 [A-Za-z0-9._-]，与 WorkspaceManager 的 root 命名规则兼容。
+            val baseDir = finalDir.absoluteFile.parentFile
+            ?: error("Workspace base directory is unavailable: $finalDir")
+            val stagingRoot = File(baseDir, ".import-${workspace.root}")
+            runCatching { WorkspaceImportStaging.cleanupOnce(baseDir) }
+            .onFailure { Log.w(TAG, "Import staging cleanup failed", it) }
+            val summary = WorkspaceImportStaging.withStagingLease(stagingRoot) {
+                workspaceFilesImporter.importWorkspace(
+                source = input,
+                stagingRoot = stagingRoot,
+                finalDir = finalDir,
+                stripWrapper = stripWrapper,
+                onProgress = onProgress,
+                register = { summary ->
+                    manager.ensureWorkspace(workspace.root)
+                    dao.upsert(workspace)
+                    // Tell the UI about the commit even if cancellation wins on returning to Main.
+                    // A UI observer must not roll back a successfully registered workspace.
+                    runCatching { onCommitted(WorkspaceImportResult(workspace, summary)) }
+                        .onFailure { Log.w(TAG, "Import commit observer failed", it) }
+                },
+                )
+            }
+            Log.i(
+                TAG,
+                "importWorkspaceFiles ${workspace.id}: ${summary.fileCount} file(s), " +
+                    "${summary.directoryCount} dir(s), ${summary.byteCount} byte(s), " +
+                    "exec=${summary.executableFiles}, noUnixMode=${summary.entriesWithoutUnixMode}, " +
+                    "wrapper=${summary.strippedWrapper}",
+            )
+            WorkspaceImportResult(workspace, summary)
+        } finally {
+            runCatching { input.close() }
         }
     }
 
@@ -494,7 +580,12 @@ class WorkspaceRepository(
 
     suspend fun listJobs(id: String): List<WorkspaceJobInfo> = withContext(Dispatchers.IO) {
         val workspace = dao.getById(id) ?: return@withContext emptyList()
-        jobManager.list(workspace.root)
+        val backend = effectiveExecutionBackend(workspace.isSsh(), settingsStore.awaitLoaded().workspaceRuntime)
+        when (val verdict = assertLocalJobListing(backend)) {
+            JobListingVerdict.Allowed -> jobManager.list(workspace.root)
+            is JobListingVerdict.Unsupported -> error(verdict.message)
+            JobListingVerdict.NoWorkspace -> emptyList()
+        }
     }
 
 
@@ -644,3 +735,6 @@ class WorkspaceRepository(
         private const val MAX_PREVIEW_BYTES = 512L * 1024
     }
 }
+
+/** Result and recovery receipt for the newly registered file-only workspace. */
+data class WorkspaceImportResult(val workspace: WorkspaceEntity, val summary: WorkspaceFilesImporter.Summary)

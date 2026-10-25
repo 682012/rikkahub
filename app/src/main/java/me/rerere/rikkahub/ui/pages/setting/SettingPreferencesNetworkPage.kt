@@ -303,7 +303,7 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
                                 Text(stringResource(R.string.setting_page_preferences_network_max_retries))
                             },
                             supportingContent = {
-                                Text(stringResource(R.string.setting_page_preferences_network_max_retries_desc))
+                                Text(stringResource(R.string.retry_settings_max_retries_desc))
                             },
                         ) {
                             var retryText by remember(settings.networkSetting.maxRetries) {
@@ -337,6 +337,22 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             )
                         }
+                        // 等待时长：固定 30/60 秒、30~60 秒随机，或自定义 1~600 秒区间
+                        retryDelaySettingItems(
+                            setting = settings.networkSetting,
+                            onChange = { updated ->
+                                vm.updateSettings { current ->
+                                    current.copy(
+                                        networkSetting = current.networkSetting.copy(
+                                            retryDelayMode = updated.retryDelayMode,
+                                            retryDelaySeconds = updated.retryDelaySeconds,
+                                            retryDelayMinSeconds = updated.retryDelayMinSeconds,
+                                            retryDelayMaxSeconds = updated.retryDelayMaxSeconds,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
                     }
                 }
             }

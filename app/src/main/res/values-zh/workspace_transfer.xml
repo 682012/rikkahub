@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="workspace_transfer_title">工作区文件迁移</string>
+    <string name="workspace_transfer_import">从 ZIP 导入新工作区</string>
+    <string name="workspace_transfer_import_desc">兼容旧版工作区导出的 ZIP。创建独立本地工作区，不覆盖已有文件、聊天或设置。</string>
+    <string name="workspace_transfer_export">导出工作区</string>
+    <string name="workspace_transfer_export_desc">只导出 /workspace 文件，跳过缓存、构建目录、任务日志和符号链接，不包含 Linux 系统或可执行权限。包内可能包含私密文件，请勿公开分享。</string>
+    <string name="workspace_transfer_boundary">传输完成前请停留在此页。导入后如需执行命令，请在新工作区安装 Linux。旧 ZIP 未保存符号链接与可执行权限，不能据此还原完整系统。</string>
+    <string name="workspace_transfer_no_local">暂无可导出的本地工作区。</string>
+    <string name="workspace_transfer_pick_export">选择要导出的工作区</string>
+    <string name="workspace_transfer_pick_zip">选择 ZIP 并导入</string>
+    <string name="workspace_transfer_structure">压缩包结构</string>
+    <string name="workspace_transfer_bare">文件直接在 ZIP 根目录（旧版导出）</string>
+    <string name="workspace_transfer_wrapper_workspace">去掉一层 workspace/ 目录</string>
+    <string name="workspace_transfer_wrapper_files">去掉一层 files/ 目录</string>
+    <string name="workspace_transfer_no_overwrite">只创建新工作区。通常保留默认结构；仅当全部文件都在所选外层目录内时，才去掉这一层。</string>
+    <string name="workspace_transfer_name_default">导入的工作区</string>
+    <string name="workspace_transfer_open">打开新工作区</string>
+    <string name="workspace_transfer_preparing">正在准备…</string>
+    <string name="workspace_transfer_cannot_read">无法读取所选 ZIP</string>
+    <string name="workspace_transfer_cannot_write">无法写入所选文件</string>
+    <string name="workspace_transfer_missing">所选工作区已不存在</string>
+    <string name="workspace_transfer_local_only">只能导出本地工作区</string>
+    <string name="workspace_transfer_import_progress">%1$d 个文件 · %2$s</string>
+    <string name="workspace_transfer_import_done">已导入“%1$s”。执行命令前请在新工作区安装 Linux；旧包的可执行权限需按实际文件补回。</string>
+    <string name="workspace_transfer_export_done">导出完成</string>
+    <string name="workspace_transfer_cancelled">导入已取消，已有工作区未改动。</string>
+    <string name="workspace_transfer_failed">导入失败：%1$s</string>
+    <string name="workspace_transfer_export_cancelled">导出已取消，目标 ZIP 可能不完整。</string>
+    <string name="workspace_transfer_export_failed">导出失败：%1$s。目标 ZIP 可能不完整。</string>
+    <string name="workspace_transfer_export_stats">已导出 %1$d 个文件 · %2$s</string>
+    <string name="workspace_transfer_export_skips">已跳过 %1$d 个目录、%2$d 个符号链接和 %3$d 个特殊文件。</string>
+    <string name="workspace_transfer_import_stats">%1$d 个文件 · %2$s · %3$d 个文件未保存可执行权限。</string>
+    <string name="workspace_transfer_skip_rebuildable">跳过缓存和构建目录</string>
+    <string name="workspace_transfer_full_desc">取消勾选可包含 .git、build、cache、tmp 等目录中的全部普通文件。始终排除任务日志 .jobs、符号链接和特殊文件。</string>
+</resources>
