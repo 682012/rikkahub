@@ -21,7 +21,7 @@ import me.rerere.rikkahub.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-private const val API_URL = "https://updates.rikka-ai.com/"
+private const val API_URL = "https://api.github.com/repos/682012/rikkahub/releases/latest"
 
 class UpdateChecker(
     private val client: OkHttpClient,
@@ -40,20 +40,18 @@ class UpdateChecker(
         emit(
             UiState.Success(
                 data = try {
-                    val response = client.newCall(
-                        Request.Builder()
-                            .url(API_URL)
-                            .get()
-                            .addHeader(
-                                "User-Agent",
-                                "RikkaHub ${BuildConfig.VERSION_NAME} #${BuildConfig.VERSION_CODE}"
-                            )
-                            .build()
-                    ).await()
-                    if (response.isSuccessful) {
-                        json.decodeFromString<UpdateInfo>(response.body.string())
-                    } else {
-                        throw Exception("Failed to fetch update info")
+                    val request = Request.Builder()
+                        .url(API_URL)
+                        .get()
+                        .addHeader("Accept", "application/vnd.github+json")
+                        .addHeader(
+                            "User-Agent",
+                            "RikkaHub ${BuildConfig.VERSION_NAME} #${BuildConfig.VERSION_CODE}"
+                        )
+                        .build()
+                    client.newCall(request).await().use { response ->
+                        if (!response.isSuccessful) error("Failed to fetch fork release: HTTP ${response.code}")
+                        json.decodeFromString<ForkRelease>(response.body.string()).toUpdateInfo()
                     }
                 } catch (e: Exception) {
                     throw Exception("Failed to fetch update info", e)
