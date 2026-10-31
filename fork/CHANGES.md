@@ -4,6 +4,16 @@
 
 当前能力对比统一见 [FEATURES.md](FEATURES.md)：5 组新增工作流、2 项主要增强、稳定性修复与继承官方的能力分开说明。下面是按版本保留的历史记录，旧版本的行为不代表当前实现。
 
+## fork.39：跟进官方 master 与修正更新来源（2026-11-01）
+
+- 官方最新稳定仍为3.1.1；本版合入master a5db9c9b（2026-10-29）后的完整10提交，并保留官方祖先便于后续三方合并
+- BetterText Markdown、颜色码色块、折叠思考时保留工具审批、矮屏加号菜单滚动、空role兼容、SAF导出、locale余额、Tinyfish purpose
+- 更新检查改走本fork的GitHub Release，修复当前fork被当成落后官方3.1.1的误报；不自动安装
+- fork.38能力保留，版本3.1.1-fork.39/3000043，schema34不变
+- 本次App707+Workspace55+AI278+Common6=1046项JVM全通过；R8和lintVital正式构建通过
+- Android隔离模拟器实际验证同签名升级、SSH密钥导入/建连/SFTP读文件/终端pwd、新公式/表格/高亮/色块和待审批可见；不声称用户真机/所有厂商背景行为已验
+- APK18,905,804B，SHA256 b95fb5792557a21396d47f3c809f26716092af22de59c48dc019f7a9a6231af9；详见[RELEASE-fork39.md](RELEASE-fork39.md)
+
 ## fork.38：双轮修复统一与工作区迁移（2026-10-25）
 
 - 发布已验 `3.1.1-fork.38 / 3000042` 源码，数据库仍为 schema 34；两轮 fork.37 有效修复均保留

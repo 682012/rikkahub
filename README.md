@@ -2,19 +2,21 @@
 
 基于 [RikkaHub 官方 3.1.1](https://github.com/rikkahub/rikkahub/tree/3.1.1) 的非官方分支。保留官方聊天客户端，重点补上**多代理协作、后台长任务、自动压缩和工作区文件迁移**。
 
-**当前版本：`3.1.1-fork.38` / `3000042` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
+**当前版本：`3.1.1-fork.39` / `3000043` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
+
+已跟进官方 master **`a5db9c9b`（2026-10-29）** 的全部10个后续提交；官方最新稳定版仍为3.1.1。
 
 > 与官方团队没有隶属关系。本仓库记录个人修改，并在 GitHub Releases 保存已验安装包，方便重复下载；不提供官方或面向终端用户的技术支持。官方渠道下载的是官方版，不是此分支。上游版权与 AGPL-3.0 许可证保持不变。
 
-[完整功能对比](fork/FEATURES.md) · [fork.38 更新与验收](fork/RELEASE-fork38.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
+[完整功能对比](fork/FEATURES.md) · [fork.39 更新与验收](fork/RELEASE-fork39.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
 
 ## 下载与重复使用
 
-**[下载 fork.38 通用 APK（18.3 MiB）](https://github.com/682012/rikkahub/releases/download/v3.1.1-fork.38/rikkahub-3.1.1-fork.38.apk)** · [版本说明与 SHA-256](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.38) · [最新正式版](https://github.com/682012/rikkahub/releases/latest)
+**[下载 fork.39 通用 APK（18.0 MiB）](https://github.com/682012/rikkahub/releases/download/v3.1.1-fork.39/rikkahub-3.1.1-fork.39.apk)** · [版本说明与 SHA-256](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.39) · [最新正式版](https://github.com/682012/rikkahub/releases/latest)
 
 固定版本链接不会随 nightly 被覆盖；每个正式版本保留对应源码 tag、APK 与校验文件。直接安装不需要编译环境，也不会附带维护者的聊天、账号或服务凭据。
 
-同包名、同签名的 fork.36/37 可按常规覆盖升级，先备份聊天和设置；不要为升级先卸载。官方包与本分支不同，不能直接覆盖官方版。需要重新编译时见 [构建与维护](fork/README.md)，签名密钥和本机配置自行准备。
+同包名、同签名的 fork.36/37/38 可按常规覆盖升级，先备份聊天和设置；不要为升级先卸载。官方包与本分支不同，不能直接覆盖官方版。需要重新编译时见 [构建与维护](fork/README.md)，签名密钥和本机配置自行准备。
 
 ## 相比官方，到底增加了什么？
 
@@ -32,7 +34,20 @@
 
 计数说明：单会话用量面板是官方统计能力的增强；ZIP 是新增迁移流程，不代表官方没有文件导出。前两组共增加 **5 个子代理工具 + 3 个后台任务工具**，不能再把它们分别算成 8 组功能。[计数与源码依据 →](fork/FEATURES.md)
 
-## fork.38 这次新补了什么？
+## fork.39 这次跟上了什么？
+
+- 官方 BetterText Markdown：文本选择、公式、表格、代码高亮与颜色色块。
+- 思考链折叠时保留工具审批；矮屏加号菜单支持滚动。
+- OpenAI空/非标准role兼容、SAF导出、非英文余额格式、Tinyfish `purpose`等官方修复。
+- 更新检查跟随本fork的GitHub Releases，不再误报“官方3.1.1是新版本”或引导下载不同签名包。
+- **SSH实际跑通**：密钥导入、主机指纹确认、SFTP读文件和SSH终端 `pwd`；新渲染和审批可见也做了Android界面验证。
+
+SSH入口：**设置 → 扩展 → 工作区 → 加号 → SSH远程工作区**。高级设置的“远程执行”是另一路HTTP服务。
+
+[本轮全部官方提交、APK校验与验证边界 →](fork/RELEASE-fork39.md)
+
+## fork.38 保留的功能
+
 
 - **重试等待能真正修改**：固定 30 秒、60 秒，或每次在 30–60 秒内随机；自定义编辑器不会因碰巧输入预设值而消失。
 - **工作区终于能导入 ZIP**：支持旧裸文件包、Unicode/二进制、空目录、有效空包；导入为新的本地工作区。也可明确选择去掉 `workspace/` 或 `files/` 外层目录。
@@ -57,16 +72,15 @@
 
 ## 验证到哪里了？
 
-| 最终 fork.38 检查 | 真实结果 |
+| fork.39 本次检查 | 真实结果 |
 |---|---|
-| 全模块 JVM | **1392 项登记：1391 通过、0 失败/错误、1 跳过**；跳过项缺少可选本地 PDF 语料 |
-| Android API34 x86_64/KVM | **50 项全部通过**：迁移、备份、真实 ContentResolver+Room 导入、权限、大行读取及重试界面 |
-| 补充回归 | Python 11 项；SQLite 模拟 38 项及 Unicode 分片检查通过 |
-| 正式构建 | **R8 + lintVital 实际通过**，非 fastBuild；V2 签名与前版一致 |
-| 系统文件选择器 | 模拟器中从 Downloads 选择 ZIP 并创建工作区成功 |
-| 尚未验证 | 用户手机生产库升级、厂商通知、锁屏保活及所有 SAF 提供商 |
+| App / Workspace / AI / Common JVM | **1046项，144 suite，0失败/错误/跳过**；不沿用旧全模块计数 |
+| 正式构建 | **R8 + lintVital 实际通过**，无fastBuild；签名与fork.38一致 |
+| Android API34 x86_64模拟器 | 同签名覆盖升级；SSH密钥/指纹/SFTP读文件/终端pwd；公式/表格/高亮/色块；折叠审批可见 |
+| 更新检测 | GitHub release转换3项测试通过，UI不再误报官方3.1.1更新 |
+| 未验证 | 用户手机生产升级、厂商后台/锁屏、所有SAF提供商、真实上游搜索/余额及所有矮屏状态 |
 
-[版本、校验信息与验证边界 →](fork/RELEASE-fork38.md) · [机器可读验收摘要 →](fork/verification/fork38.json)
+[版本、校验信息与验证边界 →](fork/RELEASE-fork39.md) · [机器可读摘要 →](fork/verification/fork39.json)
 
 ## 使用前知道这些限制
 
@@ -79,10 +93,10 @@
 
 ## 维护与许可
 
-对比基线固定为官方 **3.1.1 / `ad2c4430`**，不是“领先官方最新版”的承诺。`master` 保留上游镜像，`fork/3.1.0` 与 `fork/3.0.0` 是历史分支。
+功能增量对比基线为官方 **3.1.1 / `ad2c4430`**；当前已合入截至2026-10-29的官方master **`a5db9c9b`**，不承诺永远领先后续官方版本。`master` 保留上游镜像，`fork/3.1.0` 与 `fork/3.0.0` 是历史分支。
 
 [构建与回退](fork/README.md) · [AGPL-3.0](LICENSE) · [个人分支声明](DISCLAIMER.md) · [修改记录](NOTICE.md)
 
 ### English summary
 
-Unofficial personal fork of upstream RikkaHub **3.1.1**. Five added workflows: subagents, background workspace jobs, an optional HTTP execution backend, automatic context compression, and ZIP workspace migration. Two major enhancements: configurable retry policy and a per-conversation usage panel. Linux/SSH workspaces, MCP, Skills, history tools and global usage statistics already exist upstream. fork.38 adds ZIP import and fixed/random retry waits, with **50 passing Android emulator tests** and **1391 passing JVM tests plus one optional skipped test**. See the [comparison](fork/FEATURES.md), [release notes](fork/RELEASE-fork38.md) and [limitations](DISCLAIMER.md). Verified APKs and SHA-256 checksums are archived in [GitHub Releases](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.38) for repeat downloads; no end-user support is offered.
+Unofficial personal fork of RikkaHub **3.1.1**, aligned with upstream master **a5db9c9b (2026-10-29)** in fork.39. Preserves subagents, background jobs, HTTP execution, automatic compression, ZIP migration, configurable retries and per-chat usage. Adds upstream BetterText rendering, color swatches, visible pending approvals and compatible relay fixes. **1046 passing JVM tests**, a formal R8/lint build, and Android emulator SSH/SFTP/terminal and rendering checks. Signed APKs and checksums are in [GitHub Releases](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.39); no end-user support is offered. See the [release notes](fork/RELEASE-fork39.md) for boundaries.

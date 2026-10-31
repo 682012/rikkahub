@@ -1,0 +1,74 @@
+{
+  "version": "3.1.1-fork.39",
+  "versionCode": 3000043,
+  "upstream": "a5db9c9b770f316c76136970aa01a9d790e10e51",
+  "modules": {
+    "app": {
+      "suites": 99,
+      "tests": 707,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "workspace": {
+      "suites": 6,
+      "tests": 55,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "ai": {
+      "suites": 37,
+      "tests": 278,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "common": {
+      "suites": 2,
+      "tests": 6,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "jvm": {
+    "tests": 1046,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "buildSuccessful": true,
+  "r8Executed": true,
+  "lintVitalExecuted": true,
+  "applicationId": "me.rerere.rikkahub.fork",
+  "databaseSchema": 34,
+  "sourceCommit": "cf7bb40e2a327547ab2436194af29317291ca2c3",
+  "apk": {
+    "file": "rikkahub-3.1.1-fork.39.apk",
+    "bytes": 18905804,
+    "sha256": "b95fb5792557a21396d47f3c809f26716092af22de59c48dc019f7a9a6231af9",
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ],
+    "sameSignatureAsFork38": true
+  },
+  "androidSmoke": {
+    "environment": "isolated API34 x86_64 emulator",
+    "upgradeFromFork38": true,
+    "sshKeyImportAndHostKeyConfirmation": true,
+    "sftpDirectoryAndFileRead": true,
+    "sshTerminalPwd": true,
+    "betterTextFormulaTableHighlightColorSwatches": true,
+    "foldedPendingApprovalVisible": true,
+    "upstreamUpdateFalsePositiveGone": true
+  },
+  "notVerified": [
+    "user phone production upgrade",
+    "vendor overlay and locked-screen survival",
+    "all SAF providers",
+    "all short-screen menu states",
+    "real upstream search/quota calls"
+  ]
+}
