@@ -1,0 +1,75 @@
+{
+  "versionName": "3.1.1-fork.42",
+  "versionCode": 3000046,
+  "package": "me.rerere.rikkahub.fork",
+  "databaseSchema": 34,
+  "baseRelease": "v3.1.1-fork.41",
+  "upstreamCommit": "5ad19405",
+  "buildCommit": "c3a335e3e60ab6674ccae83358a636b63242f255",
+  "actionsRunId": 41303151433,
+  "actionsRunUrl": "https://github.com/682012/rikkahub/actions/runs/41303151433",
+  "build": {
+    "task": ":app:assembleGithubRelease",
+    "r8": true,
+    "lintVital": true,
+    "status": "success"
+  },
+  "unitTests": {
+    "suites": 212,
+    "tests": 1475,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1
+  },
+  "instrumentedTests": {
+    "suites": 13,
+    "tests": 50,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "api": 34,
+    "abi": "x86_64"
+  },
+  "benchmarks": [
+    {
+      "case": "40k_character_output",
+      "fullChars": 40000,
+      "initialContextChars": 4741,
+      "fullTextRetained": true,
+      "unit": "characters_not_tokens"
+    },
+    {
+      "case": "120_synthetic_mcp_tools",
+      "unit": "characters_not_tokens",
+      "nativeTools": 120,
+      "compactTools": 2,
+      "nativeSchemaChars": 72264,
+      "compactSchemaChars": 1910,
+      "savedRatio": 0.9735691353924499
+    },
+    {
+      "case": "four_preplanned_independent_reads",
+      "virtualSerialMillis": 1000,
+      "virtualParallelMillis": 250,
+      "sequentialModelRequestsIncludingFinalReply": 5,
+      "batchedModelRequestsIncludingFinalReply": 2,
+      "scope": "Fake provider replay; preplanned independent arguments only. Live provider latency and token usage not measured"
+    }
+  ],
+  "apk": {
+    "name": "rikkahub-3.1.1-fork.42.apk",
+    "sizeBytes": 18963296,
+    "sha256": "4a7aa277cf141ae304dbdc8d5181358041b02e83fc1d03301f0a843121fa3b7d",
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ],
+    "certificateSha256": "cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89"
+  },
+  "limits": [
+    "No production app install performed",
+    "No live-provider token or cache-hit A/B measurement",
+    "Synthetic schema character counts are not billable tokens",
+    "Stored output files retained for readback; storage use increases"
+  ]
+}
