@@ -10,6 +10,7 @@ import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.ai.mcp.McpManager
+import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
@@ -149,18 +150,32 @@ class ChatToolFactory(
                 conversationId = conversationId,
             )
         } else baseTools
-        return prepareEfficientTools(parentTools, outputStore)
+        return prepareEfficientTools(parentTools, outputStore, assistant.localTools)
     }
 
-    private fun prepareEfficientTools(tools: List<Tool>, outputStore: ToolOutputStore): List<Tool> {
+    private fun prepareEfficientTools(
+        tools: List<Tool>,
+        outputStore: ToolOutputStore,
+        localToolOptions: List<LocalToolOption> = emptyList(),
+    ): List<Tool> {
         val compact = compactMcpTools(tools)
         val readerName = uniqueToolName(TOOL_OUTPUT_READ_TOOL_NAME, compact.map { it.name }.toSet())
+        val readerTool = outputStore.createReaderTool(readerName)
         // 工作区读/搜工具自己分页并控制了输出量, 外置只会让模型多花一轮去读回全文 (同 ToolOutputStore 里 search_web 的豁免)
         val readable = compact.map { tool ->
             if (tool.name in SELF_PAGED_TOOL_NAMES) tool else outputStore.wrap(tool)
-        } + outputStore.createReaderTool(readerName)
+        } + readerTool
+        // Code Mode 的工具必须最后组装：它要拿到已经拼好的完整清单（工作区工具加入得晚），
+        // 且只注入只读白名单。传进去的是**未包装**的 compact，嵌套调用自己调 execute，
+        // 免得回执套回执；它自己则照常被 outputStore 包一层。
+        // 注意 createToolBatch 的 catalog 只给 readable，脚本工具不会出现在 tool_batch 里。
+        val scriptTools = localTools.scriptTool(
+            options = localToolOptions,
+            catalog = compact + readerTool,
+            outputStore = outputStore,
+        )?.let { listOf(outputStore.wrap(it)) } ?: emptyList<Tool>()
         // A single structured call can execute an already planned set without extra model round trips.
-        return (readable + outputStore.wrap(createToolBatch(readable))).sortedBy { it.name }
+        return (readable + outputStore.wrap(createToolBatch(readable)) + scriptTools).sortedBy { it.name }
     }
 
     private suspend fun createWorkspaceToolsIfReady(

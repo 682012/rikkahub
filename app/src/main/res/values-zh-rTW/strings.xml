@@ -1233,6 +1233,8 @@
   <string name="assistant_page_local_tools_screen_time_title">螢幕使用時間</string>
   <string name="assistant_page_local_tools_screen_time_desc">讓 AI 讀取您的應用程式螢幕使用時間</string>
   <string name="assistant_page_local_tools_screen_time_permission_required">請在設定中授予「使用記錄存取權」權限，以使用螢幕時間</string>
+  <string name="assistant_page_local_tools_script_title">程式碼模式</string>
+  <string name="assistant_page_local_tools_script_desc">讓 AI 用一段腳本一次呼叫多個唯讀工具</string>
   <string name="chat_message_tool_screen_time">讀取螢幕時間</string>
   <string name="tool_ui_screen_time_total">總螢幕使用時間</string>
   <string name="permission_calendar_read">讀取日曆</string>

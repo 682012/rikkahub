@@ -91,6 +91,8 @@
   <string name="assistant_page_local_tools_javascript_engine_title">محرك JavaScript</string>
   <string name="assistant_page_local_tools_screen_time_desc">السماح للذكاء الاصطناعي بقراءة وقت استخدام تطبيقاتك على الشاشة</string>
   <string name="assistant_page_local_tools_screen_time_permission_required">يرجى منح إذن الوصول إلى الاستخدام في الإعدادات لاستخدام وقت الشاشة</string>
+  <string name="assistant_page_local_tools_script_title">وضع الشيفرة</string>
+  <string name="assistant_page_local_tools_script_desc">السماح للذكاء الاصطناعي بتشغيل برنامج نصي واحد يستدعي عدة أدوات للقراءة فقط</string>
   <string name="assistant_page_local_tools_screen_time_title">وقت الشاشة</string>
   <string name="assistant_page_local_tools_time_info_desc">الحصول على التاريخ الحالي ويوم الأسبوع والوقت ومعلومات المنطقة الزمنية من الجهاز</string>
   <string name="assistant_page_local_tools_time_info_title">معلومات الوقت</string>

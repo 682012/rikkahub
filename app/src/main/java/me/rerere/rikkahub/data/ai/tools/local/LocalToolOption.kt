@@ -36,4 +36,9 @@ sealed class LocalToolOption {
     @Serializable
     @SerialName("chart_display")
     data object ChartDisplay : LocalToolOption()
+
+    // Code Mode：一次工具调用跑一段脚本，脚本里按需调多个只读工具
+    @Serializable
+    @SerialName("run_script")
+    data object Script : LocalToolOption()
 }

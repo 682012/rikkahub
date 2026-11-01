@@ -1276,6 +1276,8 @@
   <string name="chat_page_voice_transcribing">Transkription wird abgeschlossen…</string>
   <string name="assistant_page_local_tools_screen_time_desc">Erlaube der KI, deine App-Nutzungszeit zu lesen</string>
   <string name="assistant_page_local_tools_screen_time_permission_required">Bitte erteile in den Einstellungen die Berechtigung für den Nutzungszugriff, um die Bildschirmzeit nutzen zu können</string>
+  <string name="assistant_page_local_tools_script_title">Code-Modus</string>
+  <string name="assistant_page_local_tools_script_desc">Erlaube der KI, ein Skript auszuführen, das mehrere schreibgeschützte Tools auf einmal aufruft</string>
   <string name="chat_message_tool_screen_time">Bildschirmzeit lesen</string>
   <string name="tool_ui_screen_time_total">Gesamte Bildschirmzeit</string>
   <string name="assistant_page_local_tools_calendar_title">Kalender</string>

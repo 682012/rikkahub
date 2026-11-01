@@ -30,6 +30,7 @@ import me.rerere.hugeicons.stroke.Calendar03
 import me.rerere.hugeicons.stroke.ChartLineData01
 import me.rerere.hugeicons.stroke.ClipboardPaste
 import me.rerere.hugeicons.stroke.Clock01
+import me.rerere.hugeicons.stroke.Codesandbox
 import me.rerere.hugeicons.stroke.JavaScript
 import me.rerere.hugeicons.stroke.MessageQuestion
 import me.rerere.hugeicons.stroke.SmartPhone01
@@ -179,6 +180,12 @@ private fun AssistantLocalToolContent(
                 icon = HugeIcons.JavaScript,
                 title = R.string.assistant_page_local_tools_javascript_engine_title,
                 description = R.string.assistant_page_local_tools_javascript_engine_desc,
+            )
+            toolItem(
+                option = LocalToolOption.Script,
+                icon = HugeIcons.Codesandbox,
+                title = R.string.assistant_page_local_tools_script_title,
+                description = R.string.assistant_page_local_tools_script_desc,
             )
             toolItem(
                 option = LocalToolOption.TimeInfo,

@@ -4,6 +4,8 @@ import me.rerere.ai.core.Tool
 import me.rerere.ai.core.ToolExecutionMode
 
 // Never classify MCP tools by their apparent name: names do not establish side-effect semantics.
+// run_script 故意不列在这里：它内部自己决定嵌套调用的并发，但对外一次调用可能要跑上百秒、
+// 且会顺带读一堆文件，并进 independentReads 会让整批的「只读可重叠」假设变成假的。保持默认 SERIAL。
 private val independentReads = setOf(
     "memory_read", "memory_list", "search_web", "recent_chats", "conversation_search", "conversation_read",
     "workspace_read_file", "workspace_grep", "workspace_glob", "use_skill", "eval_javascript",

@@ -1235,6 +1235,8 @@ mDNSアドレス: .localホスト名を使用し、IPを知らなくても同じ
   <string name="assistant_page_local_tools_screen_time_title">スクリーンタイム</string>
   <string name="assistant_page_local_tools_screen_time_desc">AIにアプリの画面使用時間を読み取らせます</string>
   <string name="assistant_page_local_tools_screen_time_permission_required">スクリーンタイムを使用するには、設定で「使用状況へのアクセス」許可を付与してください</string>
+  <string name="assistant_page_local_tools_script_title">コードモード</string>
+  <string name="assistant_page_local_tools_script_desc">AI が 1 つのスクリプトから複数の読み取り専用ツールをまとめて呼び出せるようにします</string>
   <string name="chat_message_tool_screen_time">スクリーンタイムを読み取る</string>
   <string name="tool_ui_screen_time_total">総画面時間</string>
   <string name="permission_calendar_read">カレンダーの読み取り</string>

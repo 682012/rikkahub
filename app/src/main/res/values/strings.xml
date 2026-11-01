@@ -1278,6 +1278,8 @@
   <string name="assistant_page_local_tools_screen_time_title">Screen Time</string>
   <string name="assistant_page_local_tools_screen_time_desc">Let the AI read your app screen usage time</string>
   <string name="assistant_page_local_tools_screen_time_permission_required">Please grant the Usage access permission in settings to use screen time</string>
+  <string name="assistant_page_local_tools_script_title">Code Mode</string>
+  <string name="assistant_page_local_tools_script_desc">Let the AI run one script that calls several read-only tools at once</string>
   <string name="chat_message_tool_screen_time">Read screen time</string>
   <string name="tool_ui_screen_time_total">Total screen time</string>
   <string name="assistant_page_local_tools_calendar_title">Calendar</string>
