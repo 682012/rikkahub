@@ -1,6 +1,6 @@
-# fork.42：Agent 工具执行与上下文架构
+# fork.43：Agent 工具执行与上下文架构
 
-基于 fork.41（已合入 PRoot 进程树停止修复与官方 5ad19405 多关键词模型筛选），保留官方 provider 协议、工作区、审批与会话存储。此次重构集中在工具调度和结果交付，不声称更换模型、突破窗口或达到某个缓存命中率。
+基于已发布的 fork.42，合并其请求计数、任务持久化与交付修复（保留 PRoot 进程树停止修复与官方 5ad19405 多关键词模型筛选），保留官方 provider 协议、工作区、审批与会话存储。此次重构集中在工具调度和结果交付，不声称更换模型、突破窗口或达到某个缓存命中率。
 
 ## 链路
 
@@ -9,7 +9,7 @@ ChatToolFactory
   ├─ 原生小工具目录 + 显式执行语义
   ├─ 大 MCP 目录 → tool_search + tool_call（固定两个入口）
   ├─ 工具结果 → ToolOutputStore（小结果直返，大结果保留全文）
-  └─ tool_output_read + tool_batch
+  └─ tool_output_read + tool_batch + 可选 run_script
         ↓
 AgentLoop
   请求模型 → 审批 → 相邻只读窗口并发 / 写入顺序屏障
@@ -31,9 +31,9 @@ AgentLoop
 
 ## 2. 批量调用
 
-`tool_batch(calls=[{name, arguments}, …])` 最多 16 项，供参数已经明确的操作使用。先校验所有名字和参数形状，全部有效才执行；内层审批透传。内部沿用并发窗口与写屏障，输出保序、非文本附件保留，取消向上传播。不能调用自身或嵌入 `ask_user`。
+`tool_batch(calls=[{name, arguments}, …])` 最多 16 项，供参数已经明确的操作使用。先校验所有名字和参数形状，全部有效才执行；内层审批透传。内部沿用并发窗口与写屏障，输出保序、非文本附件保留，取消向上传播。不能调用自身、`ask_user` 或 `run_script`。
 
-有参数依赖的任务不能强塞同一批。批量不等于所有命令并行；未知 shell 仍串行，可由一条 shell 命令或已有 CodeMode 编排依赖。此次没有声称实现新的 JavaScript 沙箱，已配置的 CodeMode MCP 继续可用。
+有参数依赖的任务不能强塞同一批。批量不等于所有命令并行；未知 shell 仍串行。原生 `run_script` 用 QuickJS 串联只读白名单，支持依赖、循环和 `Promise.all`，不开放 shell/MCP/写入/子代理；已有 CodeMode MCP 仍可另用。成功调用只回元数据，不复述中间正文。
 
 ## 3. MCP 懒发现
 
@@ -53,12 +53,12 @@ AgentLoop
 - `tool_output_read(output_id, offset=0, limit=4000)`，单页最多 12,000 字符，按 `nextOffset` 可恢复全文；只读当前会话输出。
 - 原始非文本附件保留；`search_web` 因搜索 UI / 引用依赖完整 JSON，保留豁免。
 - UUID 和目录校验阻止路径穿越；同会话重建工具实例或 App 重启后仍可读取。
-- App 启动只清旧临时写入文件，不能删除已经提交的 `.txt/.json`；输出会占磁盘，当前不做无条件过期清理。
+- App 启动与写入时按 7 天、64 份输出、32MB 预算轮转；至少保留最新一份。未过期输出重启后仍可读，已经清理的回执会明确提示同 ID 重试无效。
 - 写盘失败保留原输出，不给模型一条读不到的假路径。Unicode 页边界不切半个代理对。
 
 ## 5. 子代理交付
 
-默认并发 4，上限 8，既有保存值不强改。继续独立上下文、模型 allowlist 和许可池，不打开递归。
+默认并发 4，上限 8，既有保存值不强改；按设备 memoryClass 再封顶 8/4/2。继续独立上下文、模型 allowlist 和许可池，不打开递归。
 
 - 完成/失败/超时/取消投递小通知到父会话收件箱；父会话空闲时不因此发起额外模型请求。
 - `subagent_wait` 支持一个 ID 或最多 8 个 ID，共用等待期限并发等待。多任务首屏共用预算。
@@ -69,7 +69,7 @@ AgentLoop
 
 ## 6. 无进展提醒与稳定前缀
 
-同一原生可去重读取批次，参数和返回内容连续三次不变时给模型一条提醒；每八次仍不变再提醒。读取仍真执行，不用旧结果替代，不硬封必要验证；等待/轮询和图片结果不按文本不变误阻断。
+保留同一原生读取批次第三次不变时的提醒；另对同名同参数且连续四次结果相同的调用，拦下第五次让模型换路。发请求时折叠不短于400字符的重复纯文本，数据库与界面仍保留全文。等待/轮询工具用 `repeatable` 豁免，图片/文件输出不按文本不变误判；不存在跨轮结果缓存。
 
 工具和技能目录固定排序；只解析实际出现的占位符，不对所有历史文本无条件求电量、日期等值。没有删除用户的 AGENTS.md 或系统提示来追求好看的 token 数。
 
@@ -81,3 +81,5 @@ AgentLoop
 - [Anthropic tool search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool)：服务端 deferred loading 和 tool_reference 属 provider 特性，本分支采用跨 provider 的客户端代理，不把私有扩展直接送给所有模型。
 
 基准测试使用模拟目录、虚拟时钟与 fake provider。字符下降、往返下降与真实 token 账单、缓存率、联网延迟是不同指标。验证结果见对应 Release 验收文件。
+
+新增工作区 `workspace_grep`/`workspace_glob` 与按行分页读；Claude 缓存尾部断点、AGENTS mtime/size 缓存和静态工具规范详见 [fork.43 更新说明](RELEASE-fork43.md)。[受控脚本测量](verification/fork43-benchmark.md)不是端到端模型 token/费用结论。
