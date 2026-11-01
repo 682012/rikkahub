@@ -19,20 +19,8 @@ import androidx.compose.ui.unit.dp
 const val TOOL_APPROVAL_PREVIEW_TEST_TAG: String = "tool_approval_preview"
 
 /**
- * 审批前展示待执行工具的真实入参。
- *
- * 悬浮窗的待审批卡和聊天里的待审批步骤必须给用户看**完整**的参数：批量工具（一次多个 write/shell）
- * 的参数是一个很长的 JSON，最后几个成员往往在第 300 个字符以后，截断 + Ellipsis 会让"批准"按钮
- * 指向一段用户根本没看到的载荷。所以这里不做 [androidx.compose.ui.text.style.TextOverflow.Ellipsis]、
- * 不设 maxLines，只把高度限制住，超出部分靠内部滚动看全。
- *
- * 悬浮窗里这段正文又嵌在外层的 verticalScroll 中，内层滚动优先处理落在自己身上的手势，
- * 与同文件的 [MessagePreview] 保持同一种做法。
- *
- * @param text 完整入参文本（已由 [effectiveArguments] 解出真实目标工具的参数）
- * @param modifier 外部修饰符
- * @param color 正文颜色，默认跟随 onSurfaceVariant
- * @param scrollState 内部滚动状态，测试可注入以断言"确实滚到底了"
+ * 审批前完整展示真实参数；长批次不截断，固定视窗内滚动查看。
+ * [scrollState] 可由界面测试注入，验证尾部参数可以滚动到达。
  */
 @Composable
 fun ToolApprovalPreview(

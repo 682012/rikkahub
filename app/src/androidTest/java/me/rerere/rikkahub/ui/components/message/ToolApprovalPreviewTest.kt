@@ -31,7 +31,7 @@ import org.junit.runner.RunWith
 /**
  * 审批预览的界面测试：批量工具的真实载荷必须完整可见。
  *
- * 回归的问题：悬浮窗待审批卡和聊天待审批步骤都把入参截成 `take(300)` + `maxLines = 3` + Ellipsis，
+ * 回归的问题：悬浮窗把入参截成 `take(300)` + `maxLines = 3` + Ellipsis；聊天待审批步骤可能没有入参摘要，
  * 一次批量调用里排在后面的 write/shell 完全看不到，用户点"批准"等于盲签。这里锁三件事：
  * 1. 语义树里能拿到**完整**正文（尾部成员没有被切掉）；
  * 2. 容器是真的可滚动，并且能滚到底（不是靠 `heightIn` 把后半截裁掉）；
@@ -40,8 +40,6 @@ import org.junit.runner.RunWith
  * 另外补一条集成用例：注册渲染器没有 Summary 的工具（外部 MCP/批量脚本走的就是默认渲染器）
  * 待审批时，聊天步骤也必须把入参展示出来，而不是只有标题栏上的批准按钮。
  *
- * 注意：没有 Android SDK 的机器上写不了这些用例的运行结果，本文件只按现有 production API 写好，
- * 由 CI 的主线程 AndroidTest 实际执行，这里不声称已经 passed。
  */
 @RunWith(AndroidJUnit4::class)
 class ToolApprovalPreviewTest {
@@ -64,19 +62,18 @@ class ToolApprovalPreviewTest {
 
     private fun longBatchPayload(): String = buildString {
         appendLine("{")
-        appendLine("  \"tool_calls\": [")
+        appendLine("  \"calls\": [")
         for (i in 1..12) {
             appendLine("    {")
-            appendLine("      \"tool_call_id\": \"call_$i\",")
-            appendLine("      \"tool_name\": \"write_file\",")
-            append("      \"arguments\": {\"file_path\": \"/workspace/notes/part_$i.md\", \"content\": \"")
+            appendLine("      \"name\": \"workspace_write_file\",")
+            append("      \"arguments\": {\"path\": \"/workspace/notes/part_$i.md\", \"content\": \"")
             repeat(6) { append("第 $i 个成员的填充正文 $it。") }
             appendLine("\"}")
             appendLine("    },")
         }
         appendLine(
-            "    { \"tool_call_id\": \"call_last\", \"tool_name\": \"write_file\", " +
-                "\"arguments\": {\"file_path\": \"/workspace/notes/$lastWriteMarker\", \"content\": \"final\"} }"
+            "    { \"name\": \"workspace_write_file\", " +
+                "\"arguments\": {\"path\": \"/workspace/notes/$lastWriteMarker\", \"content\": \"final\"} }"
         )
         appendLine("  ]")
         append("}")
