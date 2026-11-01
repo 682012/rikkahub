@@ -1,0 +1,117 @@
+{
+  "upstreamRepo": "rikkahub/rikkahub",
+  "latestStable": "3.1.1",
+  "upstreamCommit": "5ad19405c1a14899c69bb92e249a3adb3f65fbbd",
+  "checkedAt": "2026-11-02",
+  "brandAssets": [
+    {
+      "path": "app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml",
+      "git_blob": "345888d26e662baa7c5ae78589829dca8cf5b4f0"
+    },
+    {
+      "path": "app/src/main/res/mipmap-hdpi/ic_launcher.png",
+      "git_blob": "bc24d9008ff1e7c958c5fb26c95c1af8b771affc"
+    },
+    {
+      "path": "app/src/main/res/mipmap-hdpi/ic_launcher_background.png",
+      "git_blob": "0c02fdfcf178c45ce03463630f951087073abf21"
+    },
+    {
+      "path": "app/src/main/res/mipmap-hdpi/ic_launcher_foreground.png",
+      "git_blob": "48244a203ef1afe5b0079d32dec04717cbcc4486"
+    },
+    {
+      "path": "app/src/main/res/mipmap-hdpi/ic_launcher_monochrome.png",
+      "git_blob": "2e6b4fe289a79eef0eb4fa67fa78c5e05b065f99"
+    },
+    {
+      "path": "app/src/main/res/mipmap-mdpi/ic_launcher.png",
+      "git_blob": "946e6ccf7dc5b8796bba350565014866bb41cdd6"
+    },
+    {
+      "path": "app/src/main/res/mipmap-mdpi/ic_launcher_background.png",
+      "git_blob": "45d4efb602b16198179e9be1cfef141349da237c"
+    },
+    {
+      "path": "app/src/main/res/mipmap-mdpi/ic_launcher_foreground.png",
+      "git_blob": "1c52e0b9e4d510ed594570beb98eb184975f718c"
+    },
+    {
+      "path": "app/src/main/res/mipmap-mdpi/ic_launcher_monochrome.png",
+      "git_blob": "5a67f889b2ae8f5552ba8422a3c3ad97fd950f16"
+    },
+    {
+      "path": "app/src/main/res/mipmap-xhdpi/ic_launcher.png",
+      "git_blob": "9ca83f46ece32d61201bd436785be273fcbcf599"
+    },
+    {
+      "path": "app/src/main/res/mipmap-xhdpi/ic_launcher_background.png",
+      "git_blob": "185412940475e0f6a6966cf7545ccb1a17968cdb"
+    },
+    {
+      "path": "app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.png",
+      "git_blob": "37edd24ae6d419e01fb49bfaa2914b33aaa53640"
+    },
+    {
+      "path": "app/src/main/res/mipmap-xhdpi/ic_launcher_monochrome.png",
+      "git_blob": "301a25909823032980b4207618df6d9857ee0f4f"
+    },
+    {
+      "path": "app/src/main/res/mipmap-xxhdpi/ic_launcher.png",
+      "git_blob": "0c51739040213dba8e17aece17b4095ee586cd0e"
+    },
+    {
+      "path": "app/src/main/res/mipmap-xxhdpi/ic_launcher_background.png",
+      "git_blob": "8eae1848b8a966dcc322f452b1b4a5932f96eb4f"
+    },
+    {
+      "path": "app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.png",
+      "git_blob": "9a3174e3afe248b3815c604710cabc524b044689"
+    },
+    {
+      "path": "app/src/main/res/mipmap-xxhdpi/ic_launcher_monochrome.png",
+      "git_blob": "2aaa6acf63219ba2d5dae4ce368dd41a86349865"
+    },
+    {
+      "path": "app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+      "git_blob": "a50e0e8d34ab9a563e1bed672b8c162dbe399f85"
+    },
+    {
+      "path": "app/src/main/res/mipmap-xxxhdpi/ic_launcher_background.png",
+      "git_blob": "5286169f554cbe3a2156f94b214b9064aabc5a35"
+    },
+    {
+      "path": "app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.png",
+      "git_blob": "e669c0fa9cbca79d291f29fa02acb49c0a9985aa"
+    },
+    {
+      "path": "app/src/main/res/mipmap-xxxhdpi/ic_launcher_monochrome.png",
+      "git_blob": "ae473cbba370b6ec44957fecbb703ba13f91dfe4"
+    },
+    {
+      "path": "docs/icon.png",
+      "git_blob": "d9dd1a3109bc541d80811ba6a84ffe2afa7e6da7"
+    },
+    {
+      "path": "web-ui/app/components/logo.tsx",
+      "git_blob": "08615e570c09f9c0726bb4366cfebacf034c70ac"
+    },
+    {
+      "path": "web-ui/public/favicon.ico",
+      "git_blob": "b74647704cc610d7b283a2b903a29919f639c316"
+    }
+  ],
+  "localeNames": {
+    "app/src/main/res/values/strings.xml": "RikkaHub",
+    "app/src/main/res/values-ar/strings.xml": "RikkaHub",
+    "app/src/main/res/values-de/strings.xml": "RikkaHub",
+    "app/src/main/res/values-ja/strings.xml": "RikkaHub",
+    "app/src/main/res/values-ko-rKR/strings.xml": "RikkaHub",
+    "app/src/main/res/values-ru/strings.xml": "RikkaHub",
+    "app/src/main/res/values-zh/strings.xml": "RikkaHub",
+    "app/src/main/res/values-zh-rTW/strings.xml": "RikkaHub"
+  },
+  "assetCount": 24,
+  "nameCount": 8,
+  "verificationScope": "Source bytes and locale names; APK/device checks are recorded separately in r1.json."
+}

@@ -1,0 +1,65 @@
+{
+  "versionName": "3.1.1-r1",
+  "versionCode": 3000048,
+  "applicationId": "me.rerere.rikkahub.fork",
+  "databaseSchema": 34,
+  "databaseMigrationAdded": false,
+  "buildCommit": "860973a7754a41828cd78667000bfcb5932cdec1",
+  "upstream": {
+    "latestStable": "3.1.1",
+    "commit": "5ad19405c1a14899c69bb92e249a3adb3f65fbbd",
+    "identicalAssets": 24,
+    "identicalAppNameLocales": 8
+  },
+  "ci": {
+    "run": 41357679364,
+    "url": "https://github.com/682012/rikkahub/actions/runs/41357679364",
+    "conclusion": "success",
+    "jobs": {
+      "JVM unit tests": "success",
+      "Android instrumented tests (API 34)": "success",
+      "Signed release (R8 + lintVital)": "success",
+      "Signed fork.43 to r1 upgrade (API 34)": "success"
+    }
+  },
+  "tests": {
+    "jvm": {
+      "suites": 217,
+      "tests": 1569,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1
+    },
+    "instrumented": {
+      "suites": 15,
+      "tests": 57,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "apk": {
+    "name": "rikkahub-3.1.1-r1.apk",
+    "bytes": 19000594,
+    "sha256": "49dd57d2610cf1ee4067972dba4f554c4a42d0c4f0c7d509d6002b5420dfeece",
+    "signingCertificateSha256": "cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89",
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ]
+  },
+  "upgrade": {
+    "from": "3.1.1-fork.43 / 3000047",
+    "api": 34,
+    "abi": "x86_64",
+    "signedInPlaceInstall": true,
+    "sandboxMarkerRetained": true,
+    "coldLaunch": true,
+    "scope": "Isolated emulator; no user chat corpus was used."
+  },
+  "notVerified": [
+    "User phone upgrade/run",
+    "OEM background behavior",
+    "Real model token, cost or latency improvement"
+  ]
+}

@@ -1,6 +1,6 @@
 # 个人分支：构建与维护
 
-用户可见功能统一维护在 [仓库首页](../README.md) 与 [官方差异表](FEATURES.md)。本页记录构建、签名与回退；本版说明见 [fork.43 更新说明](RELEASE-fork43.md)。
+用户可见功能统一维护在 [仓库首页](../README.md) 与 [官方差异表](FEATURES.md)。本页记录构建、签名与回退；本版说明见 [r1 更新说明](RELEASE-r1.md)。
 
 ## 当前维护对象
 
@@ -8,13 +8,13 @@
 |---|---|
 | 官方基线 | `3.1.1` / `ad2c4430`；跟随到 master `5ad19405` |
 | 维护分支 | `fork/3.1.1` |
-| 当前版本 | `3.1.1-fork.43` / `3000047` |
+| 当前版本 | `3.1.1-r1` / `3000048` |
 | 包名 | `me.rerere.rikkahub.fork` |
 | 数据库 | schema 34；与 fork.37 相同，不与官方编号混用 |
-| 已验发布构建 | R8 release，arm64-v8a + x86_64 通用包，18,999,938 字节，run 41325551257 |
-| 构建 SHA-256 | `14905740a7649da27c5e1d8cade74059d46b482cad42629c56b5a986f8e9f3d1` |
+| 已验发布构建 | R8 release，arm64-v8a + x86_64 通用包，19,000,594 字节，run 41357679364 |
+| 构建 SHA-256 | `49dd57d2610cf1ee4067972dba4f554c4a42d0c4f0c7d509d6002b5420dfeece` |
 
-`master` 是上游镜像，旧 fork 分支是历史版本。每个正式版的已验原包保存在对应 Release（当前 [最新正式版](https://github.com/682012/rikkahub/releases/latest) 为 fork.43），附 APK 与 SHA256SUMS；旧 nightly 不代表当前已验安装包。fork.40 起由 GitHub Actions `Fork Verify` 构建签名；旧包保留，不触发旧 nightly，也不替换其资产。fork.43 的包与校验值由本次验收产物生成。
+`master` 是上游镜像，旧 fork 分支是历史版本。每个正式版的已验原包保存在对应 Release（当前 [最新正式版](https://github.com/682012/rikkahub/releases/latest) 为 3.1.1-r1），附 APK 与 SHA256SUMS；旧 nightly 不代表当前已验安装包。fork.40 起由 GitHub Actions `Fork Verify` 构建签名；旧包保留，不触发旧 nightly，也不替换其资产。r1 的包与校验值由本次验收产物生成；名称和图标与上游最新版一致。
 
 ## 重复下载、复用与后续维护
 
@@ -50,7 +50,7 @@ APK 目录为 `app/build/outputs/apk/github/release/`。3.1.1 有 github/play fl
 
 `app/google-services.json` 需要匹配包名 `me.rerere.rikkahub.fork`；运行 debug/仪器测试时，另在 `app/src/debug/google-services.json` 配置 `me.rerere.rikkahub.fork.debug`。源码未附真实 Google 服务配置，不能把干净克隆等同于免配置构建。维护者同签名升级所用 keystore 也不公开；自行签名的包不能直接覆盖维护者签名的安装包。
 
-手动 CI 使用 `KEY_BASE64`、`SIGNING_CONFIG`、`GOOGLE_SERVICES_JSON` 三项仓库 Secrets；只在自行构建时需要，下载本次 APK 不需要这些配置。此次 Release 上传的是先前已验原包，未重跑云端构建。
+手动 CI 使用 `KEY_BASE64`、`SIGNING_CONFIG`、`GOOGLE_SERVICES_JSON` 三项仓库 Secrets；只在自行构建时需要，下载本次 APK 不需要这些配置。本次 r1 已重新运行 Fork Verify，发布的是此次正式签名构建产物。
 
 `local.properties`（不入库）：
 
@@ -74,7 +74,7 @@ keyPassword=<local-secret>
 - 使用现有 `fork/3.1.1` 分支历史增量提交，不以独立快照强推替换远端历史。
 - 源码先与已验输入逐文件核对；只改文档不会扩大测试覆盖范围。
 - 维护分支 CI 保持手动触发，不因推文档顺带发布 nightly。
-- versionCode 独立递增，不套早期 `3000000 + fork.N` 公式。
+- 可见版本用上游版本 + 短后缀（如 `3.1.1-r1`，后续 `r2/r3`）；versionCode 独立递增，不套早期 `3000000 + fork.N` 公式。首次旧 fork 升级 r1 需直接下载；未来发布资产命名遵循 `rikkahub-<version>.apk`。
 - [CHANGES.md](CHANGES.md) 保留版本历史；[HANDOFF.md](HANDOFF.md) 是历史维护现场，不是当前用户说明。
 
 ## 回退

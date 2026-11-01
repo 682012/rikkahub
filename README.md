@@ -2,21 +2,21 @@
 
 基于 [RikkaHub 官方 3.1.1](https://github.com/rikkahub/rikkahub/tree/3.1.1) 的非官方分支。保留官方聊天客户端，重点补上**多代理协作、后台长任务、自动压缩、工作区文件迁移，以及工具调用层的调用效率与可读性**。
 
-**当前版本：`3.1.1-fork.43` / `3000047` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
+**当前版本：`3.1.1-r1` / `3000048` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
 
-官方最新稳定版仍为 3.1.1。本版没有跟进新的官方提交（仍以 master `5ad19405` 为基线），改动集中在工具调用层；另保留官方尚未合入 master 的后台命令（预览）。
+名字和图标使用上游最新版 RikkaHub，版本主体与官方 3.1.1 对齐，分支只加短后缀 `r1`。完整继承 fork.43 的功能与官方 master `5ad19405` 基线，没有回退增强功能；独立品牌草稿不混入本版。
 
 > 与官方团队没有隶属关系。本仓库记录个人修改，并在 GitHub Releases 保存已验安装包，方便重复下载；不提供官方或面向终端用户的技术支持。官方渠道下载的是官方版，不是此分支。上游版权与 AGPL-3.0 许可证保持不变。
 
-[完整功能对比](fork/FEATURES.md) · [fork.43 更新与说明](fork/RELEASE-fork43.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
+[完整功能对比](fork/FEATURES.md) · [r1 更新与说明](fork/RELEASE-r1.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
 
 ## 下载与重复使用
 
-**[下载 fork.43 通用 APK（18.1 MiB）](https://github.com/682012/rikkahub/releases/download/v3.1.1-fork.43/rikkahub-3.1.1-fork.43.apk)** · [版本说明与 SHA-256](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.43) · [最新正式版](https://github.com/682012/rikkahub/releases/latest)
+**[下载 3.1.1-r1 通用 APK（18.1 MiB）](https://github.com/682012/rikkahub/releases/download/v3.1.1-r1/rikkahub-3.1.1-r1.apk)** · [版本说明与 SHA-256](https://github.com/682012/rikkahub/releases/tag/v3.1.1-r1) · [最新正式版](https://github.com/682012/rikkahub/releases/latest)
 
 固定版本链接不会随 nightly 被覆盖；每个正式版本保留对应源码 tag、APK 与校验文件。直接安装不需要编译环境，也不会附带维护者的聊天、账号或服务凭据。
 
-同包名、同签名的 fork.36–42 可按常规覆盖升级，先备份聊天和设置；不要为升级先卸载。官方包与本分支不同，不能直接覆盖官方版。需要重新编译时见 [构建与维护](fork/README.md)，签名密钥和本机配置自行准备。
+同包名、同签名的 fork.36–43 可按常规覆盖升级，先备份聊天和设置；不要为升级先卸载。旧版更新器只认 `-fork.`，首次升级 r1 请直接从上面的链接下载安装，r1 之后识别新的短编号。官方包与本分支不同，不能直接覆盖官方版。需要重新编译时见 [构建与维护](fork/README.md)，签名密钥和本机配置自行准备。
 
 ## 相比官方，到底增加了什么？
 
