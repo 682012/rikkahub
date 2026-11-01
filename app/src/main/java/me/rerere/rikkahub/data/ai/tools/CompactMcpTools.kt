@@ -345,8 +345,8 @@ private fun createCallTool(name: String, searchName: String, catalog: List<McpCa
     needsApproval = { input ->
         when (val call = resolveCall(catalog, input)) {
             is ResolvedCall.Found -> call.entry.tool.needsApproval(call.arguments)
-            // 认不出来的调用不能自动放行：审批走保守路线，真正执行时也会被拒
-            is ResolvedCall.Unknown, is ResolvedCall.BadArguments -> true
+            // 无效调用没有副作用，直接回错误让模型修正；不能把拼错名字变成子代理无法完成的审批。
+            is ResolvedCall.Unknown, is ResolvedCall.BadArguments -> false
         }
     },
     execute = { input ->

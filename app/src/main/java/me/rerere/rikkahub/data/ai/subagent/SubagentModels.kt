@@ -1,5 +1,7 @@
 package me.rerere.rikkahub.data.ai.subagent
 
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -54,6 +56,12 @@ const val SUBAGENT_MAX_WAIT_TASKS = 8
 /** 完成通知里带的正文预览上限；通知只做指针，正文靠 subagent_result 分页读。 */
 const val SUBAGENT_NOTICE_PREVIEW_CHARS = 200
 
+/** 一次 subagent_wait 里所有任务首屏正文的总预算（字符）。单条仍可到 [SUBAGENT_RESULT_MAX_LIMIT]。 */
+const val SUBAGENT_WAIT_PAGE_BUDGET = 8_000
+
+/** 多任务 wait 时每条任务的最低首屏额度：太小的页模型读不出结论，还得再来一次。 */
+const val SUBAGENT_WAIT_MIN_PAGE = 500
+
 /**
  * 一次结果读取的切片。
  *
@@ -102,6 +110,13 @@ data class SubagentResultPage(
  *
  * 纯函数，便于单测：offset 越界时夹到末尾返回空页（eof=true），limit 非正数用默认值，
  * 大于上限按上限截断。
+ *
+ * 边界按 UTF-16 代理对对齐：
+ * - 起点落在代理对中间时向前挪一个 code unit（宁可重复 1 个 code unit 也不把 emoji 劈开）；
+ * - 终点劈开代理对时向后补一个 code unit，所以 limit=1 命中 emoji 会返回 2 个 code unit，
+ *   [SubagentResultPage.nextOffset] 仍然前进，按 nextOffset 循环读不会死循环。
+ *
+ * 因为分页总是按 nextOffset 串起来读，拼回去的结果与全文逐 code unit 相同，不重复也不遗漏。
  */
 fun subagentResultPage(
     task: SubagentTask,
@@ -110,8 +125,10 @@ fun subagentResultPage(
     limit: Int,
 ): SubagentResultPage {
     val safeLimit = if (limit <= 0) SUBAGENT_RESULT_DEFAULT_LIMIT else limit.coerceAtMost(SUBAGENT_RESULT_MAX_LIMIT)
-    val start = offset.coerceIn(0, full.length)
-    val end = (start + safeLimit).coerceAtMost(full.length)
+    val clamped = offset.coerceIn(0, full.length)
+    val start = if (isMidSurrogatePair(full, clamped)) clamped - 1 else clamped
+    var end = (start + safeLimit).coerceAtMost(full.length)
+    if (isMidSurrogatePair(full, end)) end += 1
     return SubagentResultPage(
         taskId = task.id,
         status = task.status,
@@ -122,6 +139,41 @@ fun subagentResultPage(
         text = full.substring(start, end),
     )
 }
+
+/** [index] 是否落在代理对中间（即 index-1 是高代理、index 是低代理）。 */
+private fun isMidSurrogatePair(text: String, index: Int): Boolean =
+    index in 1 until text.length && text[index - 1].isHighSurrogate() && text[index].isLowSurrogate()
+
+/**
+ * 按 UTF-16 数量截断，但不切断代理对：末尾若是孤立高代理就少拿一个 code unit。
+ * 通知/preview 用它，避免把 emoji 截成半个字符。
+ */
+fun subagentTruncateUtf16(text: String, limit: Int): String {
+    if (limit <= 0) return ""
+    if (text.length <= limit) return text
+    var end = limit
+    if (isMidSurrogatePair(text, end)) end -= 1
+    return text.substring(0, end)
+}
+
+/**
+ * 一次 wait 里单个任务的首屏额度。
+ *
+ * 单任务（或只有 1 个 id）允许用满 [SUBAGENT_RESULT_MAX_LIMIT]；多任务按
+ * [SUBAGENT_WAIT_PAGE_BUDGET] 均分，且不低于 [SUBAGENT_WAIT_MIN_PAGE]，
+ * 这样 8 个任务一起 wait 也不会把 48K 级别的正文一次倒进上下文。
+ */
+fun subagentWaitPageLimit(userLimit: Int, taskCount: Int): Int {
+    val requested = if (userLimit <= 0) {
+        SUBAGENT_RESULT_DEFAULT_LIMIT
+    } else {
+        userLimit.coerceAtMost(SUBAGENT_RESULT_MAX_LIMIT)
+    }
+    if (taskCount <= 1) return requested
+    val budgeted = (SUBAGENT_WAIT_PAGE_BUDGET / taskCount).coerceAtLeast(SUBAGENT_WAIT_MIN_PAGE)
+    return minOf(requested, budgeted)
+}
+
 
 /**
  * 一次等待里解析出的任务列表：`task_ids`（最多 [SUBAGENT_MAX_WAIT_TASKS] 个）与旧的 `task_id` 都支持。
@@ -166,11 +218,7 @@ fun buildSubagentNotice(task: SubagentTask, result: String): UIMessagePart.Notic
     val seconds = (((task.finishedAt ?: System.currentTimeMillis()) - (task.startedAt ?: task.createdAt)) / 1000)
         .coerceAtLeast(0)
     val preview = result.replace(Regex("\\s+"), " ").trim()
-        .let {
-            if (it.length > SUBAGENT_NOTICE_PREVIEW_CHARS) {
-                it.take(SUBAGENT_NOTICE_PREVIEW_CHARS) + "…"
-            } else it
-        }
+        .let { subagentTruncateUtf16(it, SUBAGENT_NOTICE_PREVIEW_CHARS).let { p -> if (p.length < it.length) "$p…" else p } }
     val detail = when {
         task.status == SubagentStatus.COMPLETED -> "finished"
         task.status == SubagentStatus.TIMEOUT -> "timed out"
@@ -183,8 +231,9 @@ fun buildSubagentNotice(task: SubagentTask, result: String): UIMessagePart.Notic
             "Subagent task `${task.id}` $detail: status ${task.status.name} after ${seconds}s, " +
                 "${task.steps} step(s), ${result.length} result chars."
         )
-        task.error?.replace(Regex("\\s+"), " ")?.trim()?.takeIf { it.isNotEmpty() }?.let {
-            appendLine("Error: ${if (it.length > SUBAGENT_NOTICE_PREVIEW_CHARS) it.take(SUBAGENT_NOTICE_PREVIEW_CHARS) + "…" else it}")
+        task.error?.replace(Regex("\\s+"), " ").trim()?.takeIf { it.isNotEmpty() }?.let {
+            val shown = subagentTruncateUtf16(it, SUBAGENT_NOTICE_PREVIEW_CHARS)
+            appendLine("Error: ${if (shown.length < it.length) "$shown…" else shown}")
         }
         if (result.isBlank()) {
             appendLine("It produced no readable output; partial output may still be empty.")
@@ -198,7 +247,7 @@ fun buildSubagentNotice(task: SubagentTask, result: String): UIMessagePart.Notic
         )
         append("</subagent_notice>")
     }
-    val promptPreview = task.prompt.replace(Regex("\\s+"), " ").trim().take(60)
+    val promptPreview = subagentTruncateUtf16(task.prompt.replace(Regex("\\s+"), " ").trim(), 60)
     return UIMessagePart.Notice(
         title = "Subagent ${task.status.name}: $promptPreview",
         text = text,
@@ -210,9 +259,15 @@ fun buildSubagentNotice(task: SubagentTask, result: String): UIMessagePart.Notic
  *
  * "已交付"只影响 subagent_wait 的返回内容（第二次只给 status + 读取提示），
  * 不影响 subagent_result —— 结果永远可以重新分页读取，不存在"读一次就没了"。
+ *
+ * 首屏交付权用 [claimDelivery] 原子抢：底层 [ConcurrentHashMap.newKeySet] 的 add 返回 Boolean，
+ * 同一 task 并发 wait 时只有一次 add 返回 true，其余拿到 false 走 status 分支。
  */
 class SubagentDeliveryRegistry {
     private val delivered = ConcurrentHashMap.newKeySet<String>()
+
+    /** 原子 claim：true 表示"本次调用抢到了首屏"，false 表示别人已经交付过。 */
+    fun claimDelivery(taskId: String): Boolean = delivered.add(taskId)
 
     fun markDelivered(taskId: String) {
         delivered.add(taskId)
@@ -223,4 +278,114 @@ class SubagentDeliveryRegistry {
     fun forget(taskId: String) {
         delivered.remove(taskId)
     }
+}
+
+/**
+ * 首屏交付协议：先 read（读文件/切页，可能抛异常或返回 null），读成功之后才原子 claim。
+ *
+ * 顺序不能反过来——先 claim 再读，一次读失败就把"已交付"占掉了，结果再也拿不到首屏，
+ * 只能靠模型自己去 subagent_result 猜。读失败不消耗交付权，下一次 wait 还能拿到。
+ *
+ * @return 抢到首屏时返回 read 的结果；返回 null 表示"没抢到"（已交付过或读失败），调用方回 status。
+ */
+fun <T : Any> claimFirstScreenAfterRead(
+    registry: SubagentDeliveryRegistry,
+    taskId: String,
+    read: () -> T?,
+): T? {
+    val value = read() ?: return null
+    return if (registry.claimDelivery(taskId)) value else null
+}
+
+/**
+ * `task.json` 的磁盘模型。
+ *
+ * 不直接把 [SubagentTask] 标成 `@Serializable`：它带 [Uuid] 和 [TokenUsage]，两者的序列化器跟着
+ * 上游模块走，磁盘格式会随上游改动漂移；这里只存"重启后恢复所需的元数据 + 状态 + 归属"，
+ * 正文永远留在 `result.md`（已有），用量/usage 之类的运行时数据不落盘。
+ *
+ * 归属（owner）就是 [conversationId]：重启后会话仍能凭它判断"这个任务是不是我的"。
+ */
+@Serializable
+data class SubagentTaskRecord(
+    val version: Int = 1,
+    val id: String,
+    val prompt: String = "",
+    val conversationId: String? = null,
+    val modelId: String? = null,
+    val status: String = SubagentStatus.QUEUED.name,
+    val createdAt: Long = 0L,
+    val startedAt: Long? = null,
+    val finishedAt: Long? = null,
+    val error: String? = null,
+    val steps: Int = 0,
+)
+
+/** 重启遗留的未完成任务统一改成 CANCELLED，并留下可解释的 error。 */
+const val SUBAGENT_RESTART_ERROR = "App restarted; not replayed"
+
+private val subagentTaskRecordJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
+
+/** task id 必须是普通 UUID（带连字符的小写/大写都行）；其它形式一律拒绝，避免拼出路径穿越。 */
+private val subagentTaskIdPattern =
+    Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+
+fun isSafeSubagentTaskId(id: String): Boolean =
+    id.length in 36..36 && subagentTaskIdPattern.matches(id)
+
+fun encodeSubagentTaskRecord(record: SubagentTaskRecord): String =
+    subagentTaskRecordJson.encodeToString(SubagentTaskRecord.serializer(), record)
+
+fun decodeSubagentTaskRecord(text: String): SubagentTaskRecord? =
+    runCatching { subagentTaskRecordJson.decodeFromString(SubagentTaskRecord.serializer(), text) }.getOrNull()
+
+fun SubagentTask.toRecord(): SubagentTaskRecord = SubagentTaskRecord(
+    id = id,
+    prompt = prompt,
+    conversationId = conversationId?.toString(),
+    modelId = modelId?.toString(),
+    status = status.name,
+    createdAt = createdAt,
+    startedAt = startedAt,
+    finishedAt = finishedAt,
+    error = error,
+    steps = steps,
+)
+
+/**
+ * 磁盘记录 → 内存任务。
+ *
+ * QUEUED/RUNNING 只可能来自上一次进程：启动时不会重放，所以标 CANCELLED 并附
+ * [SUBAGENT_RESTART_ERROR]，partial 结果（result.md）照样能读。
+ * 正文不在这里读，[result] 保持 null，由 runner 按需懒读单个文件。
+ */
+fun SubagentTaskRecord.toTask(
+    resultPath: String? = null,
+    logPath: String? = null,
+    now: Long = System.currentTimeMillis(),
+): SubagentTask {
+    val parsedStatus = runCatching { SubagentStatus.valueOf(status) }.getOrDefault(SubagentStatus.FAILED)
+    val interrupted = parsedStatus == SubagentStatus.QUEUED || parsedStatus == SubagentStatus.RUNNING
+    return SubagentTask(
+        id = id,
+        prompt = prompt,
+        modelId = modelId?.let { runCatching { Uuid.parse(it) }.getOrNull() },
+        conversationId = conversationId?.let { runCatching { Uuid.parse(it) }.getOrNull() },
+        status = if (interrupted) SubagentStatus.CANCELLED else parsedStatus,
+        createdAt = if (createdAt > 0L) createdAt else now,
+        startedAt = startedAt,
+        finishedAt = if (interrupted) finishedAt ?: now else finishedAt,
+        result = null,
+        error = when {
+            interrupted && this.error.isNullOrBlank() -> SUBAGENT_RESTART_ERROR
+            interrupted -> "${this.error} ($SUBAGENT_RESTART_ERROR)"
+            else -> this.error
+        },
+        steps = steps,
+        resultPath = resultPath,
+        logPath = logPath,
+    )
 }

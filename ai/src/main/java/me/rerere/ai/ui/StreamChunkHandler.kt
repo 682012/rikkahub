@@ -240,7 +240,7 @@ class StreamChunkHandler(private val model: Model? = null) {
             is StreamChunk.ToolCallEnd -> this
             is StreamChunk.ToolCallOutput -> {
                 // 只写本实例分配到的那个 part；不做保底匹配，避免把输出写到之前步骤的调用上。
-                val toolCallId = toolCallSlots[chunk.id]?.toolCallId ?: chunk.id
+                val toolCallId = toolCallSlots[chunk.id]?.toolCallId
                 copy(parts = parts.map { part ->
                     if (part is UIMessagePart.Tool && part.toolCallId == toolCallId) {
                         part.copy(output = listOf(UIMessagePart.Text(chunk.output)))

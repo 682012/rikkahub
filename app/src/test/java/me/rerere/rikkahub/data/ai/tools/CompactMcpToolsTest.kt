@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -390,10 +391,9 @@ class CompactMcpToolsTest {
 
         assertTrue(call.needsApproval(callInput("mcp__files__write_file", buildJsonObject { put("path", "/etc/passwd") })))
         assertFalse(call.needsApproval(callInput("mcp__files__write_file", buildJsonObject { put("path", "/tmp/safe.txt") })))
-        // 目录外的名字不能借道网关绕过审批
-        assertTrue(call.needsApproval(callInput("mcp__files__drop_database")))
-        // 参数形状坏掉时同样不能自动放行
-        assertTrue(
+        // Invalid calls execute only the error branch; they must not dead-end a child on approval.
+        assertFalse(call.needsApproval(callInput("mcp__files__drop_database")))
+        assertFalse(
             call.needsApproval(buildJsonObject {
                 put("name", "mcp__files__write_file")
                 put("arguments", "x")

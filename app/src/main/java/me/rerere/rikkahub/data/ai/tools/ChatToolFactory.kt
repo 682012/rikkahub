@@ -149,7 +149,6 @@ class ChatToolFactory(
                         parameters = { tool.inputSchema },
                         needsApproval = { tool.needsApproval },
                         executionMode = when {
-                            tool.readOnlyHint == true && tool.idempotentHint == true -> ToolExecutionMode.PARALLEL_DEDUPLICATED
                             tool.readOnlyHint == true -> ToolExecutionMode.PARALLEL
                             else -> ToolExecutionMode.SERIAL
                         },
@@ -160,7 +159,7 @@ class ChatToolFactory(
         }
         // External schemas are discovered lazily only when their catalog becomes large.
         // Native tools have explicit local scheduling metadata; unknown MCP tools remain serial.
-        val outputOwner = "assistant:${assistant.id}:conversation:${conversationId ?: "no-conversation"}"
+        val outputOwner = conversationId?.let { "conversation:$it" } ?: "assistant:${assistant.id}:no-conversation"
         val outputStore = ToolOutputStore(File(context.filesDir, FileFolders.TOOL_OUTPUTS), outputOwner)
         val baseTools = tools.map(::withBuiltinExecutionMode)
         val childBaseTools = if (settings.subagent.enabled && workspaceTools.any { it.name in BACKGROUND_SHELL_TOOLS }) {

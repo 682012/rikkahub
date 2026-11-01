@@ -220,9 +220,11 @@ class RikkaHubApp : Application() {
         get<AppScope>().launch(Dispatchers.IO) {
             runCatching {
                 val dir = File(filesDir, FileFolders.TOOL_OUTPUTS)
-                if (dir.exists()) {
-                    dir.deleteRecursively()
-                }
+                dir.mkdirs() // The PRoot bind source must remain present across app launches.
+                val cutoff = System.currentTimeMillis() - 24 * 60 * 60 * 1_000L
+                dir.listFiles().orEmpty().filter { it.name.endsWith(".tmp") && it.lastModified() < cutoff }
+                    .forEach { it.delete() }
+                // Committed .txt/.json pairs belong to conversation history and remain readable.
             }
         }
     }

@@ -93,11 +93,22 @@ class SubagentRunner(
 
     fun observe(): StateFlow<List<SubagentTask>> = state.asStateFlow()
 
+    fun claimDelivery(taskId: String): Boolean = delivery.claimDelivery(taskId)
+
+    /** 首屏交付：先读 page 再原子 claim（见 [claimFirstScreenAfterRead]），读失败不吞结果。 */
+    fun <T : Any> claimFirstScreenOnDelivery(taskId: String, read: () -> T?): T? =
+        claimFirstScreenAfterRead(delivery, taskId, read)
+
     fun markDelivered(taskId: String) = delivery.markDelivered(taskId)
 
     fun isDelivered(taskId: String): Boolean = delivery.isDelivered(taskId)
 
-    fun get(id: String): SubagentTask? = tasks[id]
+    /**
+     * 按 id 取任务：内存优先，缺失时懒读这一个任务的 `task.json`（不扫描其它任务目录）。
+     *
+     * 只有纯 UUID 形式的 id 才会碰磁盘，其余直接当不存在，避免 `../` 之类的 id 拼出路径穿越。
+     */
+    fun get(id: String): SubagentTask? = tasks[id] ?: restoreTask(id)
 
     fun list(): List<SubagentTask> = tasks.values.sortedByDescending { it.createdAt }
 
@@ -125,6 +136,7 @@ class SubagentRunner(
             logPath = logFile(id).absolutePath,
         )
         tasks[id] = task
+        persist(task)
         publish()
         val generationId = Uuid.random()
         val job = scope.launch(start = CoroutineStart.LAZY) {
@@ -177,7 +189,7 @@ class SubagentRunner(
                     update(id) { it.copy(
                         status = if (error == null) SubagentStatus.COMPLETED else SubagentStatus.FAILED,
                         finishedAt = System.currentTimeMillis(), result = text, error = error,
-                        usage = finished.message.usage, steps = finished.message.getTools().size, modelId = usedModelId,
+                        usage = finished.message.usage, steps = finished.message.stepCount ?: 0, modelId = usedModelId,
                     ) }
                     appendLog(id, "[done] ${reason::class.simpleName}, ${text.length} chars")
                 }
@@ -240,7 +252,7 @@ class SubagentRunner(
 
     private suspend fun awaitUntil(id: String, deadline: Long): SubagentTask? {
         while (true) {
-            val task = tasks[id] ?: return null
+            val task = get(id) ?: return null
             if (task.isFinished || System.currentTimeMillis() >= deadline) return task
             delay(250)
         }
@@ -317,7 +329,7 @@ class SubagentRunner(
                     val text = message.toText()
                     runCatching { resultFile(id).writeText(text) }
                     update(id) { it.copy(result = text, usage = message.usage, modelId = model.id,
-                        steps = message.getTools().size) }
+                        steps = message.stepCount ?: 0) }
                 }
             }
         }
@@ -345,28 +357,41 @@ class SubagentRunner(
 
     private fun update(id: String, transform: (SubagentTask) -> SubagentTask) {
         var finished: SubagentTask? = null
+        var latest: SubagentTask? = null
         tasks.computeIfPresent(id) { _, old ->
             val updated = transform(old)
             if (isSubagentTerminalTransition(old, updated)) finished = updated
+            latest = updated
             updated
         }
+        latest?.let(::persist)
         publish()
         finished?.let(::notifyFinished)
     }
 
     /**
-     * 终态通知：同一 task 只会走到这里一次（[notified] 判定）。
+     * 终态通知：同一 task 只投递一次。
+     *
+     * 顺序很关键：
+     * 1. 没有会话归属时不占位（这类任务本来就不会通知）；
+     * 2. `noticeSink` 没接线时不占位——否则后接线就永远发不出去；
+     * 3. 用 [notified] 的 add 做原子 claim，只有抢到的那次真投递，并发 update 不会发两遍；
+     * 4. 投递抛异常时把占位撤回，允许之后的事件（例如 cancel/再次 update）重试，且不在这里自旋重试。
      *
      * 只投递通知，不启动父会话生成、不跨会话发送；正文留在结果文件里等 subagent_result 分页读。
      */
     private fun notifyFinished(task: SubagentTask) {
-        if (!notified.add(task.id)) return
-        val conversationId = task.conversationId ?: return
+        val conversationId = task.conversationId
+        if (conversationId == null) {
+            Log.i(TAG, "subagent ${task.id} finished (${task.status}); no conversation to notify")
+            return
+        }
         val sink = noticeSink
         if (sink == null) {
             Log.i(TAG, "subagent ${task.id} finished (${task.status}); no notice sink wired")
             return
         }
+        if (!notified.add(task.id)) return
         runCatching {
             sink(
                 SubagentNoticeEvent(
@@ -375,14 +400,17 @@ class SubagentRunner(
                     notice = buildSubagentNotice(task, resultText(task)),
                 )
             )
-        }.onFailure { Log.w(TAG, "subagent ${task.id} notice failed", it) }
+        }.onFailure {
+            notified.remove(task.id)
+            Log.w(TAG, "subagent ${task.id} notice failed", it)
+        }
     }
 
     /** 结果全文：内存优先，其次结果文件。所有状态可用（失败/超时/取消保留部分输出）。 */
     fun resultText(task: SubagentTask): String =
         task.result ?: task.resultPath?.let { path -> File(path).takeIf { it.isFile }?.readText() } ?: ""
 
-    fun resultChars(taskId: String): Int = tasks[taskId]?.let { resultText(it).length } ?: 0
+    fun resultChars(taskId: String): Int = get(taskId)?.let { resultText(it).length } ?: 0
 
     /** 按 offset/limit 切一段结果；任务不存在返回 null。读结果不会消耗它。 */
     fun readResult(
@@ -390,8 +418,50 @@ class SubagentRunner(
         offset: Int = 0,
         limit: Int = SUBAGENT_RESULT_DEFAULT_LIMIT,
     ): SubagentResultPage? {
-        val task = tasks[taskId] ?: return null
+        val task = get(taskId) ?: return null
         return subagentResultPage(task = task, full = resultText(task), offset = offset, limit = limit)
+    }
+
+    /**
+     * 把任务元数据写进 `task.json`（正文在 `result.md`）。
+     *
+     * 先写临时文件再 rename，避免进程在写一半时被杀留下半个 json。失败只记日志：
+     * 落盘是"重启后还能看到"的增强，不能反过来让正在跑的任务失败。
+     */
+    private fun persist(task: SubagentTask) {
+        if (!isSafeSubagentTaskId(task.id)) return
+        runCatching {
+            val target = taskFile(task.id)
+            val tmp = File(target.parentFile, "task.json.tmp")
+            tmp.writeText(encodeSubagentTaskRecord(task.toRecord()))
+            if (!tmp.renameTo(target)) {
+                target.writeText(tmp.readText())
+                tmp.delete()
+            }
+        }.onFailure { Log.w(TAG, "persist ${task.id} failed", it) }
+    }
+
+    /**
+     * 懒恢复单个任务：只读这个 id 的 `task.json`，不遍历其它子代理目录。
+     *
+     * 上次进程留下的 QUEUED/RUNNING 一律按 CANCELLED + [SUBAGENT_RESTART_ERROR] 恢复，
+     * partial 结果（`result.md`）保持可读；修正后的记录顺手写回磁盘。
+     */
+    private fun restoreTask(id: String): SubagentTask? {
+        if (!isSafeSubagentTaskId(id)) return null
+        val file = taskFile(id)
+        if (!file.isFile || file.canonicalFile.parentFile != File(context.filesDir, "subagents/$id").canonicalFile) return null
+        val record = runCatching { decodeSubagentTaskRecord(file.readText()) }.getOrNull() ?: return null
+        if (record.id != id || record.version != 1) return null
+        val restored = record.toTask(
+            resultPath = resultFile(id).absolutePath,
+            logPath = logFile(id).absolutePath,
+        )
+        if (restored.status.name != record.status) runCatching {
+            file.writeText(encodeSubagentTaskRecord(restored.toRecord()))
+        }
+        // 并发 get 同一个 id 时只留一份，谁先进 map 用谁。
+        return tasks.putIfAbsent(id, restored) ?: restored
     }
 
     private fun publish() {
@@ -403,6 +473,8 @@ class SubagentRunner(
     private fun resultFile(id: String): File = File(dir(id), "result.md")
 
     private fun logFile(id: String): File = File(dir(id), "events.log")
+
+    private fun taskFile(id: String): File = File(File(context.filesDir, "subagents/$id"), "task.json")
 
     private fun appendLog(id: String, line: String) {
         runCatching {

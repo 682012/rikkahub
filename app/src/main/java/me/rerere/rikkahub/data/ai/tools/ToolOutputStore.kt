@@ -117,7 +117,7 @@ class ToolOutputStore(
     private val baseDir: File,
     owner: String,
 ) {
-    private val scopeOwner: String = owner.trim()
+    private val scopeOwner: String = owner.trim().also { require(it.isNotEmpty()) { "owner must not be empty" } }
 
     /** `ignoreUnknownKeys`：老版本写下的 manifest 多出字段时不至于整份作废。 */
     private val json = Json {
@@ -294,9 +294,9 @@ class ToolOutputStore(
      * 模型照着就能直接拼出 `tool_output_read` 的调用参数，不用从自然语言里猜 id。
      */
     private fun previewBlock(ref: ToolOutputRef, fullText: String): String {
-        val head = fullText.take(TOOL_OUTPUT_PREVIEW_CHARS)
+        val head = fullText.substring(0, pageEnd(fullText, 0, TOOL_OUTPUT_PREVIEW_CHARS))
         val tail = if (fullText.length > TOOL_OUTPUT_PREVIEW_CHARS * 2) {
-            fullText.takeLast(TOOL_OUTPUT_PREVIEW_CHARS)
+            fullText.substring(alignStart(fullText, fullText.length - TOOL_OUTPUT_PREVIEW_CHARS))
         } else {
             ""
         }
@@ -415,6 +415,9 @@ class ToolOutputStore(
         }
 
         val textFile = File(baseDir, "${manifest.id}.txt")
+        if (textFile.canonicalFile.parentFile != baseDir.canonicalFile) {
+            return ReadResult.Failed("Output file is outside this store.")
+        }
         val text = try {
             textFile.readText(Charsets.UTF_8)
         } catch (e: Exception) {
@@ -471,7 +474,7 @@ class ToolOutputStore(
 
     private fun readManifest(outputId: String): ToolOutputManifest? {
         val file = manifestFile(outputId)
-        if (!file.isFile) return null
+        if (!file.isFile || file.canonicalFile.parentFile != baseDir.canonicalFile) return null
         return runCatching {
             json.decodeFromString(ToolOutputManifest.serializer(), file.readText(Charsets.UTF_8))
         }.getOrNull()?.takeIf { it.id == outputId }
