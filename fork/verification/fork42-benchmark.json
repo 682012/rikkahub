@@ -1,0 +1,133 @@
+{
+  "schema": "f42-scripttool-bench-1",
+  "generatedFrom": "rikkahub-f42-repro/bench/Bench.kt",
+  "env": {
+    "javaVersion": "21.0.12.1",
+    "os": "Linux 5.15.0-198-generic",
+    "cpus": 4,
+    "quickjsKt": "com.dokar.quickjs 1.0.15 (quickjs-kt-jvm)",
+    "coroutines": "1.11.0",
+    "kotlin": "2.4.21"
+  },
+  "fixture": {
+    "mockToolCount": 8,
+    "mockPayloadChars": 2004,
+    "repeats": 5,
+    "warmupIters": 2
+  },
+  "scenarios": [
+    {
+      "simDelayMs": 0,
+      "calls": 8,
+      "serialTimesMs": [
+        2.31,
+        2.09,
+        5.27,
+        1.78,
+        1.25
+      ],
+      "serialMedianMs": 2.09,
+      "serialOutChars": 16040,
+      "scriptTimesMs": [
+        19.48,
+        11.65,
+        13.53,
+        6.11,
+        10.63
+      ],
+      "scriptMedianMs": 11.65,
+      "scriptOutChars": 657
+    },
+    {
+      "simDelayMs": 0,
+      "calls": 32,
+      "serialTimesMs": [
+        6.13,
+        11.71,
+        5.36,
+        5.45,
+        5.39
+      ],
+      "serialMedianMs": 5.45,
+      "serialOutChars": 64160,
+      "scriptTimesMs": [
+        12.63,
+        17.12,
+        10.13,
+        9.54,
+        11.06
+      ],
+      "scriptMedianMs": 11.06,
+      "scriptOutChars": 2587
+    },
+    {
+      "simDelayMs": 30,
+      "calls": 8,
+      "serialTimesMs": [
+        245.97,
+        243.15,
+        242.69,
+        242.57,
+        242.97
+      ],
+      "serialMedianMs": 242.97,
+      "serialOutChars": 16040,
+      "scriptTimesMs": [
+        34.11,
+        34.21,
+        33.94,
+        40.05,
+        35.49
+      ],
+      "scriptMedianMs": 34.21,
+      "scriptOutChars": 657
+    },
+    {
+      "simDelayMs": 30,
+      "calls": 32,
+      "serialTimesMs": [
+        972.86,
+        973.9,
+        972.81,
+        971.84,
+        972.31
+      ],
+      "serialMedianMs": 972.81,
+      "serialOutChars": 64160,
+      "scriptTimesMs": [
+        127.99,
+        126.83,
+        126.13,
+        126.5,
+        125.68
+      ],
+      "scriptMedianMs": 126.5,
+      "scriptOutChars": 2587
+    }
+  ],
+  "script8Breakdown": {
+    "totalChars": 657,
+    "callsSectionChars": 319,
+    "resultSectionChars": 337,
+    "fieldMatches": 8
+  },
+  "outerOffload": {
+    "calls": 32,
+    "rawOutChars": 18272,
+    "rawHasLogs": true,
+    "wrappedOutChars": 4701,
+    "wrappedOffloaded": true,
+    "wrappedHead": "[Tool output offloaded: 18272 characters total, tool `run_script`]\n{\"output_id\":\"7bb00e82-9cac-4d65-9c42-67caf011f57c\",\"totalChars\":18272,\"path\":\"/tmp/f42-bench",
+    "thresholdChars": 16384
+  },
+  "sourceCommit": "9e22461c",
+  "measuredAt": "2026-11-01T15:34Z",
+  "runtime": "OpenJDK JVM, not Android ART",
+  "caveats": [
+    "Only mock read-only tools; no model requests or real network I/O.",
+    "30ms delay is synthetic I/O latency.",
+    "Counts are UTF-16 output characters, not tokens or costs.",
+    "Serial baseline is not tool_batch; already-parallel tools do not gain the same latency advantage.",
+    "Two warmup runs and five measured runs; medians shown."
+  ]
+}

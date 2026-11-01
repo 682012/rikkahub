@@ -1,30 +1,30 @@
 # RikkaHub · 个人增强分支
 
-基于 [RikkaHub 官方 3.1.1](https://github.com/rikkahub/rikkahub/tree/3.1.1) 的非官方分支。保留官方聊天客户端，重点补上**多代理协作、后台长任务、自动压缩和工作区文件迁移**。
+基于 [RikkaHub 官方 3.1.1](https://github.com/rikkahub/rikkahub/tree/3.1.1) 的非官方分支。保留官方聊天客户端，重点补上**多代理协作、后台长任务、自动压缩、工作区文件迁移，以及工具调用层的调用效率与可读性**。
 
-**当前版本：`3.1.1-fork.41` / `3000045` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
+**当前版本：`3.1.1-fork.42` / `3000046` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
 
-已跟进官方 master **`5ad19405`（2026-11-01）**，另带官方尚未合入 master 的后台命令（预览）；官方最新稳定版仍为3.1.1。
+官方最新稳定版仍为 3.1.1。本版没有跟进新的官方提交（仍以 master `5ad19405` 为基线），改动集中在工具调用层；另保留官方尚未合入 master 的后台命令（预览）。
 
 > 与官方团队没有隶属关系。本仓库记录个人修改，并在 GitHub Releases 保存已验安装包，方便重复下载；不提供官方或面向终端用户的技术支持。官方渠道下载的是官方版，不是此分支。上游版权与 AGPL-3.0 许可证保持不变。
 
-[完整功能对比](fork/FEATURES.md) · [fork.41 更新与验收](fork/RELEASE-fork41.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
+[完整功能对比](fork/FEATURES.md) · [fork.42 更新与说明](fork/RELEASE-fork42.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
 
 ## 下载与重复使用
 
-**[下载 fork.41 通用 APK（18.0 MiB）](https://github.com/682012/rikkahub/releases/download/v3.1.1-fork.41/rikkahub-3.1.1-fork.41.apk)** · [版本说明与 SHA-256](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.41) · [最新正式版](https://github.com/682012/rikkahub/releases/latest)
+**本版安装包与校验值待构建后填写。** fork.42 的构建与验收尚未定稿，这里不写没有核对过的文件大小与 SHA-256；[最新正式版](https://github.com/682012/rikkahub/releases/latest) 目前仍是 fork.41，[全部版本](https://github.com/682012/rikkahub/releases) 保留每个版本固定的 tag、源码、APK 与校验文件。
 
 固定版本链接不会随 nightly 被覆盖；每个正式版本保留对应源码 tag、APK 与校验文件。直接安装不需要编译环境，也不会附带维护者的聊天、账号或服务凭据。
 
-同包名、同签名的 fork.36–40 可按常规覆盖升级，先备份聊天和设置；不要为升级先卸载。官方包与本分支不同，不能直接覆盖官方版。需要重新编译时见 [构建与维护](fork/README.md)，签名密钥和本机配置自行准备。
+同包名、同签名的 fork.36–41 可按常规覆盖升级，先备份聊天和设置；不要为升级先卸载。官方包与本分支不同，不能直接覆盖官方版。需要重新编译时见 [构建与维护](fork/README.md)，签名密钥和本机配置自行准备。
 
 ## 相比官方，到底增加了什么？
 
-**按独立使用场景分为 5 组新增工作流、2 项主要功能增强，稳定性修复另列。** 这不是按按钮或提交数统计，也不把官方已有功能算成分支原创。
+**按独立使用场景分为 5 组新增工作流、2 项主要功能增强，稳定性修复另列。** 这不是按按钮或提交数统计，也不把官方已有功能算成分支原创。fork.42 重做了工具调用层，改的是“怎么调用、怎么读回”，没有新增使用目的，因此不改变这里的组数。
 
 | 分类 | 能力 | 官方 3.1.1 已有 | 本分支的增量 |
 |---|---|---|---|
-| 新增 ① | 子代理协作 | 没有内置子代理任务管理 | 独立上下文/模型的任务；排队、等待、取结果、取消；默认并发 2，可设 1–4 |
+| 新增 ① | 子代理协作 | 没有内置子代理任务管理 | 独立上下文/模型的任务；排队、等待、取结果、取消；默认并发 4，可设 1–8，按设备内存自动降 |
 | 新增 ② | 工作区后台任务 | shell 与终端 | `workspace_job_start/status/kill`；独立任务、状态和日志；超时可配，0 表示不限 |
 | 新增 ③ | HTTP 远程执行 | SSH/SFTP 工作区 | 可选自托管 HTTP shell/job 后端；与 SSH 分开路由，不把命令误送到另一台机器 |
 | 新增 ④ | 自动上下文压缩 | 手动压缩与检查点 | 达到模型窗口阈值时自动摘要，可指定压缩模型；保留原始历史 |
@@ -33,6 +33,27 @@
 | 增强 ② | 单会话用量面板 | 请求用量记录、全局统计 | 聊天页按会话查看输入/输出/缓存与模型明细，包含关联子代理用量 |
 
 计数说明：单会话用量面板是官方统计能力的增强；ZIP 是新增迁移流程，不代表官方没有文件导出。前两组共增加 **5 个子代理工具 + 3 个后台任务工具**，不能再把它们分别算成 8 组功能。[计数与源码依据 →](fork/FEATURES.md)
+
+## fork.42：工具调用层重做
+
+**这一版没有新的使用目的，改的是“一次回复里怎么调工具、大输出怎么读回来”。下面的数字都是代码里的硬上限，不是实测加速；没有端到端模型耗时或令牌账单对比。**
+
+- **独立只读调用并发**：同一批里的只读工具（读记忆、搜网页、读会话、读/搜工作区、技能、时间等）可以重叠执行，最多 8 路；写操作和无法判断语义的工具仍是顺序屏障，不会和只读调用混跑。同批里同名同参数的只读调用只执行一次，结果共享给其余成员。
+- **`tool_batch`**：一次调用提交最多 16 个已规划好的调用，结果按调用顺序返回；某个成员失败只回一条错误字段，其余照常执行。批内的嵌套审批照样生效。
+- **MCP 工具过多时自动瘦身**：配置的 MCP 工具达到 16 个、或估算体积达到 20000 字符时，模型看到的是精简目录加 `tool_search` / `tool_call`（搜索默认 6 条、最多 8 条），先搜再调，而不是一次把全部 schema 塞进请求。
+- **大输出外置 + 分页读回**：单次工具输出的文本合计超过 16K 字符时，全文落到应用私有目录，上下文里只留回执与头尾各 2K 预览，模型用 `tool_output_read` 按字符 `offset`/`limit` 读回。保留 7 天、最多 64 份输出 / 32MB，按会话归属，别的会话拿着同一个 id 读不到；按流解码到目标字符窗口，不把全文装进内存。
+- **子代理结果分页**：`subagent_result` 支持 `offset`/`limit`，一页默认 6000、最多 12000 字符，回带 `nextOffset` / `totalChars` / `eof`。运行中、失败、超时、取消的任务都能用同一套方式读部分结果。
+- **子代理并发按内存分级**：默认 4，可设 1–8；设备内存小的自动降到 4 或 2（硬上限 8），避免“子代理数 × 每批 8 路调用”同时打满。
+- **重复调用收敛**：同名同参数、纯文本输出完全相同且不短于 400 字符时，发给模型的请求里第 2 次起换成一行指向首次结果的说明（消息与界面仍保留完整内容）；同名同参数的调用连续执行 4 次且结果都一样时，第 5 次不再执行，直接回错误让模型换路。轮询类工具（等子代理、查后台任务、当前时间）豁免这两条。
+- **工作区按行读与搜索**：`workspace_read_file` 支持 `offset`/`limit`（默认 2000 行、最多 20000 行，回带 `totalLines`/`hasMore`/`nextOffset`）；新增 `workspace_grep`（正则或字面量、`glob` 过滤、三种输出模式、上下文 0–20 行、分页）和 `workspace_glob`（按修改时间新→旧），默认跳过 `.git`、`node_modules`、`build` 等目录、二进制与超过 2MB 的文件。**只在文件仍在本机的工作区可用**；SSH 工作区明确拒绝，并提示改用 `workspace_shell`。
+- **`run_script`（代码模式）**：模型写一段 JS，在一次工具调用里按需调用多个只读工具，返回日志、返回值及调用元数据，中间全文不直接进入上下文。上限 32 次嵌套调用、每次与总计各 120 秒、并发 8；日志和返回值各 8K，更大的输出照常外置。**脚本里看不到 shell、MCP、写操作、子代理、`tool_batch` 和 `run_script` 自己**：这些都没有“跑到一半停下来等人审批”的挂起点，只能留在脚本外。
+- **让缓存前缀稳下来的几处**：Claude 请求的 messages 缓存断点落在最后一条消息的内容块上（system / tools 各 1 个、messages 最多 2 个，合计不超过协议上限 4 个，顶层自动断点只作兜底）；`AGENTS.md` 按工作区、当前目录和文件 mtime/size 缓存，逐步重拼系统提示时不再重复读盘；记忆清单不再打印更新日期，减少与正文无关的日期变化导致的缓存失配；工具使用规范按工作区后端写成固定的几句话，同一个工作区里逐字节相同。
+
+入口：`run_script` 在 **助手详情 → 本地工具 → 代码模式**，按助手开关，默认关闭；子代理并发在 **设置 → 高级与长任务 → 子代理**；工作区搜索与按行读不需要额外开关，审批默认放行，可在工作区详情页按工作区覆盖。
+
+**这些改动不承诺更快或更省 token。** 并发、去重、外置、分页都是“少一次重复上下文、少一轮多余调用”的机制，实际效果取决于模型、工具组合和任务本身；受控 mock 工具的返回字符数已测量，见下方链接；没有端到端模型收益数据。
+
+[改动细节与文件级说明 →](fork/RELEASE-fork42.md) · [受控工具测量](fork/verification/fork42-benchmark.md)
 
 ## fork.41 修复：结束命令时真正结束进程
 
@@ -60,7 +81,6 @@ SSH入口：**设置 → 扩展 → 工作区 → 加号 → SSH远程工作区*
 
 ## fork.38 保留的功能
 
-
 - **重试等待能真正修改**：固定 30 秒、60 秒，或每次在 30–60 秒内随机；自定义编辑器不会因碰巧输入预设值而消失。
 - **工作区终于能导入 ZIP**：支持旧裸文件包、Unicode/二进制、空目录、有效空包；导入为新的本地工作区。也可明确选择去掉 `workspace/` 或 `files/` 外层目录。
 - **导出内容可选**：跳过缓存/构建目录，或包含这些目录的全部普通文件；完成页展示跳过数量，不只显示“成功”。
@@ -72,32 +92,39 @@ SSH入口：**设置 → 扩展 → 工作区 → 加号 → SSH远程工作区*
 
 ## 还有哪些加固？
 
-流式生成约 1.5 秒节流保存、节点差分写入；超大消息失败时完整分片读取而非跳页；备份导入的用量表归一化、记忆冲突保留、FTS 对齐；长工具输出可读性保护；多会话通知隔离与精确清理。
+流式生成约 1.5 秒节流保存、节点差分写入；超大消息失败时完整分片读取而非跳页；备份导入的用量表归一化、记忆冲突保留、FTS 对齐；工具输出可读性保护；多会话通知隔离与精确清理；流式工具调用的 id 归属与参数增量回退；`tool_batch` 的成员审批判定失败时按“需要审批”处理，不会因一次异常静默放行。
 
 这些属于数据保护、兼容和缺陷修复，**不计入新增功能数**。完整历史见 [CHANGES](fork/CHANGES.md)。
 
 ## 哪些功能来自官方？
 
-**本地 PRoot/Linux 工作区、SSH/SFTP、MCP、Skills、文件式记忆与整理、会话历史检索、全局用量统计、多供应商聊天、Web UI、语音、媒体生成、搜索、翻译、后台悬浮窗和快速回复等，均继承上游。**
+**本地 PRoot/Linux 工作区、SSH/SFTP、MCP、Skills、文件式记忆与整理、会话历史检索、全局用量统计、多供应商聊天、Web UI、语音、媒体生成、搜索、翻译、后台悬浮窗和快速回复等，均继承上游。** MCP 精简目录、工具并发与输出外置是本分支对官方 MCP/工具能力的改造，不改变“MCP 本身来自官方”这一点。
 
 官方项目、下载渠道、赞助与贡献者信息请看 [上游仓库](https://github.com/rikkahub/rikkahub)。本分支不将上游的功能、赞助关系或支持渠道表述为自己的。
 
 ## 验证到哪里了？
 
-| fork.39 本次检查 | 真实结果 |
-|---|---|
-| App / Workspace / AI / Common JVM | **1046项，144 suite，0失败/错误/跳过**；不沿用旧全模块计数 |
-| 正式构建 | **R8 + lintVital 实际通过**，无fastBuild；签名与fork.38一致 |
-| Android API34 x86_64模拟器 | 同签名覆盖升级；SSH密钥/指纹/SFTP读文件/终端pwd；公式/表格/高亮/色块；折叠审批可见 |
-| 更新检测 | GitHub release转换3项测试通过，UI不再误报官方3.1.1更新 |
-| 未验证 | 用户手机生产升级、厂商后台/锁屏、所有SAF提供商、真实上游搜索/余额及所有矮屏状态 |
+**本轮的构建与测试结果尚未定稿。** 维护者正在排查 CI，没有拿到可引用的完整运行；这里不写“全部测试通过”，也不提供安装包校验值。
 
-[版本、校验信息与验证边界 →](fork/RELEASE-fork39.md) · [机器可读摘要 →](fork/verification/fork39.json)
+| 本轮已确认 | 状态 |
+|---|---|
+| 版本与数据库 | `3.1.1-fork.42` / `3000046`；schema 34，本版没有数据库迁移（`app/build.gradle.kts`、`AppDatabase`）|
+| 改动范围 | 工具调度与重复调用、MCP 精简目录、输出外置与分页、子代理并发与结果分页、工作区搜索/按行读、`run_script`、提示词与缓存前缀稳定性 |
+| 构建 | TODO：待主分支 CI 完成后填入 run 号与 R8/lintVital 结果 |
+| 测试 | TODO：待填入 JVM 与模拟器计数 |
+| 安装包 | TODO：待填入大小、SHA-256 与签名证书核对结果 |
+| 速度/令牌 | **未测量**：本版没有做过耗时或 token 用量对比 |
+
+上一版 fork.41 的验收（GitHub Actions run 41294941469：JVM 1352 项、模拟器 50 项、R8 + lintVital 通过）见 [RELEASE-fork41.md](fork/RELEASE-fork41.md)，**不能当作本版结果**。
 
 ## 使用前知道这些限制
 
-- 子代理默认关闭；不支持嵌套、独立费用预算或子代理内审批/续跑。需要审批的操作交给父对话。并行能缩短可拆分任务的时间，不保证每个任务更快或更省。
-- SSH 不提供 `workspace_job_*`。HTTP 模式只提供 shell/job，不提供远端文件工具；令牌具有命令执行权限，必须保密。
+- 子代理默认关闭；不支持嵌套、独立费用预算或子代理内审批/续跑。需要审批的操作交给父对话。并发是本机资源的取舍：每个子代理都有独立上下文与工具集，设高不保证更快。
+- `run_script` 只能调用只读白名单里的工具，不能执行 shell、访问 MCP、写文件或派生子代理；脚本没有审批挂起点，因此这些能力刻意不可见。它也不是省 token 的保证。
+- MCP 工具超过阈值后不再是“全部直接可见”，模型必须先 `tool_search` 才能拿到名字；搜索按页返回；知道准确工具名时可直接调用。工具很多的 MCP 服务器会因此多一轮调用。
+- 外置的工具输出保留 7 天、最多 64 份输出 / 32MB，超出或过期会被清理；清理后旧回执读不回来，只能重新执行原工具。
+- 工作区 `workspace_grep`/`workspace_glob` 只在文件仍在本机的工作区可用，SSH 工作区要用 `workspace_shell`；它们也不替代 `workspace_shell` 的通用命令能力。
+- SSH 不提供 `workspace_job_*`。HTTP 模式的 shell/job 在服务端执行，文件读写/搜索仍针对手机本地工作区，不是远端文件；令牌具有命令执行权限，必须保密。
 - **ZIP 只迁移文件区，不含 Linux Rootfs、应用数据库或整机。** 不恢复符号链接；旧包没有记录的权限不能凭空恢复。导入后如需命令执行，需要安装 Rootfs 并选择新工作区。
 - 默认导入限额：100000 条目、12 GiB 展开、4 GiB 单文件/ZIP。分卷、加密或非 UTF-8 文件名明确拒绝；导出不构成运行中文件的原子快照。
 - 前台服务不等于锁屏永不掉线；HTTP 服务重启后旧任务不会自动安全接管。消息 UI 尚未懒分页，不能保证任意大历史不 OOM。
@@ -105,10 +132,10 @@ SSH入口：**设置 → 扩展 → 工作区 → 加号 → SSH远程工作区*
 
 ## 维护与许可
 
-功能增量对比基线为官方 **3.1.1 / `ad2c4430`**；当前已合入截至2026-10-29的官方master **`a5db9c9b`**，不承诺永远领先后续官方版本。`master` 保留上游镜像，`fork/3.1.0` 与 `fork/3.0.0` 是历史分支。
+功能增量对比基线为官方 **3.1.1 / `ad2c4430`**；当前已合入截至 2026-11-01 的官方 master **`5ad19405`**，fork.42 没有再跟进新提交，也不承诺永远领先后续官方版本。`master` 保留上游镜像，`fork/3.1.0` 与 `fork/3.0.0` 是历史分支。
 
 [构建与回退](fork/README.md) · [AGPL-3.0](LICENSE) · [个人分支声明](DISCLAIMER.md) · [修改记录](NOTICE.md)
 
 ### English summary
 
-Unofficial personal fork of RikkaHub **3.1.1**, aligned with upstream master **a5db9c9b (2026-10-29)** in fork.39. Preserves subagents, background jobs, HTTP execution, automatic compression, ZIP migration, configurable retries and per-chat usage. Adds upstream BetterText rendering, color swatches, visible pending approvals and compatible relay fixes. **1046 passing JVM tests**, a formal R8/lint build, and Android emulator SSH/SFTP/terminal and rendering checks. Signed APKs and checksums are in [GitHub Releases](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.39); no end-user support is offered. See the [release notes](fork/RELEASE-fork39.md) for boundaries.
+Unofficial personal fork of RikkaHub **3.1.1**, based on upstream master **5ad19405 (2026-11-01)**. Preserves subagents, background jobs, HTTP execution, automatic compression, ZIP migration, configurable retries and per-chat usage. **fork.42 reworks the tool-calling layer**: concurrent independent read calls with same-batch dedup and serial barriers, a compact MCP catalog with `tool_search`/`tool_call`, offloaded large outputs with paged read-back, paged subagent results with memory-aware concurrency, collapse of repeated tool results, `workspace_grep`/`workspace_glob` and paged file reads, and `run_script` for read-only tool chains. `run_script` cannot reach shell, MCP, writes or subagents, and none of this is a measured speed or token guarantee. **Build and test results for this version are not final yet** — no checksums or "all tests passed" claims are made here. Signed packages and checksums live in [GitHub Releases](https://github.com/682012/rikkahub/releases); no end-user support is offered. See the [release notes](fork/RELEASE-fork42.md) for boundaries.

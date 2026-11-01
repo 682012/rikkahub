@@ -1,20 +1,20 @@
 # 个人分支：构建与维护
 
-用户可见功能统一维护在 [仓库首页](../README.md) 与 [官方差异表](FEATURES.md)。本页记录构建、签名与回退；版本验收见 [fork.41 更新说明](RELEASE-fork41.md)。
+用户可见功能统一维护在 [仓库首页](../README.md) 与 [官方差异表](FEATURES.md)。本页记录构建、签名与回退；本版说明见 [fork.42 更新说明](RELEASE-fork42.md)。
 
 ## 当前维护对象
 
 | 项目 | 值 |
 |---|---|
-| 官方基线 | `3.1.1` / `ad2c4430` |
+| 官方基线 | `3.1.1` / `ad2c4430`；跟随到 master `5ad19405` |
 | 维护分支 | `fork/3.1.1` |
-| 当前版本 | `3.1.1-fork.41` / `3000045` |
+| 当前版本 | `3.1.1-fork.42` / `3000046` |
 | 包名 | `me.rerere.rikkahub.fork` |
 | 数据库 | schema 34；与 fork.37 相同，不与官方编号混用 |
-| 已验发布构建 | R8 release，arm64-v8a + x86_64 通用包，18,922,536 字节（GitHub Actions `Fork Verify`） |
-| 构建 SHA-256 | `a16a8eec9758765559b290064f6a7c99a2bab205d5874a24b884df3d555d9731` |
+| 已验发布构建 | TODO：待主分支 CI 完成后填入（R8 release，arm64-v8a + x86_64 通用包，字节数与 run 号） |
+| 构建 SHA-256 | TODO：待填入 |
 
-`master` 是上游镜像，旧 fork 分支是历史版本。每个正式版的已验原包保存在对应 Release（当前 [fork.41](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.41)），附 APK 与 SHA256SUMS；旧 nightly 不代表当前已验安装包。fork.40 起由 GitHub Actions `Fork Verify` 构建签名；旧包保留，不触发旧 nightly，也不替换其资产。
+`master` 是上游镜像，旧 fork 分支是历史版本。每个正式版的已验原包保存在对应 Release（当前 [最新正式版](https://github.com/682012/rikkahub/releases/latest) 仍是 fork.41），附 APK 与 SHA256SUMS；旧 nightly 不代表当前已验安装包。fork.40 起由 GitHub Actions `Fork Verify` 构建签名；旧包保留，不触发旧 nightly，也不替换其资产。fork.42 的包与校验值尚未发布，本页不预先填写大小或哈希。
 
 ## 重复下载、复用与后续维护
 
