@@ -32,7 +32,9 @@ class MemoryPromptTest {
         assertEquals("- [stated] Name is Lin", prompt.block("profile"))
 
         val listing = prompt.block("memory_listing")
-        assertTrue(listing.startsWith("/topics/food.md | What the user eats and avoids | aliases: diet, 饮食 | updated: "))
+        assertEquals("/topics/food.md | What the user eats and avoids | aliases: diet, 饮食", listing)
+        // 清单不带日期: 日期一跨天就变, 会让系统提示之后的全部前缀缓存失效
+        assertFalse(listing.contains("updated"))
         assertFalse(listing.contains(MemoryFile.PROFILE_PATH))
         assertFalse(prompt.contains("Allergic to peanuts"))
     }

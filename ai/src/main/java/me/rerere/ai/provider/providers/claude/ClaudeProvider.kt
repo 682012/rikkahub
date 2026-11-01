@@ -86,6 +86,9 @@ private const val ANTHROPIC_VERSION = "2023-06-01"
 private const val CLAUDE_PAUSE_TURN = "pause_turn"
 private const val MAX_PAUSE_TURN_CONTINUATIONS = 5
 
+/** Anthropic 每个请求最多 4 个 cache_control 断点 */
+private const val CLAUDE_MAX_CACHE_BREAKPOINTS = 4
+
 internal suspend fun generateClaudeWithPauseTurn(
     messages: List<UIMessage>,
     model: Model,
@@ -433,14 +436,19 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
     ): JsonObject {
         return buildJsonObject {
             put("model", params.model.modelId)
-            put(
-                "messages",
-                buildMessages(messages, providerSetting.promptCaching, providerSetting.promptCacheTtl)
+            val claudeMessages = buildMessages(
+                messages,
+                providerSetting.promptCaching,
+                providerSetting.promptCacheTtl
             )
+            put("messages", claudeMessages)
             put("max_tokens", params.maxTokens ?: 64_000)
 
-            // 顶层 cache_control: 让 Anthropic 自动管理缓存断点
-            if (providerSetting.promptCaching) {
+            // 顶层 cache_control 是 Anthropic 的自动缓存断点: 由服务端放在最后一个可缓存 block 上,
+            // 并且占 4 个断点里的一格。显式尾部断点落在同一位置、TTL 也相同时两者完全等价,
+            // 同时发出去就是 4 个显式 + 1 个自动 = 5 个, 超过上限 (文档里明确属于 400 的情形),
+            // 因此保留它作为兜底: 只有尾部断点没能落地时才发。
+            if (providerSetting.promptCaching && !claudeMessages.hasTailCacheControl()) {
                 put("cache_control", cacheControlEphemeral(providerSetting.promptCacheTtl))
             }
 
@@ -567,52 +575,71 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
     }
 
     /**
-     * 在倒数第二条非 tool_result 的 user message 的最后一个 content block 上插入 cache_control
+     * 在 messages 上插入 cache_control 断点, 最多两个:
+     *
+     * - 尾部: 最后一条有内容的 message 的最后一个 content block。一次 agent 轮里每个 step 都会重建请求,
+     *   断点只停在上一轮 user 上时, 本轮的 assistant 消息与全部 tool_result 每一步都要重新 prefill。
+     * - 原位置: 倒数第二条非 tool_result 的 user message, 跨轮稳定读点, 保留作为第二个断点。
+     *
+     * 与 system / tools 两处合计不超过 [CLAUDE_MAX_CACHE_BREAKPOINTS], 见 buildMessageRequest 里
+     * 顶层自动断点的取舍。
      */
     private fun insertMessagesCacheControl(
         messages: JsonArray,
         promptCacheTtl: ClaudePromptCacheTtl
     ): JsonArray {
-        // 找出所有非 tool_result 的 user message 的索引
-        val realUserIndices = messages.mapIndexedNotNull { index, msg ->
-            val obj = msg.jsonObject
-            if (obj["role"]?.jsonPrimitive?.contentOrNull == "user") {
-                val content = obj["content"]?.jsonArray
-                val isToolResult = content?.any {
-                    it.jsonObject["type"]?.jsonPrimitive?.contentOrNull == "tool_result"
-                } == true
-                if (!isToolResult) index else null
+        val targets = messagesCacheControlTargets(messages)
+        if (targets.isEmpty()) return messages
+        val cacheControl = cacheControlEphemeral(promptCacheTtl)
+        return JsonArray(messages.mapIndexed { index, message ->
+            if (index in targets) {
+                markLastContentBlock(message, cacheControl) ?: message
             } else {
-                null
-            }
-        }
-
-        // 取倒数第二条
-        val targetIndex = if (realUserIndices.size >= 2) {
-            realUserIndices[realUserIndices.size - 2]
-        } else {
-            return messages
-        }
-
-        // 在目标 message 的最后一个 content block 上添加 cache_control
-        return JsonArray(messages.mapIndexed { index, msg ->
-            if (index == targetIndex) {
-                val obj = msg.jsonObject
-                val content = obj["content"]?.jsonArray ?: return@mapIndexed msg
-                val newContent = JsonArray(content.mapIndexed { contentIndex, block ->
-                    if (contentIndex == content.lastIndex) {
-                        JsonObject(
-                            block.jsonObject + mapOf("cache_control" to cacheControlEphemeral(promptCacheTtl))
-                        )
-                    } else {
-                        block
-                    }
-                })
-                JsonObject(obj + mapOf("content" to newContent))
-            } else {
-                msg
+                message
             }
         })
+    }
+
+    /**
+     * cache_control 在 messages 上的落点索引, 去重后最多 [CLAUDE_MAX_CACHE_BREAKPOINTS] - 2 个
+     * (system 与 tools 各占一个槽)。
+     */
+    private fun messagesCacheControlTargets(messages: JsonArray): List<Int> {
+        val targets = mutableListOf<Int>()
+        // 尾部: 最后一个还有 content block 的 message
+        val tailIndex = messages.indexOfLast { it.contentBlocksOrNull()?.isNotEmpty() == true }
+        if (tailIndex >= 0) targets.add(tailIndex)
+        // 原位置: 倒数第二条非 tool_result 的 user message
+        val realUserIndices = messages.mapIndexedNotNull { index, message ->
+            index.takeIf { message.isRealUserMessage() }
+        }
+        if (realUserIndices.size >= 2) {
+            targets.add(realUserIndices[realUserIndices.size - 2])
+        }
+        return targets.distinct().take(CLAUDE_MAX_CACHE_BREAKPOINTS - 2)
+    }
+
+    /** 把 cache_control 加到这条 message 的最后一个 content block 上; 没有 content 时原样返回 null */
+    private fun markLastContentBlock(message: JsonElement, cacheControl: JsonObject): JsonElement? {
+        val obj = message as? JsonObject ?: return null
+        val content = obj.contentBlocksOrNull() ?: return null
+        if (content.isEmpty()) return null
+        val newContent = JsonArray(content.mapIndexed { index, block ->
+            val blockObj = block as? JsonObject
+            if (index == content.lastIndex && blockObj != null) {
+                JsonObject(blockObj + mapOf("cache_control" to cacheControl))
+            } else {
+                block
+            }
+        })
+        return JsonObject(obj + mapOf("content" to newContent))
+    }
+
+    /** messages 最后一个 content block 上是否已经有显式 cache_control 断点 */
+    private fun JsonArray.hasTailCacheControl(): Boolean {
+        val lastMessage = lastOrNull() as? JsonObject ?: return false
+        val content = lastMessage.contentBlocksOrNull() ?: return false
+        return (content.lastOrNull() as? JsonObject)?.containsKey("cache_control") == true
     }
 
     private fun JsonArrayBuilder.addAssistantMessage(message: UIMessage) {
@@ -930,4 +957,17 @@ internal fun String?.isClaudeServerToolUseType(): Boolean =
 internal fun JsonElement?.isClaudeServerToolError(): Boolean {
     val content = this as? JsonObject ?: return false
     return content["type"]?.jsonPrimitive?.contentOrNull?.endsWith("_error") == true
+}
+
+/** message 的 content 数组; 不是 object 或 content 不是数组时返回 null */
+private fun JsonElement?.contentBlocksOrNull(): JsonArray? = (this as? JsonObject)?.get("content") as? JsonArray
+
+/** user 消息且不含 tool_result, 即真实用户输入而不是工具回填 */
+private fun JsonElement?.isRealUserMessage(): Boolean {
+    val obj = this as? JsonObject ?: return false
+    if ((obj["role"] as? JsonPrimitive)?.contentOrNull != "user") return false
+    val content = obj.contentBlocksOrNull() ?: return false
+    return content.none { block ->
+        ((block as? JsonObject)?.get("type") as? JsonPrimitive)?.contentOrNull == "tool_result"
+    }
 }

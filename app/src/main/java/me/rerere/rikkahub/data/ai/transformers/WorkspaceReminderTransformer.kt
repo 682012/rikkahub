@@ -6,7 +6,9 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
+import me.rerere.rikkahub.data.repository.WorkspaceExecutionBackend
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.data.repository.effectiveExecutionBackend
 import me.rerere.workspace.WorkspaceLayout
 import me.rerere.workspace.WorkspaceManager
 import me.rerere.workspace.WorkspaceShellStatus
@@ -28,6 +30,7 @@ class WorkspaceReminderTransformer(
     private val workspaceRepository: WorkspaceRepository,
 ) : InputMessageTransformer {
     private val remoteEnvironments = RemoteEnvironmentCache()
+    private val agentsPrompts = AgentsPromptCache()
 
     override suspend fun transform(
         ctx: TransformerContext,
@@ -45,15 +48,20 @@ class WorkspaceReminderTransformer(
                 RemoteEnvironment(shell = workspaceRepository.shell(workspaceId), distro = readDistroName(workspaceId))
             }.getOrElse { e ->
                 Log.w("WorkspaceReminder", "Workspace unreachable: $workspaceId", e)
-                return messages.withPrompt(buildUnreachablePrompt(workspace, layout, e))
+                // 提示文本只用工作区自身的固定信息: 错误串每次都可能不同, 拼进去会让系统提示每步都变
+                return messages.withPrompt(buildUnreachablePrompt(workspace, layout))
             }
             buildSshWorkspacePrompt(workspace, layout, environment.shell, environment.distro, ctx.workspaceCwd)
         } else {
+            // HTTP 远程执行时只给 shell 与 job 工具（WorkspaceExecutionPolicy.isToolAvailableOnBackend），
+            // 规范里不能提读文件、搜索工具
+            val backend = effectiveExecutionBackend(workspace.isSsh(), ctx.settings.workspaceRuntime)
             buildWorkspacePrompt(
                 workspace = workspace,
                 shell = workspaceRepository.shell(workspaceId),
                 distro = readDistroName(workspaceId),
                 cwd = ctx.workspaceCwd,
+                guidance = if (backend == WorkspaceExecutionBackend.REMOTE_HTTP) ToolUseGuidance.SHELL_ONLY else ToolUseGuidance.LOCAL,
             ) + buildAgentsPrompt(workspaceId, ctx.workspaceCwd)
         }
         return messages.withPrompt(prompt)
@@ -83,6 +91,33 @@ class WorkspaceReminderTransformer(
             "${WorkspaceManager.ROOTFS_WORKSPACE_DIR}/AGENTS.md",
             workingDirectory.resolve("AGENTS.md").toString(),
         )
+        // 每个 step 都会重拼系统提示, 而 AGENTS.md 通常很多步都不变:
+        // 按 (workspaceId, cwd, mtime, size) 复用上一次的结果, 产出才能逐字节相同
+        return agentsPrompts.get(
+            workspaceId = workspaceId,
+            cwd = cwd,
+            stamps = { agentsFileStamps(workspaceId, paths) },
+            load = { readAgentsInstructions(workspaceId, paths) },
+        )
+    }
+
+    /** 逐个文件取 mtime 与 size; 拿不到 mtime (没有本地落点) 时返回 null, 这次就不缓存 */
+    private suspend fun agentsFileStamps(
+        workspaceId: String,
+        paths: Set<String>,
+    ): List<AgentsFileStamp>? = paths.map { path ->
+        val file = workspaceRepository.resolveAbsoluteFile(workspaceId, path)
+        if (file == null) {
+            // 文件不存在: 记成"不存在", 之后被创建时 stamp 会变
+            AgentsFileStamp(path, modifiedAt = -1, size = -1)
+        } else {
+            val modifiedAt = file.lastModified()
+            if (modifiedAt <= 0) return null
+            AgentsFileStamp(path, modifiedAt = modifiedAt, size = file.length())
+        }
+    }
+
+    private suspend fun readAgentsInstructions(workspaceId: String, paths: Set<String>): String {
         val instructions = paths.mapNotNull { path ->
             readRootfsText(workspaceId, path, MAX_AGENTS_BYTES)?.let { path to it }
         }
@@ -132,6 +167,43 @@ class WorkspaceReminderTransformer(
 
 /** 远程工作区提示词里描述的执行环境 */
 internal data class RemoteEnvironment(val shell: String, val distro: String?)
+
+/** 一个 AGENTS.md 的本地状态; [modifiedAt] 为负表示文件不存在, 不缓存时不会被用到 */
+internal data class AgentsFileStamp(val path: String, val modifiedAt: Long, val size: Long)
+
+/**
+ * 按 (workspaceId, cwd, 文件 mtime/size) 缓存 AGENTS.md 提示词。
+ *
+ * 每个 step 都要重建系统提示, 而 AGENTS.md 往往几十步都不变。stamp 没变就复用上一次拼好的字符串,
+ * 一是省掉每个 step 的读文件, 二是保证产出逐字节相同 —— 读失败时这一段也不会突然从提示里消失,
+ * 否则系统提示一变, 后面的全部历史前缀缓存都失效。
+ */
+internal class AgentsPromptCache {
+    private class Entry(val stamps: List<AgentsFileStamp>, val prompt: String)
+
+    private val entries = ConcurrentHashMap<String, Entry>()
+
+    /**
+     * [stamps] 返回 null 表示这次判断不了新旧 (例如没有本地落点), 此时不读缓存也不算缓存, 直接 [load]。
+     */
+    suspend fun get(
+        workspaceId: String,
+        cwd: String?,
+        stamps: suspend () -> List<AgentsFileStamp>?,
+        load: suspend () -> String,
+    ): String {
+        val key = "$workspaceId\n${cwd.orEmpty()}"
+        val current = stamps()
+        if (current != null) {
+            entries[key]?.takeIf { it.stamps == current }?.let { return it.prompt }
+        }
+        val prompt = load()
+        if (current != null) {
+            entries[key] = Entry(current, prompt)
+        }
+        return prompt
+    }
+}
 
 /**
  * 按工作区缓存远程执行环境。
@@ -192,6 +264,7 @@ private fun buildWorkspacePrompt(
     shell: String,
     distro: String?,
     cwd: String? = null,
+    guidance: ToolUseGuidance = ToolUseGuidance.LOCAL,
 ): String = buildString {
     appendLine("<workspace>")
     appendLine(
@@ -233,6 +306,8 @@ private fun buildWorkspacePrompt(
     appendLine(
         "- Files the user uploaded are mounted at `/upload`. Treat `/upload` as READ-ONLY: read uploaded files from `/upload/<file-name>`, but never modify, overwrite, or delete anything there. If you need to change an uploaded file, copy it into `/workspace` first and edit the copy."
     )
+    // 静态段末尾: 固定不变的工具使用规范, 放在易变的 cwd 之前
+    appendToolUseGuidance(guidance)
     if (!cwd.isNullOrBlank()) {
         appendLine(
             "- Current working directory: `$cwd`. Use this as the default context for file operations and shell commands."
@@ -272,6 +347,9 @@ private fun buildSshWorkspacePrompt(
     appendLine(
         "- There are no file write or edit tools in this workspace. Create and modify files with `workspace_shell`, for example a quoted heredoc (`cat > file <<'EOF'`) for new content, or `sed`, `patch` or a short script for targeted edits. Prefer targeted edits over rewriting whole files."
     )
+    // 静态段末尾: 固定不变的工具使用规范, 放在易变的 cwd 之前。
+    // SSH 后端没有 workspace_grep / workspace_glob, 这一版只提 shell 里的 grep/find
+    appendToolUseGuidance(ToolUseGuidance.SSH)
     if (!cwd.isNullOrBlank()) {
         appendLine(
             "- Current working directory: `$cwd`. Use this as the default context for file operations and shell commands."
@@ -280,20 +358,57 @@ private fun buildSshWorkspacePrompt(
     append("</workspace>")
 }
 
-private fun buildUnreachablePrompt(workspace: WorkspaceEntity, layout: WorkspaceLayout, error: Throwable): String =
+private fun buildUnreachablePrompt(workspace: WorkspaceEntity, layout: WorkspaceLayout): String =
     buildString {
         val address = workspace.sshSettings()?.let { "${it.username}@${it.host}" }
         appendLine("<workspace>")
         appendLine(
             "You are bound to a workspace named \"${workspace.name}\"" +
                 (address?.let { " on `$it`" } ?: "") +
-                " with directory `${layout.workspaceDir}`, but it is currently unreachable: ${error.message}"
+                " with directory `${layout.workspaceDir}`, but it is currently unreachable."
         )
         appendLine(
             "- Workspace tools will fail until the connection is restored. If the user asks you to work in the workspace, tell them it is unreachable."
         )
         append("</workspace>")
     }
+
+/** 工作区实际提供的读/搜工具，决定工具使用规范里怎么写 */
+internal enum class ToolUseGuidance {
+    /** 本地 Rootfs：workspace_read_file（offset/limit）、workspace_grep、workspace_glob */
+    LOCAL,
+
+    /** SSH：workspace_read_file 走 SFTP（offset/limit），没有 grep / glob */
+    SSH,
+
+    /** HTTP 远程执行：只有 workspace_shell 与 job 工具 */
+    SHELL_ONLY,
+}
+
+/**
+ * 工具使用规范: 内容只取决于工作区实际提供的工具, 同一个工作区里逐字节相同, 才能落在稳定的前缀里。
+ * [guidance] 与本仓库 workspace_* 工具的后端判断一致, 不能提这个后端没有的工具。
+ */
+internal fun StringBuilder.appendToolUseGuidance(guidance: ToolUseGuidance) {
+    appendLine()
+    appendLine("Tool use rules:")
+    appendLine(
+        "- Send every independent tool call in the same reply so they run in parallel; only wait for a result when the next call needs it."
+    )
+    when (guidance) {
+        ToolUseGuidance.LOCAL -> appendLine(
+            "- Locate first with `workspace_grep` / `workspace_glob`, and read only what you need: pass `offset` / `limit` to `workspace_read_file` for a large file. Do not run grep, find or cat through `workspace_shell`."
+        )
+        ToolUseGuidance.SSH -> appendLine(
+            "- Search with `workspace_shell` (grep -n, find) before reading, then read only the lines you need with the `offset` / `limit` of `workspace_read_file`."
+        )
+        ToolUseGuidance.SHELL_ONLY -> appendLine(
+            "- Files are only reachable through `workspace_shell`: search with grep -n or find, then print just the line range you need (for example sed -n '120,200p') instead of whole files."
+        )
+    }
+    appendLine("- Never read a file again when its content is already in this conversation and you have not changed it.")
+    appendLine("- When a call fails, read the error and change the approach; never repeat an identical call.")
+}
 
 private fun StringBuilder.appendShellLine(shell: String) {
     if (shell.substringAfterLast('/') == "bash") {

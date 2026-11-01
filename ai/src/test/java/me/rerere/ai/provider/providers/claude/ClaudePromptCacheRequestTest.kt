@@ -1,10 +1,15 @@
 package me.rerere.ai.provider.providers.claude
 
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import me.rerere.ai.core.InputSchema
+import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.ClaudePromptCacheTtl
 import me.rerere.ai.provider.Model
@@ -12,6 +17,7 @@ import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -177,7 +183,7 @@ class ClaudePromptCacheRequestTest {
     }
 
     @Test
-    fun `promptCaching=true should add cache_control to second-to-last real user message`() {
+    fun `promptCaching=true should keep the second-to-last real user message as a breakpoint`() {
         val providerSetting = ProviderSetting.Claude(promptCaching = true)
         val messages = listOf(
             UIMessage.system("system prompt"),
@@ -195,40 +201,23 @@ class ClaudePromptCacheRequestTest {
         val request = buildRequest(providerSetting, messages, params)
         val msgs = request["messages"]!!.jsonArray
 
-        // Find all real user messages (not tool_result)
-        val userMsgIndices = msgs.mapIndexedNotNull { index, msg ->
-            val obj = msg.jsonObject
-            if (obj["role"]?.jsonPrimitive?.content == "user") {
-                val content = obj["content"]?.jsonArray
-                val isToolResult = content?.any {
-                    it.jsonObject["type"]?.jsonPrimitive?.content == "tool_result"
-                } == true
-                if (!isToolResult) index else null
-            } else null
-        }
-
         // Should have 3 real user messages
+        val userMsgIndices = realUserIndices(msgs)
         assertEquals(3, userMsgIndices.size)
 
-        // Second-to-last (index 1 in userMsgIndices) should have cache_control
-        val targetMsg = msgs[userMsgIndices[1]].jsonObject
-        val content = targetMsg["content"]!!.jsonArray
-        val cacheControl = content.last().jsonObject["cache_control"]!!.jsonObject
-        assertEquals("ephemeral", cacheControl["type"]!!.jsonPrimitive.content)
+        // Second-to-last real user message (index 1 in userMsgIndices) keeps its cache_control
+        assertCacheControl(msgs[userMsgIndices[1]].jsonObject, expectedTtl = null)
 
-        // Last user message should NOT have cache_control
-        val lastMsg = msgs[userMsgIndices[2]].jsonObject
-        val lastContent = lastMsg["content"]!!.jsonArray
-        assertNull(lastContent.last().jsonObject["cache_control"])
+        // The last message is the tail breakpoint, so it has one too
+        assertCacheControl(msgs.last().jsonObject, expectedTtl = null)
 
         // First user message should NOT have cache_control
-        val firstMsg = msgs[userMsgIndices[0]].jsonObject
-        val firstContent = firstMsg["content"]!!.jsonArray
+        val firstContent = msgs[userMsgIndices[0]].jsonObject["content"]!!.jsonArray
         assertNull(firstContent.last().jsonObject["cache_control"])
     }
 
     @Test
-    fun `promptCaching=true with only one user message should not add cache_control to messages`() {
+    fun `promptCaching=true with only one user message should cache that user message`() {
         val providerSetting = ProviderSetting.Claude(promptCaching = true)
         val messages = listOf(
             UIMessage.system("system prompt"),
@@ -242,12 +231,186 @@ class ClaudePromptCacheRequestTest {
         val request = buildRequest(providerSetting, messages, params)
         val msgs = request["messages"]!!.jsonArray
 
-        // Only one user message, so no cache_control on messages
-        msgs.forEach { msg ->
-            val content = msg.jsonObject["content"]?.jsonArray
-            content?.forEach { block ->
-                assertNull(block.jsonObject["cache_control"])
+        // 只有一条 user 消息时它就是尾部断点, 上一轮的读点不存在
+        assertEquals(1, msgs.size)
+        assertCacheControl(msgs.single().jsonObject, expectedTtl = null)
+        assertEquals(1, countCacheControl(msgs))
+    }
+
+    @Test
+    fun `multi step tool loop caches the tail tool_result instead of only the previous turn`() {
+        val providerSetting = ProviderSetting.Claude(promptCaching = true)
+        val params = TextGenerationParams(
+            model = Model(modelId = "claude-test", abilities = listOf(ModelAbility.TOOL)),
+            tools = listOf(dummyTool())
+        )
+
+        val request = buildRequest(providerSetting, MessagesInToolLoop, params)
+        val msgs = request["messages"]!!.jsonArray
+
+        // user, assistant(text), user, assistant(text+tool_use), user(tool_result),
+        // assistant(text+tool_use), user(tool_result)
+        assertEquals(7, msgs.size)
+        assertEquals("user", roleOf(msgs.last()))
+        // 最后一条消息是 tool_result, 尾部断点必须落在这里, 否则每一步都要重新 prefill 整轮工具输出
+        val tailBlocks = msgs.last().jsonObject["content"]!!.jsonArray
+        assertEquals("tool_result", tailBlocks.last().jsonObject["type"]!!.jsonPrimitive.content)
+        assertCacheControl(msgs.last().jsonObject, expectedTtl = null)
+
+        // 原位置的断点保留: 倒数第二条真实 user 消息 (第一条 user)
+        val userMsgIndices = realUserIndices(msgs)
+        assertEquals(2, userMsgIndices.size)
+        assertCacheControl(msgs[userMsgIndices[0]].jsonObject, expectedTtl = null)
+
+        // 中间的消息不带断点, messages 上一共只有两个
+        assertNull(msgs[1].jsonObject["content"]!!.jsonArray.last().jsonObject["cache_control"])
+        assertNull(msgs[3].jsonObject["content"]!!.jsonArray.last().jsonObject["cache_control"])
+        assertEquals(2, countCacheControl(msgs))
+    }
+
+    @Test
+    fun `a request carries at most four cache breakpoints`() {
+        val providerSetting = ProviderSetting.Claude(promptCaching = true)
+        val params = TextGenerationParams(
+            model = Model(modelId = "claude-test", abilities = listOf(ModelAbility.TOOL)),
+            tools = listOf(dummyTool())
+        )
+
+        val request = buildRequest(providerSetting, MessagesInToolLoop, params)
+
+        // system 1 + tools 1 + messages 2
+        assertEquals(4, countCacheControl(request))
+        // 显式尾部断点已经落地, 顶层自动断点不再重复占槽 (否则 4 + 1 会超上限)
+        assertNull(request["cache_control"])
+    }
+
+    @Test
+    fun `the top level automatic breakpoint stays as a fallback when no tail block can host one`() {
+        val providerSetting = ProviderSetting.Claude(promptCaching = true)
+        val params = TextGenerationParams(
+            model = Model(modelId = "claude-test", abilities = listOf(ModelAbility.TOOL)),
+            tools = listOf(dummyTool())
+        )
+
+        // 只有 system 消息: 没有 messages 可以落尾部断点
+        val request = buildRequest(
+            providerSetting,
+            listOf(UIMessage.system("system prompt")),
+            params
+        )
+
+        assertEquals(0, request["messages"]!!.jsonArray.size)
+        val cacheControl = request["cache_control"]!!.jsonObject
+        assertEquals("ephemeral", cacheControl["type"]!!.jsonPrimitive.contentOrNull)
+        // system 1 + tools 1 + 自动 1
+        assertEquals(3, countCacheControl(request))
+    }
+
+    @Test
+    fun `tail breakpoint keeps the ttl of the top level automatic breakpoint`() {
+        val providerSetting = ProviderSetting.Claude(
+            promptCaching = true,
+            promptCacheTtl = ClaudePromptCacheTtl.ONE_HOUR
+        )
+        val params = TextGenerationParams(
+            model = Model(modelId = "claude-test", abilities = listOf(ModelAbility.TOOL)),
+            tools = listOf(dummyTool())
+        )
+
+        val request = buildRequest(providerSetting, MessagesInToolLoop, params)
+
+        val tailCacheControl = request["messages"]!!.jsonArray.last()
+            .jsonObject["content"]!!.jsonArray.last().jsonObject["cache_control"]!!.jsonObject
+        assertEquals("ephemeral", tailCacheControl["type"]!!.jsonPrimitive.content)
+        assertEquals("1h", tailCacheControl["ttl"]!!.jsonPrimitive.content)
+        assertEquals(4, countCacheControl(request))
+    }
+
+    @Test
+    fun `promptCaching=false keeps the request free of every breakpoint`() {
+        val providerSetting = ProviderSetting.Claude(promptCaching = false)
+        val params = TextGenerationParams(
+            model = Model(modelId = "claude-test", abilities = listOf(ModelAbility.TOOL)),
+            tools = listOf(dummyTool())
+        )
+
+        val request = buildRequest(providerSetting, MessagesInToolLoop, params)
+
+        assertNull(request["cache_control"])
+        assertEquals(0, countCacheControl(request))
+    }
+
+    private fun roleOf(message: JsonElement): String? =
+        message.jsonObject["role"]?.jsonPrimitive?.contentOrNull
+
+    private fun realUserIndices(msgs: JsonArray): List<Int> = msgs.mapIndexedNotNull { index, msg ->
+        val obj = msg.jsonObject
+        if (obj["role"]?.jsonPrimitive?.contentOrNull == "user") {
+            val content = obj["content"]!!.jsonArray
+            val isToolResult = content.any {
+                it.jsonObject["type"]?.jsonPrimitive?.contentOrNull == "tool_result"
             }
+            index.takeIf { !isToolResult }
+        } else {
+            null
         }
+    }
+
+    /** 断言这条 message 的最后一个 content block 带 cache_control; [expectedTtl] 为 null 时不能带 ttl */
+    private fun assertCacheControl(message: JsonObject, expectedTtl: String?) {
+        val cacheControl = message["content"]!!.jsonArray.last().jsonObject["cache_control"]
+        assertNotNull(cacheControl)
+        val obj = cacheControl!!.jsonObject
+        assertEquals("ephemeral", obj["type"]!!.jsonPrimitive.contentOrNull)
+        val ttl = (obj["ttl"] as? JsonPrimitive)?.contentOrNull
+        if (expectedTtl == null) {
+            assertNull(ttl)
+        } else {
+            assertEquals(expectedTtl, ttl)
+        }
+    }
+
+    /** 递归统计请求体里 cache_control 的个数 */
+    private fun countCacheControl(element: JsonElement): Int = when (element) {
+        is JsonObject -> element.entries.sumOf { (key, value) ->
+            (if (key == "cache_control") 1 else 0) + countCacheControl(value)
+        }
+
+        is JsonArray -> element.sumOf { countCacheControl(it) }
+        else -> 0
+    }
+
+    private companion object {
+        /** system + 两个用户轮 + 两次工具调用的 agent 轮: 最后一条消息是 tool_result */
+        val MessagesInToolLoop = listOf(
+            UIMessage.system("system prompt"),
+            UIMessage.user("run the tests"),
+            UIMessage.assistant("first answer"),
+            UIMessage.user("now fix the failing one"),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Text("Looking at the failure"),
+                    UIMessagePart.Tool(
+                        toolCallId = "call_1",
+                        toolName = "dummy_tool",
+                        input = """{"query":"a"}""",
+                        output = listOf(UIMessagePart.Text("first tool output")),
+                    ),
+                ),
+            ),
+            UIMessage(
+                role = MessageRole.ASSISTANT,
+                parts = listOf(
+                    UIMessagePart.Text("Checking the logs"),
+                    UIMessagePart.Tool(
+                        toolCallId = "call_2",
+                        toolName = "dummy_tool",
+                        input = """{"query":"b"}""",
+                        output = listOf(UIMessagePart.Text("second tool output")),
+                    ),
+                ),
+            ),
+        )
     }
 }
