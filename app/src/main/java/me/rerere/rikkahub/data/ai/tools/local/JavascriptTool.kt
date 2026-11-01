@@ -19,6 +19,7 @@ import me.rerere.ai.core.InputSchema
 import me.rerere.ai.core.Tool
 import me.rerere.ai.ui.UIMessagePart
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
 internal fun buildJavascriptTool(): Tool = Tool(
     name = "eval_javascript",
@@ -134,8 +135,9 @@ internal suspend fun evaluateInSandbox(
         logs = logs.render(),
     )
 
+    val started = TimeSource.Monotonic.markNow()
     try {
-        withTimeoutOrNull(limits.timeoutMillis.milliseconds) {
+        val outcome = withTimeoutOrNull(limits.timeoutMillis.milliseconds) {
             // This binding interrupts native evaluation on timeout/cancellation and closes
             // the runtime only after execution stops, including result serialization.
             quickJs(Dispatchers.Default) {
@@ -149,7 +151,11 @@ internal suspend fun evaluateInSandbox(
                 val result = evaluate<String?>(body)
                 JavaScriptOutcome.Success(logs.render(), result)
             }
-        } ?: timedOut()
+        }
+        // JS can catch the native interrupt and return an error envelope before the coroutine
+        // timeout is dispatched. The host deadline still wins, regardless of what JS returned.
+        if (outcome == null || started.elapsedNow() >= limits.timeoutMillis.milliseconds) timedOut()
+        else outcome
     } catch (_: QuickJsInterruptedException) {
         timedOut()
     } catch (e: QuickJsException) {

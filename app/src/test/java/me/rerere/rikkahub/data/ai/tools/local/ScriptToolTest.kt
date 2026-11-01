@@ -102,6 +102,19 @@ class ScriptToolTest {
     }
 
     @Test(timeout = 60_000)
+    fun `awaits a promise return before decoding the result envelope`() = runBlocking {
+        // A fulfilled Promise must be unwrapped, never returned as its display string.
+        val output = runScript(
+            "return Promise.resolve({ value: 42 });",
+            listOf(testTool("memory_read")),
+        )
+
+        assertFalse("unexpected script failure: $output", output.containsKey("error"))
+        assertEquals("""{"value":42}""", output["result"]!!.jsonPrimitive.content)
+        assertTrue(output["calls"]!!.jsonArray.isEmpty())
+    }
+
+    @Test(timeout = 60_000)
     fun `runs independent calls in parallel with Promise all`() = runBlocking {
         val running = AtomicInteger()
         val peak = AtomicInteger()
@@ -118,7 +131,6 @@ class ScriptToolTest {
             }
         )
 
-        val startedAt = System.currentTimeMillis()
         val output = runScript(
             """
             const all = await Promise.all([
@@ -129,12 +141,10 @@ class ScriptToolTest {
             """.trimIndent(),
             tools,
         )
-        val elapsed = System.currentTimeMillis() - startedAt
-
         assertEquals("2", output["result"]!!.jsonPrimitive.content)
         // 真并发：两个嵌套调用同时挂着（串行时峰值只会是 1）
         assertEquals(2, peak.get())
-        assertTrue("two 400ms calls took ${elapsed}ms", elapsed < 700)
+        // Peak overlap proves actual concurrency without a cold JNI startup timing race.
     }
 
     @Test(timeout = 60_000)
@@ -216,7 +226,7 @@ class ScriptToolTest {
 
         // 纯 JS 死循环：走 evaluationTimeoutMillis 的原生中断
         val spinning = runScript("while (true) {}", tools, ScriptToolLimits(totalTimeoutMillis = 300))
-        assertTrue(spinning["error"]!!.jsonPrimitive.content.contains("timed out"))
+        assertTrue("expected a timeout error, got: $spinning", spinning["error"]!!.jsonPrimitive.content.contains("timed out"))
 
         // 卡在挂起的嵌套调用里：JS 不执行，中断回调没机会跑，只能靠外层协程超时
         val stuck = runScript(

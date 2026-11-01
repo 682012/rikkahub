@@ -42,6 +42,24 @@ class JavascriptToolTest {
     }
 
     @Test(timeout = 20_000)
+    fun `caught native interruption still reports the host deadline`() = runBlocking {
+        val outcome = evaluateInSandbox(
+            """
+            await (async () => {
+                try { await (async () => { while (true) {} })(); }
+                catch (_) { return 'caught interrupt'; }
+            })()
+            """.trimIndent(),
+            JavaScriptLimits(timeoutMillis = 100),
+        )
+        assertTrue(
+            "expected a timeout, got: $outcome",
+            outcome is JavaScriptOutcome.Failure && outcome.message.contains("timed out"),
+        )
+        assertEquals("2", evaluate("1 + 1")["result"]?.jsonPrimitive?.content)
+    }
+
+    @Test(timeout = 20_000)
     fun `bounds logs and output`() = runBlocking {
         val logs = evaluate("for (let i = 0; i < 10000; i++) console.log('1234567890'); 1")
         assertTrue(logs["logs"]!!.jsonPrimitive.content.length < 66_000)

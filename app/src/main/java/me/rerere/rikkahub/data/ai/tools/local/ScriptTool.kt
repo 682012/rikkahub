@@ -420,8 +420,9 @@ private fun parseEnvelope(raw: String?): ScriptEnvelope? {
 /**
  * 求值体：一个 async IIFE。
  *
- * 之所以整段都包在 async 函数里，是因为脚本要写 `await`（顶层 await 不是合法脚本语法），
- * 而 quickjs-kt 的 `evaluate` 会自动等 Promise 落定，所以 IIFE 的返回值就是 Kotlin 拿到的结果。
+ * 整段包在 async 函数里，是因为用户脚本要写 `await` 和 `return`。
+ * IIFE 前面那个顶层 `await` 不能省：quickjs-kt 1.0.15 只展开顶层 await 本身，求值结果是 Promise 时
+ * 会把 Promise 对象原样转成字符串（`Promise { <state>: "fulfilled" }`），Kotlin 就拿不到信封。
  * 用户代码用**间接** eval 执行（`(0, eval)`）：拿到全局作用域，读得到挂在 `globalThis` 上的 `tools`，
  * 又不会看到这段包装里的局部变量。
  */
@@ -429,7 +430,7 @@ private fun scriptBody(code: String, toolNames: List<String>, limits: ScriptTool
     val js = limits.javascript
     val names = JsonArray(toolNames.map { JsonPrimitive(it) })
     return """
-        (async () => {
+        await (async () => {
         ${jsConsoleHijackScript(js.maxLogChars)}
             const call = globalThis.__rikkahubCall;
             delete globalThis.__rikkahubCall;
