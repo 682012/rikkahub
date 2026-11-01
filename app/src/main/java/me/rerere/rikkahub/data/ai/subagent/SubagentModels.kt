@@ -231,7 +231,7 @@ fun buildSubagentNotice(task: SubagentTask, result: String): UIMessagePart.Notic
             "Subagent task `${task.id}` $detail: status ${task.status.name} after ${seconds}s, " +
                 "${task.steps} step(s), ${result.length} result chars."
         )
-        task.error?.replace(Regex("\\s+"), " ").trim()?.takeIf { it.isNotEmpty() }?.let {
+        task.error?.replace(Regex("\\s+"), " ")?.trim()?.takeIf { it.isNotEmpty() }?.let {
             val shown = subagentTruncateUtf16(it, SUBAGENT_NOTICE_PREVIEW_CHARS)
             appendLine("Error: ${if (shown.length < it.length) "$shown…" else shown}")
         }
