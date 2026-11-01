@@ -1,7 +1,9 @@
 package me.rerere.rikkahub.data.ai.tools.local
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -133,13 +135,19 @@ class ScriptToolTest {
     @Test(timeout = 60_000)
     fun `runs independent calls in parallel with Promise all`() = runBlocking {
         val running = AtomicInteger()
+        val entered = AtomicInteger()
         val peak = AtomicInteger()
+        val bothEntered = CompletableDeferred<Unit>()
         val tools = listOf(
             testTool("memory_read") {
                 val now = running.incrementAndGet()
-                if (now > peak.get()) peak.set(now)
+                peak.updateAndGet { previous -> maxOf(previous, now) }
+                if (entered.incrementAndGet() == 2) bothEntered.complete(Unit)
                 try {
-                    delay(400)
+                    // A fixed delay can elapse before the second JNI callback starts.
+                    // Neither call may finish until both have entered. A serial runtime
+                    // cannot satisfy this barrier and fails with a bounded timeout.
+                    withTimeout(10_000) { bothEntered.await() }
                 } finally {
                     running.decrementAndGet()
                 }
@@ -157,10 +165,11 @@ class ScriptToolTest {
             """.trimIndent(),
             tools,
         )
+        assertFalse("calls did not reach the overlap barrier: $output", output.containsKey("error"))
         assertEquals("2", output["result"]!!.jsonPrimitive.content)
-        // 真并发：两个嵌套调用同时挂着（串行时峰值只会是 1）
+        assertEquals(2, entered.get())
+        // Both callbacks entered before either finished; serial execution cannot pass.
         assertEquals(2, peak.get())
-        // Peak overlap proves actual concurrency without a cold JNI startup timing race.
     }
 
     @Test(timeout = 60_000)
