@@ -50,7 +50,7 @@ import me.rerere.ui.components.FormItem
  */
 data class ToolUIContext(
     val tool: UIMessagePart.Tool,
-    /** 工具入参 ([UIMessagePart.Tool.input] 的 JSON 解析结果) */
+    /** 工具入参 ([UIMessagePart.Tool.input] 的 JSON 解析结果); 网关代理调用时是被代理工具的内层 arguments */
     val arguments: JsonElement,
     /** 输出文本部件解析出的 JSON, 工具未执行时为 null */
     val content: JsonElement?,
@@ -58,6 +58,11 @@ data class ToolUIContext(
     val loading: Boolean,
     /** 发起该工具调用的助手, 拿不到时为 null */
     val assistant: Assistant? = null,
+    /**
+     * 展示用的工具名. 网关代理调用 (`tool_call`) 时是被代理的真实工具名,
+     * 其它情况与 [UIMessagePart.Tool.toolName] 相同. 见 [effectiveTarget].
+     */
+    val effectiveName: String = tool.toolName,
 )
 
 /**
@@ -76,7 +81,7 @@ interface ToolUIRenderer {
     /** 折叠步骤的标题 */
     @Composable
     fun title(context: ToolUIContext): String =
-        stringResource(R.string.chat_message_tool_call_generic, context.tool.toolName)
+        stringResource(R.string.chat_message_tool_call_generic, context.effectiveName)
 
     /** 步骤展开时是否显示内联摘要 */
     fun hasSummary(context: ToolUIContext): Boolean = false
@@ -161,7 +166,7 @@ fun DefaultToolPreview(
         }
         FormItem(
             label = {
-                Text(stringResource(R.string.chat_message_tool_call_label, context.tool.toolName))
+                Text(stringResource(R.string.chat_message_tool_call_label, context.effectiveName))
             }
         ) {
             HighlightCodeBlock(

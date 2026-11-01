@@ -17,7 +17,6 @@ import me.rerere.rikkahub.data.files.FileFolders
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.MemoryRepository
-import me.rerere.rikkahub.data.repository.WorkspaceExecutionBackend
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.repository.effectiveExecutionBackend
 import me.rerere.rikkahub.data.repository.isToolAvailableOnBackend
@@ -36,48 +35,6 @@ internal val SELF_PAGED_TOOL_NAMES: Set<String> = setOf("workspace_read_file", "
 internal fun shouldUseExternalWebSearch(assistant: Assistant, model: Model): Boolean {
     return assistant.enableWebSearch && BuiltInTools.Search !in model.tools
 }
-
-// 能读到 /tool_outputs 这个挂载的工具：RepositoryModule 把 filesDir/tool_outputs 挂到 /tool_outputs，
-// 同一份挂载表也用于文件工具的路径解析。子代理手里没有其中之一时，截断提示里的路径它读不到。
-private val TOOL_OUTPUT_READER_TOOLS = setOf("workspace_shell", "workspace_read_file")
-
-/**
- * 子代理是否也应该把超长工具输出外置成文件。
- *
- * 旧行为：只有父对话截断，子代理拿全量输出，一次大 dump 就撑爆它自己的上下文。
- * 但无条件给子代理套截断同样有害——没有工作区、走远程工作区、或子代理设置里禁用了
- * workspace 工具时，子代理只会看到"全文已存到 /tool_outputs/xxx.txt"，却没有任何工具
- * 能读那个文件，信息从可用变成不可读。
- *
- * 因此要求同时满足两条：父对话具备本地工作区文件访问能力，且子代理实际拿到的工具里
- * 有能读 /tool_outputs 的那个。
- *
- * @param localWorkspaceFileAccess 本地工作区可读 /tool_outputs（即父侧 canReadToolOutputs）
- * @param childTools 子代理最终会拿到的工具（已按 isSubagentToolAllowed 过滤）
- */
-internal fun shouldTruncateChildToolOutput(
-    localWorkspaceFileAccess: Boolean,
-    childTools: List<Tool>,
-): Boolean = localWorkspaceFileAccess && childTools.any { it.name in TOOL_OUTPUT_READER_TOOLS }
-
-/**
- * 父对话/子代理能否读回被外置的全文。
- *
- * `/tool_outputs` 由 RepositoryModule 挂进本地 PRoot Rootfs 的挂载表，只有 LOCAL 后端能 `cat` 到；
- * HTTP 远程的 shell 跑在服务器上，SSH 走 SFTP，两者都读不到本机 filesDir，外置只会把
- * “可用输出”变成“一条读不到的路径”。所以这里必须按有效后端判断，而不是只看工作区有没有 rootfs。
- *
- * @param backend 有效执行后端（[effectiveExecutionBackend]），无工作区时为 null
- * @param workspaceTools 本次真正给出的 workspace 工具，空表示连 shell 都没有
- * @param workspaceHasRootfs 工作区能力里的 rootfs
- */
-internal fun canReadToolOutputs(
-    backend: WorkspaceExecutionBackend?,
-    workspaceTools: List<Tool>,
-    workspaceHasRootfs: Boolean,
-): Boolean = backend == WorkspaceExecutionBackend.LOCAL_ROOTFS &&
-    workspaceTools.isNotEmpty() &&
-    workspaceHasRootfs
 
 // fork: 后台 shell 任务归属父会话，子代理不拿这两个工具
 private val BACKGROUND_SHELL_TOOLS = setOf("workspace_shell_output", "workspace_shell_kill")
@@ -104,11 +61,10 @@ class ChatToolFactory(
         workspaceCwd: String? = null,
         conversationId: Uuid? = null,
     ): List<Tool> {
-        // fork: 工作区实体只取一次，后端选择、工具可见性与输出外置共用同一份判断
+        // fork: 工作区实体只取一次，工具可见性判断共用同一份 workspace
         val workspace = assistant.workspaceId?.toString()
             ?.takeIf { it.isNotBlank() }
             ?.let { workspaceRepository.getById(it) }
-        val backend = effectiveExecutionBackend(workspace, settings.workspaceRuntime)
         val workspaceTools = createWorkspaceToolsIfReady(
             workspace = workspace,
             cwd = workspaceCwd,
@@ -164,8 +120,11 @@ class ChatToolFactory(
         }
         // External schemas are discovered lazily only when their catalog becomes large.
         // Native tools have explicit local scheduling metadata; unknown MCP tools remain serial.
-        val outputOwner = "assistant:${assistant.id}:conversation:${conversationId ?: "no-conversation"}"
-        val outputStore = ToolOutputStore(File(context.filesDir, FileFolders.TOOL_OUTPUTS), outputOwner)
+        val outputStore = ToolOutputStore(
+            File(context.filesDir, FileFolders.TOOL_OUTPUTS),
+            // fork: owner 只按会话，不含 assistant.id——聊天页中途换助手不该让旧 output_id 失效
+            toolOutputOwnerOf(conversationId),
+        )
         val baseTools = tools.map(::withBuiltinExecutionMode)
         val childBaseTools = if (settings.subagent.enabled && workspaceTools.any { it.name in BACKGROUND_SHELL_TOOLS }) {
             val plain = createWorkspaceToolsIfReady(

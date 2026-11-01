@@ -58,6 +58,7 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.tools.local.ASK_USER_TOOL_NAME
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.ui.components.message.tools.DefaultToolPreview
+import me.rerere.rikkahub.ui.components.message.tools.effectiveTarget
 import me.rerere.rikkahub.ui.components.message.tools.ToolUIContext
 import me.rerere.rikkahub.ui.components.message.tools.ToolUIRegistry
 import me.rerere.rikkahub.ui.components.richtext.ZoomableAsyncImage
@@ -144,7 +145,11 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
         return
     }
 
-    val renderer = remember(tool.toolName) { ToolUIRegistry.resolve(tool.toolName) }
+    // 网关代理调用（`tool_call`）要按被代理的真实工具名解析渲染器、用内层 arguments 渲染，
+    // 否则所有外部工具都会退化成 "Tool call: tool_call" + 一层嵌套 JSON，排查时只能靠猜
+    val proxyTarget = remember(tool.toolName, tool.input) { tool.effectiveTarget() }
+    val effectiveName = proxyTarget?.first ?: tool.toolName
+    val renderer = remember(effectiveName) { ToolUIRegistry.resolve(effectiveName) }
     val outputJson = remember(tool) {
         if (tool.isExecuted) {
             runCatching {
@@ -161,10 +166,11 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
     val context = remember(tool, loading, assistant) {
         ToolUIContext(
             tool = tool,
-            arguments = tool.inputAsJson(),
+            arguments = proxyTarget?.second ?: tool.inputAsJson(),
             content = if (tool.isExecuted) outputJson ?: JsonObject(emptyMap()) else null,
             loading = loading,
             assistant = assistant,
+            effectiveName = effectiveName,
         )
     }
 

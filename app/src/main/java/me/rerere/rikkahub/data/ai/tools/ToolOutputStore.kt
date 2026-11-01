@@ -15,10 +15,13 @@ import me.rerere.ai.core.ToolExecutionMode
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.files.FileFolders
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStreamReader
 import java.util.UUID
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.uuid.Uuid
 
 /**
  * 大工具输出外置 + 分页读回。
@@ -33,11 +36,21 @@ import kotlin.coroutines.cancellation.CancellationException
  *     与 RepositoryModule 挂给 PRoot 的 `/tool_outputs` 保持一致。
  *  2. **留得下来**：每个输出旁边有一份 `<uuid>.json` manifest（记录 owner / 工具名 / 总字符数），
  *     进程重启、换一轮请求、同一 conversation 过几分钟再回来都还能读到；反过来，别的
- *     conversation / assistant 拿着别人的 id 也读不到（owner 不匹配即拒）。
+ *     conversation 拿着别人的 id 也读不到（owner 不匹配即拒）。
+ *     保留期由 [pruneToolOutputs] 决定：**按天与按量**清理（默认保留
+ *     [TOOL_OUTPUT_RETENTION_DAYS] 天、最多 [TOOL_OUTPUT_MAX_FILES] 个文件 /
+ *     [TOOL_OUTPUT_MAX_TOTAL_BYTES] 字节），冷启动不再整目录删。
+ *
+ * **为什么现在无条件外置（不再看后端、不再看子代理手里有没有 workspace 工具）**：
+ * 读工具 [TOOL_OUTPUT_READ_TOOL_NAME] 读的是 app 自己的 `filesDir`，不走 shell、不依赖 PRoot
+ * 挂载，所以 LOCAL_ROOTFS / REMOTE_HTTP / SSH / 完全没有 workspace 四种情况下都能读回。
+ * fork.36 时代那套「只有 LOCAL_ROOTFS 且子代理拿到了 workspace_shell 才外置」的门槛
+ * （`canReadToolOutputs` / `shouldTruncateChildToolOutput`）因此完全没必要，已经在 fork.42 删掉；
+ * **不要**再按后端或工具名把外置关掉，否则大 dump 会重新撑爆上下文。
  *
  * 集成方式（主代理负责改 ChatToolFactory）：
  * ```kotlin
- * val store = ToolOutputStore(File(context.filesDir, FileFolders.TOOL_OUTPUTS), owner = conversationId.toString())
+ * val store = ToolOutputStore(File(context.filesDir, FileFolders.TOOL_OUTPUTS), toolOutputOwnerOf(conversationId))
  * val tools = baseTools.map(store::wrap) + store.createReaderTool()
  * ```
  * 关键约定：
@@ -48,6 +61,8 @@ import kotlin.coroutines.cancellation.CancellationException
  *  - [wrap] 不会包装读工具自身（否则读页结果会被再外置，形成越读越乱的循环）；
  *    预览总量约 8K，远低于阈值，重复包装也是幂等的空操作。
  *  - 读取只走磁盘 manifest，不依赖任何内存列表，所以「同一 conversation 恢复可读」是天然成立的。
+ *  - **读一页只读一页**：按 offset 在解码流上跳过字符再读 `limit` 个，内存开销与页大小成正比，
+ *    和文件多大无关（旧实现每读一页都把整个文件 `readText()` 一遍，10MB 输出能直接 OOM）。
  *  - `search_web` 的结果体积由用户设置的结果数决定，且 UI 与引用跳转依赖完整 JSON，这里保留豁免。
  *
  * 并发提示：本文件不持有可变共享状态，读工具是纯读（同一入参同一结果），
@@ -70,22 +85,50 @@ internal const val TOOL_OUTPUT_READ_DEFAULT_LIMIT = 4_000
 /** 读工具单页上限；单页足够大，不需要也不允许靠拼页绕过。 */
 internal const val TOOL_OUTPUT_READ_MAX_LIMIT = 12_000
 
+/** 外置输出的保留天数：冷启动按它清理，超期的输出读回时会被明确告知「已清理」。 */
+internal const val TOOL_OUTPUT_RETENTION_DAYS = 7
+
+/** 外置输出最多保留多少个（manifest 数），超过就删最旧的。 */
+internal const val TOOL_OUTPUT_MAX_FILES = 64
+
+/** 外置输出目录总量硬上限，超过就删最旧的，避免大 dump 把存储吃满。 */
+internal const val TOOL_OUTPUT_MAX_TOTAL_BYTES = 32L * 1024 * 1024
+
+/** 孤儿文件（没有 manifest 的 `.txt`、写盘中断留下的 `.tmp`）多久之后才敢删，避免和正在写的请求抢。 */
+private const val ORPHAN_GRACE_MS = 3_600_000L
+
 /**
  * 不参与外置的工具。
  *
  * `search_web` 返回的是结构化搜索结果：体积由用户设置的结果数决定，UI 渲染与引用跳转都依赖
- * 完整 JSON，裁了就是坏数据。ChatToolFactory 里有一份同样的豁免，这里再拦一道，
- * 避免有调用方漏传。
+ * 完整 JSON，裁了就是坏数据。这里是**唯一**一道豁免（fork.42 已删掉 ChatToolFactory 里那份重复名单，
+ * 别再去那边找第二道闸）。
  */
 internal val TOOL_OUTPUT_OFFLOAD_EXEMPT_TOOLS = setOf("search_web")
 
 /** manifest 结构版本，将来加字段时靠它判断兼容性。 */
 private const val TOOL_OUTPUT_MANIFEST_VERSION = 1
 
+/** manifest 文件后缀；`.txt` 就是同名的全文。 */
+private const val MANIFEST_SUFFIX = ".json"
+
+/** 全文文件后缀。 */
+private const val TEXT_SUFFIX = ".txt"
+
 /** 严格 UUID：任何带 `/`、`\`、`..` 的 id 都不可能匹配，路径穿越在校验层就被挡掉。 */
 private val UUID_PATTERN = Regex(
     "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
+
+/**
+ * 外置输出的归属标识（owner）。
+ *
+ * **只按会话**，不含 `assistant.id`：聊天页可以中途换助手（助手被删也会回退），
+ * 一旦 owner 里混进助手 id，同一个会话里的旧 `output_id` 会在换助手后立刻判成
+ * 「属于另一个会话」，用户没换会话却读不到自己的输出。
+ */
+internal fun toolOutputOwnerOf(conversationId: Uuid?): String =
+    "conversation:${conversationId ?: "unscoped"}"
 
 /** 一次外置的磁盘回执。 */
 internal data class ToolOutputRef(
@@ -111,7 +154,7 @@ internal data class ToolOutputManifest(
  * 通用工具输出仓库。
  *
  * @param baseDir 全文与 manifest 的落地目录；主代理传 `filesDir/tool_outputs`（即 PRoot 的 `/tool_outputs`）
- * @param owner 归属标识，主代理传 conversationId（或 assistantId）；跨 owner 一律不可读
+ * @param owner 归属标识，主代理传 [toolOutputOwnerOf] 的结果（只按会话）；跨 owner 一律不可读
  */
 class ToolOutputStore(
     private val baseDir: File,
@@ -162,7 +205,8 @@ class ToolOutputStore(
             append("Pass `output_id`, `offset` (characters, default 0) and `limit` (characters, default ")
             append("$TOOL_OUTPUT_READ_DEFAULT_LIMIT, max $TOOL_OUTPUT_READ_MAX_LIMIT). ")
             append("Continue with `offset = nextOffset` while `eof` is false.\n")
-            append("Only outputs offloaded in the current conversation can be read.")
+            append("Only outputs offloaded in the current conversation can be read, and they are kept for ")
+            append("$TOOL_OUTPUT_RETENTION_DAYS days after the tool ran; a page read never loads the whole file.")
         },
         parameters = {
             InputSchema.Obj(
@@ -239,7 +283,7 @@ class ToolOutputStore(
     private fun persist(toolName: String, fullText: String): ToolOutputRef {
         ensureBaseDir()
         val id = UUID.randomUUID().toString()
-        val textFile = File(baseDir, "$id.txt")
+        val textFile = File(baseDir, "$id$TEXT_SUFFIX")
         // 先临时文件 + fsync 再 rename：崩在写一半时目录里不会留下被截断的全文
         writeAtomically(textFile, fullText.toByteArray(Charsets.UTF_8))
 
@@ -260,6 +304,9 @@ class ToolOutputStore(
             runCatching { textFile.delete() }
             throw e
         }
+        // 会话内轮转：只写不删会让目录无限增长，一次大 dump 反复失效就能堆到几百 MB。
+        // 清理失败不影响这次外置——内容和回执都已经落盘了。
+        runCatching { pruneToolOutputs(baseDir) }
         return ToolOutputRef(id = id, toolName = toolName, totalChars = fullText.length, path = displayPath(textFile))
     }
 
@@ -370,6 +417,9 @@ class ToolOutputStore(
     /**
      * 读一页。所有入参在这里集中校验，读路径上再没有第二次拼路径的机会：
      * id 先过严格 UUID 正则（`/`、`\`、`..` 直接不可能通过），manifest 再验 owner。
+     *
+     * 读法：在 UTF-8 解码流上跳过 `offset - 1` 个字符，只读 `limit + 3` 个字符到一个小缓冲里，
+     * 再用 [alignPageStart] / [pageEndFor] 对齐代理对。内存开销是页大小，与文件大小无关。
      */
     private fun readPage(outputId: String, offsetRaw: String?, limitRaw: String?): ReadResult {
         if (outputId.isEmpty()) {
@@ -414,22 +464,45 @@ class ToolOutputStore(
             )
         }
 
-        val textFile = File(baseDir, "${manifest.id}.txt")
-        val text = try {
-            textFile.readText(Charsets.UTF_8)
-        } catch (e: Exception) {
-            return ReadResult.Failed(
-                "Offloaded output `$outputId` is no longer on disk (${displayPath(textFile)}). " +
-                    "It was likely cleaned up with the tool output cache; re-run the original tool if you still need it."
+        val textFile = File(baseDir, "${manifest.id}$TEXT_SUFFIX")
+        if (!textFile.isFile) return cleanedUp(outputId, textFile, manifest)
+
+        // 总字符数信 manifest：它是写盘那一刻的 fullText.length，不需要为了报个数把文件读一遍
+        val hintedTotal = manifest.totalChars.coerceAtLeast(0)
+        if (offset >= hintedTotal) {
+            // offset 超过总长不是错误：给一页空文本 + eof，模型自己就知道翻到底了
+            return ReadResult.Ok(
+                id = manifest.id,
+                offset = hintedTotal,
+                nextOffset = null,
+                totalChars = hintedTotal,
+                eof = true,
+                toolName = manifest.tool,
+                path = displayPath(textFile),
+                text = "",
             )
         }
 
-        val totalChars = text.length
-        // offset 超过总长不是错误：给一页空文本 + eof，模型自己就知道翻到底了
-        val requested = offset.coerceAtMost(totalChars.toLong()).toInt()
-        val start = alignStart(text, requested)
-        val end = pageEnd(text, start, pageLimit)
-        val page = text.substring(start, end)
+        // 从 offset 前一个字符开始读：页首可能需要回退一位对齐代理对。
+        // 多要 3 个字符：页尾可能需要后让一位，另加缓冲余量。
+        val windowStart = (offset - 1).coerceAtLeast(0L).toInt()
+        val wantChars = pageLimit + 3
+        val window = try {
+            readCharWindow(textFile, windowStart, wantChars)
+        } catch (e: Exception) {
+            return cleanedUp(outputId, textFile, manifest)
+        }
+
+        val reachedEof = window.length < wantChars
+        // 文件被外部截断时以实际长度为准，否则模型会一直拿到空页却看到 eof=false
+        val totalChars = if (reachedEof) windowStart + window.length else hintedTotal
+        // 窗口可能比预期短（文件被截断）：所有下标都要夹在窗口内，否则 substring 会越界
+        val localRequested = (offset - windowStart).coerceIn(0, window.length)
+        val localStart = alignPageStart(window, localRequested)
+        val localEnd = pageEndFor(window, localStart, pageLimit).coerceIn(localStart, window.length)
+        val start = windowStart + localStart
+        val end = (windowStart + localEnd).coerceAtMost(totalChars).coerceAtLeast(start)
+        val page = window.substring(localStart, localStart + (end - start))
         return ReadResult.Ok(
             id = manifest.id,
             offset = start,
@@ -443,30 +516,43 @@ class ToolOutputStore(
     }
 
     /**
-     * 页首位置。
+     * 输出已被清理（超过 [TOOL_OUTPUT_RETENTION_DAYS] 天或目录轮转把它挤掉了）。
      *
-     * 模型手写的 offset 可能正好落在代理对中间（`🙂` 的后半个码元），那样输出里会出现半个 emoji。
-     * 往后回退一位对齐到码点边界；正式分页用的 nextOffset 本身就是边界，不会触发回退。
+     * 文案必须说清是「清理掉了」而不是「id 写错了」，否则模型会拿同一个 id 反复重试。
      */
-    private fun alignStart(text: String, start: Int): Int =
-        if (start in 1 until text.length && text[start].isLowSurrogate() && text[start - 1].isHighSurrogate()) {
-            start - 1
-        } else {
-            start
-        }
+    private fun cleanedUp(outputId: String, textFile: File, manifest: ToolOutputManifest): ReadResult.Failed =
+        ReadResult.Failed(
+            "Offloaded output `$outputId` is no longer on disk (${displayPath(textFile)}). " +
+                "It was cleaned up with the tool output cache (kept for $TOOL_OUTPUT_RETENTION_DAYS days " +
+                "or the most recent $TOOL_OUTPUT_MAX_FILES outputs); re-run the original tool " +
+                "(`tool` was `${manifest.tool}`) if you still need it."
+        )
 
     /**
-     * 页尾位置。
+     * 从 UTF-8 文件里读 `[charOffset, charOffset + count)` 这一段字符。
      *
-     * 只在 do-not-split-surrogate-pair 上做一点微调：end 落在代理对中间时往后让一位，
-     * 保证这一页不会输出半个 emoji。因为 nextOffset 就是 end，连续翻页依旧不丢字、不重复。
+     * 用解码流 skip 而不是 `readText()`：skip 只解码不保留，内存是常数级；只有结果那一段
+     * 会变成 String。skip 可能少跳（受解码缓冲限制），所以循环到跳够为止。
      */
-    private fun pageEnd(text: String, start: Int, limit: Int): Int {
-        var end = (start + limit).coerceAtMost(text.length)
-        if (end in 1 until text.length && text[end].isLowSurrogate() && text[end - 1].isHighSurrogate()) {
-            end += 1
+    private fun readCharWindow(file: File, charOffset: Int, count: Int): String {
+        FileInputStream(file).use { input ->
+            val reader = InputStreamReader(input, Charsets.UTF_8)
+            var skipped = 0
+            while (skipped < charOffset) {
+                val step = reader.skip((charOffset - skipped).toLong())
+                // 文件比 manifest 记录的短：如实返回空窗口，下面按实际长度收尾
+                if (step <= 0L) return ""
+                skipped += step.toInt()
+            }
+            val buffer = CharArray(count)
+            var filled = 0
+            while (filled < count) {
+                val read = reader.read(buffer, filled, count - filled)
+                if (read < 0) break
+                filled += read
+            }
+            return String(buffer, 0, filled)
         }
-        return end
     }
 
     private fun readManifest(outputId: String): ToolOutputManifest? {
@@ -477,7 +563,7 @@ class ToolOutputStore(
         }.getOrNull()?.takeIf { it.id == outputId }
     }
 
-    private fun manifestFile(outputId: String) = File(baseDir, "$outputId.json")
+    private fun manifestFile(outputId: String) = File(baseDir, "$outputId$MANIFEST_SUFFIX")
 
     /**
      * 给模型看的路径。
@@ -491,6 +577,109 @@ class ToolOutputStore(
         } else {
             file.absolutePath
         }
+}
+
+/**
+ * 按时间与总量清理外置输出目录（冷启动、以及每次外置之后各调一次）。
+ *
+ * 旧的实现是冷启动 `deleteRecursively()`，等于「重启后仍可读回」这条契约落地即失效：
+ * 用户第二天打开同一个会话，历史里还留着 `output_id` 回执，模型照回执来读却永远读不到。
+ * 现在改成保留 [retentionDays] 天、最多 [maxFiles] 个、合计不超过 [maxTotalBytes] 字节：
+ *
+ *  - 超过保留期的按 mtime 删（manifest 与全文一起删）；
+ *  - 超量时删最旧的，**最新的若干份一定留着**，所以刚写下的那份不会被自己挤掉；
+ *  - 没有 manifest 的孤儿 `.txt`、写盘中断留下的 `.tmp` 也顺手清掉，但只清
+ *    [ORPHAN_GRACE_MS] 之前的老文件，避免和正在写的请求抢；
+ *  - 整个过程只 stat + listFiles，读 manifest 内容一次都不需要，所以放进写入路径也够廉价。
+ *
+ * @param now 便于测试注入固定时间
+ */
+internal fun pruneToolOutputs(
+    dir: File,
+    retentionDays: Int = TOOL_OUTPUT_RETENTION_DAYS,
+    maxFiles: Int = TOOL_OUTPUT_MAX_FILES,
+    maxTotalBytes: Long = TOOL_OUTPUT_MAX_TOTAL_BYTES,
+    now: Long = System.currentTimeMillis(),
+) {
+    val files = dir.listFiles().orEmpty().filter { it.isFile }
+    if (files.isEmpty()) return
+
+    // 两趟：先把 manifest 认全，再判孤儿。listFiles 的顺序不可依赖，
+    // 一趟走完会把「.txt 排在 .json 之前」的老输出误判成孤儿删掉。
+    val manifestIds = HashSet<String>(files.size)
+    files.forEach { file ->
+        if (!file.name.endsWith(MANIFEST_SUFFIX)) return@forEach
+        val id = file.name.removeSuffix(MANIFEST_SUFFIX)
+        if (!UUID_PATTERN.matches(id)) {
+            // 不是我们写的文件（旧版本残留、手动拷贝）：直接清掉，别让它挡住轮转
+            runCatching { file.delete() }
+        } else {
+            manifestIds += id
+        }
+    }
+
+    val alive = ArrayList<OutputFileEntry>(manifestIds.size)
+    files.forEach { file ->
+        when {
+            file.name.endsWith(MANIFEST_SUFFIX) -> {
+                val id = file.name.removeSuffix(MANIFEST_SUFFIX)
+                if (!UUID_PATTERN.matches(id)) return@forEach
+                val text = File(dir, "$id$TEXT_SUFFIX")
+                alive += OutputFileEntry(
+                    manifestFile = file,
+                    textFile = text,
+                    modifiedAt = file.lastModified(),
+                    bytes = file.length() + (if (text.isFile) text.length() else 0L),
+                )
+            }
+
+            // 没有 manifest 的全文不可读（owner/totalChars 都丢了），过了宽限期就删
+            file.name.endsWith(TEXT_SUFFIX) -> {
+                val id = file.name.removeSuffix(TEXT_SUFFIX)
+                if ((!UUID_PATTERN.matches(id) || id !in manifestIds) && file.lastModified() < now - ORPHAN_GRACE_MS) {
+                    runCatching { file.delete() }
+                }
+            }
+
+            file.name.endsWith(".tmp") -> {
+                if (file.lastModified() < now - ORPHAN_GRACE_MS) runCatching { file.delete() }
+            }
+        }
+    }
+
+    // 最旧的在前：后面无论是按天删还是按量删，都从头开始摘
+    alive.sortBy { it.modifiedAt }
+
+    if (retentionDays > 0) {
+        val cutoff = now - retentionDays.coerceAtLeast(1) * 86_400_000L
+        val expired = alive.filter { it.modifiedAt in 1 until cutoff }
+        expired.forEach { it.delete() }
+        alive.removeAll(expired)
+    }
+
+    // 至少留一份：刚写下的那份是最新的，不会被自己挤掉
+    while (alive.size > maxFiles.coerceAtLeast(1)) {
+        alive.removeAt(0).delete()
+    }
+    var totalBytes = alive.sumOf { it.bytes }
+    while (totalBytes > maxTotalBytes && alive.size > 1) {
+        val victim = alive.removeAt(0)
+        totalBytes -= victim.bytes
+        victim.delete()
+    }
+}
+
+/** 轮转时用到的一份外置输出（manifest + 全文）。 */
+private class OutputFileEntry(
+    val manifestFile: File,
+    val textFile: File,
+    val modifiedAt: Long,
+    val bytes: Long,
+) {
+    fun delete() {
+        runCatching { manifestFile.delete() }
+        runCatching { textFile.delete() }
+    }
 }
 
 /** 判断一个工具名是不是读工具（含 `tool_output_read_2` 这类去重别名）。 */

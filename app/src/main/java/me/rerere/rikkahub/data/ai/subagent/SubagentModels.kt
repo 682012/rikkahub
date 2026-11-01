@@ -5,6 +5,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.ai.tools.alignPageStart
+import me.rerere.rikkahub.data.ai.tools.pageEndFor
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.uuid.Uuid
 
@@ -58,8 +60,11 @@ const val SUBAGENT_NOTICE_PREVIEW_CHARS = 200
  * 一次结果读取的切片。
  *
  * 分页信息是给模型判断"还要不要再读"的唯一依据：
- * [nextOffset] 是下一页的起点（等于 offset + 本次返回字符数），[eof] 表示已经读到末尾。
+ * [nextOffset] 是下一页的起点（等于本页结束位置 [endOffset]），[eof] 表示已经读到末尾。
  * [truncated] 只表示"这不是全文，后面还有"，不表示内容被丢弃——任何状态、任何 offset 都可以重新读。
+ *
+ * 注意 nextOffset 取 [endOffset] 而不是 `offset + text.length`：页首可能为对齐代理对回退一位、
+ * 页尾可能后让一位，`offset + text.length` 会因此跳过或重复字符。
  */
 data class SubagentResultPage(
     val taskId: String,
@@ -69,10 +74,12 @@ data class SubagentResultPage(
     val limit: Int,
     val totalChars: Int,
     val text: String,
+    /** 本页结束位置（字符，UTF-16 code unit），下一页从这里开始。 */
+    val endOffset: Int = offset + text.length,
 ) {
     val eof: Boolean get() = nextOffset >= totalChars
 
-    val nextOffset: Int get() = offset + text.length
+    val nextOffset: Int get() = endOffset
 
     val truncated: Boolean get() = !eof
 
@@ -102,6 +109,9 @@ data class SubagentResultPage(
  *
  * 纯函数，便于单测：offset 越界时夹到末尾返回空页（eof=true），limit 非正数用默认值，
  * 大于上限按上限截断。
+ *
+ * 页首/页尾都走 [alignPageStart] / [pageEndFor]，和工具输出外置的读回完全同一套逻辑——
+ * 否则 `offset` 落在 emoji 中间时会切出半个代理项（JSON 里是孤立代理项，部分 provider 直接拒收）。
  */
 fun subagentResultPage(
     task: SubagentTask,
@@ -110,8 +120,9 @@ fun subagentResultPage(
     limit: Int,
 ): SubagentResultPage {
     val safeLimit = if (limit <= 0) SUBAGENT_RESULT_DEFAULT_LIMIT else limit.coerceAtMost(SUBAGENT_RESULT_MAX_LIMIT)
-    val start = offset.coerceIn(0, full.length)
-    val end = (start + safeLimit).coerceAtMost(full.length)
+    val requested = offset.coerceIn(0, full.length)
+    val start = alignPageStart(full, requested)
+    val end = pageEndFor(full, start, safeLimit)
     return SubagentResultPage(
         taskId = task.id,
         status = task.status,
@@ -120,6 +131,7 @@ fun subagentResultPage(
         limit = safeLimit,
         totalChars = full.length,
         text = full.substring(start, end),
+        endOffset = end,
     )
 }
 

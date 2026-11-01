@@ -85,6 +85,7 @@ import me.rerere.rikkahub.ui.components.message.MessagePartBlock
 import me.rerere.rikkahub.ui.components.message.ThinkingStep
 import me.rerere.rikkahub.ui.components.message.ChatMessageServerToolStep
 import me.rerere.rikkahub.ui.components.message.groupMessageParts
+import me.rerere.rikkahub.ui.components.message.tools.effectiveTarget
 import me.rerere.rikkahub.ui.components.message.tools.memoryToolTitle
 import me.rerere.rikkahub.ui.components.richtext.MarkdownBlock
 import me.rerere.rikkahub.ui.components.ui.AutoAIIcon
@@ -739,24 +740,29 @@ private fun ChainOfThoughtScope.ExportedReasoningStep(
 private fun ChainOfThoughtScope.ExportedToolStep(
     tool: UIMessagePart.Tool
 ) {
-    val title = when (tool.toolName) {
+    // 网关代理调用（tool_call）导出时同样要取被代理的真实工具名与内层参数：
+    // 否则分享图里所有 MCP 调用都退化成通用标题，看不出到底调了什么
+    val proxyTarget = remember(tool.toolName, tool.input) { tool.effectiveTarget() }
+    val effectiveName = proxyTarget?.first ?: tool.toolName
+    val arguments = proxyTarget?.second ?: runCatching { tool.inputAsJson() }.getOrNull()
+    val title = when (effectiveName) {
         "search_web" -> {
             val query = runCatching {
-                tool.inputAsJson().jsonObject["query"]?.jsonPrimitiveOrNull?.contentOrNull ?: ""
+                arguments?.jsonObject?.get("query")?.jsonPrimitiveOrNull?.contentOrNull ?: ""
             }.getOrDefault("")
             stringResource(R.string.chat_message_tool_search_web, query)
         }
 
         "scrape_web" -> stringResource(R.string.chat_message_tool_scrape_web)
-        else -> memoryToolTitle(tool.toolName, runCatching { tool.inputAsJson() }.getOrNull())
-            ?: stringResource(R.string.chat_message_tool_call_generic, tool.toolName)
+        else -> memoryToolTitle(effectiveName, arguments)
+            ?: stringResource(R.string.chat_message_tool_call_generic, effectiveName)
     }
     ControlledChainOfThoughtStep(
         expanded = true,
         onExpandedChange = {},
         icon = {
             Icon(
-                imageVector = when (tool.toolName) {
+                imageVector = when (effectiveName) {
                     "search_web" -> HugeIcons.Search01
                     "scrape_web" -> HugeIcons.Earth
                     MemoryToolNames.DELETE -> HugeIcons.Book02

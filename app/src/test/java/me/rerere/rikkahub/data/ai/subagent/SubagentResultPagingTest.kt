@@ -67,6 +67,34 @@ class SubagentResultPagingTest {
     }
 
     @Test
+    fun `pages never split surrogate pairs`() {
+        // 每个 emoji 是 2 个 UTF-16 码元：offset 故意落在代理对中间
+        val full = "🙂".repeat(9_000)
+        val even = subagentResultPage(task(), full, offset = 0, limit = 4_000)
+        assertEquals(4_000, even.text.length)
+        assertFalse(even.text.first().isLowSurrogate())
+        assertFalse(even.text.last().isHighSurrogate())
+
+        val odd = subagentResultPage(task(), full, offset = 1, limit = 4_000)
+        // 页首回退一位对齐到码点边界，返回内容仍是全文切片
+        assertEquals(0, odd.offset)
+        assertEquals(full.substring(0, odd.text.length), odd.text)
+        assertFalse(odd.text.first().isLowSurrogate())
+
+        // nextOffset 取真实结束位置：拼页不丢字、不重复
+        var offset = 0
+        val rebuilt = StringBuilder()
+        while (true) {
+            val page = subagentResultPage(task(), full, offset, 4_001)
+            rebuilt.append(page.text)
+            if (page.eof) break
+            assertTrue(page.nextOffset > offset)
+            offset = page.nextOffset
+        }
+        assertEquals(full, rebuilt.toString())
+    }
+
+    @Test
     fun `empty or missing result still yields a readable empty page`() {
         val page = subagentResultPage(task(status = SubagentStatus.FAILED), "", 0, 6_000)
         assertEquals(0, page.totalChars)

@@ -23,6 +23,7 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import java.util.UUID
+import kotlin.uuid.Uuid
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
@@ -253,13 +254,75 @@ class ToolOutputStoreTest {
     // ---------------------------------------------------------------- 隔离与校验
 
     @Test
-    fun `same conversation can read the output with a fresh store`() {
+    fun `same conversation can read the output after a restart with a fresh store`() {
         val full = flatText()
         val id = offloadedId(newStore(), full)
+        // 冷启动清理按天/按量清理，不再整目录删——所以这条才是真实的"重启进程"路径
+        pruneToolOutputs(dir)
         // 新进程/新一轮请求：只有磁盘上的 manifest，没有任何内存状态
         val json = readPage(ToolOutputStore(dir, OWNER).createReaderTool(), id, limit = 100)
         assertEquals(id, json["output_id"]!!.jsonPrimitive.content)
         assertEquals(full.substring(0, 100), json["text"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `expired output is pruned and reported as cleaned up`() {
+        val full = flatText()
+        val id = offloadedId(newStore(), full)
+        // 把两个文件的 mtime 推到保留期之外：冷启动清理按 manifest 的 mtime 判断
+        val expired = System.currentTimeMillis() - (TOOL_OUTPUT_RETENTION_DAYS + 1) * 86_400_000L
+        assertTrue(File(dir, "$id.json").setLastModified(expired))
+        assertTrue(File(dir, "$id.txt").setLastModified(expired))
+
+        pruneToolOutputs(dir)
+
+        assertFalse(File(dir, "$id.json").exists())
+        assertFalse(File(dir, "$id.txt").exists())
+        val response = textOf(call(newStore().createReaderTool(), buildJsonObject { put("output_id", id) }))
+        // 文案必须说"已被清理"，否则模型会拿同一个 id 反复重试
+        assertTrue(response, response.contains("cleaned up"))
+        assertFalse(response.contains("\"text\""))
+    }
+
+    @Test
+    fun `rotation keeps the newest outputs and drops their manifests with them`() {
+        val store = newStore()
+        val ids = (1..5).map { offloadedId(store, flatText() + "\noutput $it") }
+        // 提前把 mtime 拉成递增顺序，避免同一毫秒内写入导致排序不稳定
+        ids.forEachIndexed { index, id ->
+            val stamp = System.currentTimeMillis() - (ids.size - index) * 1_000L
+            File(dir, "$id.json").setLastModified(stamp)
+            File(dir, "$id.txt").setLastModified(stamp)
+        }
+
+        pruneToolOutputs(dir, maxFiles = 2, retentionDays = 0)
+
+        val left = dir.listFiles().orEmpty().filter { it.name.endsWith(".json") }.map { it.name.removeSuffix(".json") }
+        assertEquals(ids.takeLast(2).toSet(), left.toSet())
+        // manifest 被删时全文一起删，别留孤儿
+        ids.takeLast(2).forEach { assertTrue(File(dir, "$it.txt").isFile) }
+        ids.take(3).forEach { assertFalse(File(dir, "$it.txt").exists()) }
+    }
+
+    @Test
+    fun `owner is conversation scoped and ignores the assistant`() {
+        val conversation = Uuid.random()
+        // 同一个会话永远得到同一个 namespace，换助手也不变（owner 里不能有 assistant.id）
+        assertEquals(toolOutputOwnerOf(conversation), toolOutputOwnerOf(conversation))
+        assertTrue(toolOutputOwnerOf(conversation).startsWith("conversation:"))
+        assertEquals("conversation:unscoped", toolOutputOwnerOf(null))
+        // 不同会话互不可读
+        val other = Uuid.random()
+        assertFalse(toolOutputOwnerOf(conversation) == toolOutputOwnerOf(other))
+
+        val id = offloadedId(ToolOutputStore(dir, toolOutputOwnerOf(conversation)), bigText())
+        val denied = textOf(
+            call(
+                ToolOutputStore(dir, toolOutputOwnerOf(other)).createReaderTool(),
+                buildJsonObject { put("output_id", id) },
+            )
+        )
+        assertTrue(denied, denied.contains("another conversation"))
     }
 
     @Test
@@ -373,6 +436,29 @@ class ToolOutputStoreTest {
         val json = readPage(newStore().createReaderTool(), id, limit = 10)
         assertEquals("/${FileFolders.TOOL_OUTPUTS}/$id.txt", json["path"]!!.jsonPrimitive.content)
         assertEquals("workspace_shell", json["tool"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `deep and multi byte offsets page without loading the whole file`() {
+        val full = bigText(60_000)
+        val store = newStore()
+        val id = offloadedId(store, full)
+
+        listOf(0, 1, 3_999, 4_000, 12_345, 30_001, 59_999).forEach { offset ->
+            val json = readPage(store.createReaderTool(), id, offset = offset, limit = 500)
+            val start = json["offset"]!!.jsonPrimitive.content.toInt()
+            val page = json["text"]!!.jsonPrimitive.content
+            // 页首可能为对齐代理对回退一位，但返回内容必须始终是全文的同位置切片
+            assertEquals("offset=$offset", full.substring(start, start + page.length), page)
+            assertFalse("offset=$offset", page.firstOrNull()?.isLowSurrogate() ?: false)
+        }
+
+        // 大文件（2M 字符）的深处读回：验证按字符跳过而不是整读
+        val huge = flatText(2_000_000)
+        val hugeId = offloadedId(store, huge)
+        val deep = readPage(store.createReaderTool(), hugeId, offset = 1_500_001, limit = 100)
+        assertEquals(1_500_001, deep["offset"]!!.jsonPrimitive.content.toInt())
+        assertEquals(huge.substring(1_500_001, 1_500_101), deep["text"]!!.jsonPrimitive.content)
     }
 
     private companion object {

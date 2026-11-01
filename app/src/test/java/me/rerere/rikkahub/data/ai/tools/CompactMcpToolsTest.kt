@@ -175,14 +175,24 @@ class CompactMcpToolsTest {
     }
 
     @Test
-    fun `search description exposes the server set`() {
-        val tools = largeCatalog(8, server = "files") + largeCatalog(8, server = "git")
+    fun `search description stays stable when the catalog membership changes`() {
+        // 描述进 prompt 后会被 provider 缓存：服务掉线/重连都不能让它变，否则前缀缓存全废
+        val twoServers = largeCatalog(8, server = "files") + largeCatalog(8, server = "git")
+        val oneServer = largeCatalog(16, server = "files")
 
-        val description = searchTool(tools).description
+        val description = searchTool(twoServers).description
 
-        assertTrue(description.contains("16"))
-        assertTrue(description.contains("files"))
-        assertTrue(description.contains("git"))
+        assertEquals(description, searchTool(oneServer).description)
+        assertFalse(description.contains("server(s)"))
+        assertFalse(description.contains("git"))
+        // 目录规模改由检索结果返回
+        val json = runSearch(searchTool(twoServers), JsonObject(emptyMap()))
+        assertEquals(
+            listOf("files", "git"),
+            json["servers"]!!.jsonArray.map { it.jsonPrimitive.content }.sorted(),
+        )
+        assertEquals(2, json["catalog"]!!.jsonObject.int("servers"))
+        assertEquals(16, json["catalog"]!!.jsonObject.int("tools"))
     }
 
     // ---------- 检索 ----------
@@ -390,10 +400,10 @@ class CompactMcpToolsTest {
 
         assertTrue(call.needsApproval(callInput("mcp__files__write_file", buildJsonObject { put("path", "/etc/passwd") })))
         assertFalse(call.needsApproval(callInput("mcp__files__write_file", buildJsonObject { put("path", "/tmp/safe.txt") })))
-        // 目录外的名字不能借道网关绕过审批
-        assertTrue(call.needsApproval(callInput("mcp__files__drop_database")))
-        // 参数形状坏掉时同样不能自动放行
-        assertTrue(
+        // 目录外的名字不会执行，也绝不拿审批卡住整轮生成（批准完只会得到一句报错）
+        assertFalse(call.needsApproval(callInput("mcp__files__drop_database")))
+        // 参数形状坏掉同样不该进审批：execute 会直接回一条可读错误让模型自我纠正
+        assertFalse(
             call.needsApproval(buildJsonObject {
                 put("name", "mcp__files__write_file")
                 put("arguments", "x")

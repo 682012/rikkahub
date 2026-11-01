@@ -76,6 +76,7 @@ import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.Wrench01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.tools.local.ASK_USER_TOOL_NAME
+import me.rerere.rikkahub.ui.components.message.tools.effectiveTarget
 import me.rerere.rikkahub.data.model.GenerationPhase
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.ui.components.ui.drawAppLogo
@@ -350,6 +351,11 @@ private fun PendingToolCard(
     onOpenConversation: () -> Unit,
 ) {
     val isAskUser = tool.toolName == ASK_USER_TOOL_NAME
+    // 网关代理调用（tool_call）要显示被代理的真实工具名与内层参数：
+    // 否则用户在审批弹窗里只看到 "tool_call" 和一层嵌套 JSON，根本不知道自己批准了什么
+    val proxyTarget = remember(tool.toolName, tool.input) { tool.effectiveTarget() }
+    val targetName = (proxyTarget?.first ?: tool.toolName).substringAfterLast("__")
+    val inputPreview = (proxyTarget?.second?.toString() ?: tool.input)
     Surface(
         shape = MaterialTheme.shapes.large,
         color = MaterialTheme.colorScheme.secondaryContainer,
@@ -362,14 +368,14 @@ private fun PendingToolCard(
                 text = if (isAskUser) {
                     stringResource(R.string.floating_chat_ask_user)
                 } else {
-                    stringResource(R.string.floating_chat_tool_request, tool.toolName.substringAfterLast("__"))
+                    stringResource(R.string.floating_chat_tool_request, targetName)
                 },
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
-            if (!isAskUser && tool.input.isNotBlank()) {
+            if (!isAskUser && inputPreview.isNotBlank()) {
                 Text(
-                    text = tool.input.take(300),
+                    text = inputPreview.take(300),
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),

@@ -1,6 +1,8 @@
 package me.rerere.rikkahub.data.ai.subagent
 
+import android.app.ActivityManager
 import android.app.Application
+import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -54,6 +56,29 @@ private const val HARD_MAX_CONCURRENT = 8
 private const val HARD_MAX_STEPS = 120
 
 /**
+ * 子代理并发的内存兜底（见 [effectiveSubagentConcurrency]）。
+ *
+ * 每个子代理是一整套独立 runAgent + 独立工具集 + 独立消息历史 + 独立 provider 流，完成后结果还
+ * 有一份留在内存里；而子代理工具集里带着 `tool_batch`，batch 内部又是 `Semaphore(8)`
+ * （`ai/agent/ToolBatch.kt`）。最坏情况是「子代理并发 × 每批 8 路工具调用」同时打，
+ * 在 `minSdk 26` 的低端机上这就是很现实的 OOM 来源。所以硬上限之外再按设备内存分级削一刀，
+ * 用户填的 8 在大内存机器上照样生效，小内存机器上自动降下来。
+ */
+internal fun subagentMemoryConcurrencyCap(memoryClassMb: Int): Int = when {
+    memoryClassMb >= 256 -> HARD_MAX_CONCURRENT
+    memoryClassMb >= 192 -> 4
+    else -> 2
+}
+
+/**
+ * 子代理实际并发数：用户配置 ∩ 硬上限 [HARD_MAX_CONCURRENT] ∩ 内存分级上限。
+ *
+ * @param memoryClassMb `ActivityManager.memoryClass`（MB）；`<= 0` 表示拿不到，按最保守处理
+ */
+internal fun effectiveSubagentConcurrency(configured: Int, memoryClassMb: Int): Int =
+    configured.coerceIn(1, minOf(HARD_MAX_CONCURRENT, subagentMemoryConcurrencyCap(memoryClassMb)))
+
+/**
  * 子代理执行器。
  *
  * 与 MemoryConsolidator 同一套路：独立模型、独立工具集、独立 runAgent，
@@ -76,6 +101,13 @@ class SubagentRunner(
 
     /** 结果交付记录，按 task scope；subagent_wait 与 subagent_result 共用同一份。 */
     private val delivery = SubagentDeliveryRegistry()
+
+    /** 设备内存等级（MB），用来给并发兜底；拿不到时按最保守的 0 处理。只读一次。 */
+    private val memoryClassMb: Int by lazy {
+        runCatching {
+            (context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)?.memoryClass ?: 0
+        }.getOrDefault(0)
+    }
 
     /**
      * 终态通知投递口：由 ChatService 在 init 里接到父会话的 ConversationInbox。
@@ -135,7 +167,7 @@ class SubagentRunner(
                 val cfg = settings.subagent
                 check(cfg.enabled) { "Subagents are disabled" }
                 pruneOld(cfg.keepDays)
-                permits.acquire(cfg.maxConcurrent.coerceIn(1, HARD_MAX_CONCURRENT))
+                permits.acquire(effectiveSubagentConcurrency(cfg.maxConcurrent, memoryClassMb))
                 acquired = true
                 currentCoroutineContext().ensureActive()
                 update(id) { it.copy(status = SubagentStatus.RUNNING, startedAt = System.currentTimeMillis()) }

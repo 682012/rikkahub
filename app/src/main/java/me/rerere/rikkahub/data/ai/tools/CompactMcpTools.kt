@@ -184,17 +184,19 @@ internal fun uniqueToolName(base: String, taken: Set<String>): String {
 /**
  * 检索入口。
  *
- * 目录本身（服务集合、总数）写进 description，模型不看 schema 也知道有哪些服务可查；
- * 但每个工具的真实 schema 只在命中后返回，且单页最多 [MCP_SEARCH_MAX_LIMIT] 条。
+ * **描述必须是稳定文本**：工具定义进 prompt 后由 provider 缓存，只要这段字符串变一次，从它
+ * 往后的前缀缓存就全废。所以这里刻意不写目录规模与服务器列表（服务掉线/重连会让它抖），
+ * 那些信息改由 `execute` 的 `catalog` / `servers` 字段随每次检索结果返回。
+ * 每个工具的真实 schema 同样只在命中后返回，且单页最多 [MCP_SEARCH_MAX_LIMIT] 条。
  */
 private fun createSearchTool(name: String, callName: String, catalog: List<McpCatalogEntry>): Tool {
-    val servers = catalog.map { it.server }.distinct().sorted()
     return Tool(
         name = name,
         executionMode = ToolExecutionMode.PARALLEL_DEDUPLICATED,
         description = buildString {
             append("Search the catalog of external MCP tools. Searching only reads the catalog, nothing is executed.\n")
-            append("Catalog: ${catalog.size} tool(s) from ${servers.size} server(s) — ${servers.joinToString(", ")}.\n")
+            append("Call with no arguments to browse the full external tool catalog — the response reports how many ")
+            append("tools and servers are currently available.\n")
             append("Pass `name` to fetch one tool by exact name, or `query` for case-insensitive keywords ")
             append("(every whitespace-separated term must appear in the tool name, its description or the server name).\n")
             append("Results are paged with `offset` and `limit` (max $MCP_SEARCH_MAX_LIMIT); each hit returns the real tool name, ")
@@ -243,10 +245,19 @@ private fun createSearchTool(name: String, callName: String, catalog: List<McpCa
             val page = matched.drop(offset).take(limit)
             // 还有下一页才给 nextOffset，翻到底就是 null，避免模型无限翻页
             val nextOffset = (offset + page.size).takeIf { it < matched.size }
+            // 目录规模与服务器集合放在结果里（描述里不能有，见 createSearchTool 的注释）
+            val servers = catalog.map { it.server }.distinct().sorted()
             val payload = buildJsonObject {
                 put("total", matched.size)
                 put("offset", offset)
                 put("limit", limit)
+                put(
+                    "catalog",
+                    buildJsonObject {
+                        put("tools", catalog.size)
+                        put("servers", servers.size)
+                    },
+                )
                 put("servers", JsonArray(servers.map { JsonPrimitive(it) }))
                 put("nextOffset", nextOffset?.let { JsonPrimitive(it) } ?: JsonNull)
                 put("tools", JsonArray(page.map { it.toJson() }))
@@ -345,8 +356,10 @@ private fun createCallTool(name: String, searchName: String, catalog: List<McpCa
     needsApproval = { input ->
         when (val call = resolveCall(catalog, input)) {
             is ResolvedCall.Found -> call.entry.tool.needsApproval(call.arguments)
-            // 认不出来的调用不能自动放行：审批走保守路线，真正执行时也会被拒
-            is ResolvedCall.Unknown, is ResolvedCall.BadArguments -> true
+            // 解析不出来就一定会被 execute 拒掉（回一条可读错误），不可能产生任何副作用。
+            // 这里返回 true 会把整轮生成挂起等用户点批准，批准完只得到一句报错——纯粹的卡壳，
+            // 没有任何安全收益。让模型直接拿到错误文本自我纠正。
+            is ResolvedCall.Unknown, is ResolvedCall.BadArguments -> false
         }
     },
     execute = { input ->

@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import me.rerere.common.android.appTempFolder
 import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
+import me.rerere.rikkahub.data.ai.tools.pruneToolOutputs
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.files.FileFolders
 import me.rerere.rikkahub.data.files.FilesManager
@@ -93,7 +94,8 @@ class RikkaHubApp : Application() {
         // delete temp files
         deleteTempFiles()
 
-        // cleanup stale tool output files
+        // prune stale tool output files by age and size (never wipe the whole directory:
+        // offloaded outputs stay readable across restarts within the retention window)
         cleanupToolOutputs()
 
         // cleanup workspace temp dirs (proot + rootfs /tmp)
@@ -219,10 +221,11 @@ class RikkaHubApp : Application() {
     private fun cleanupToolOutputs() {
         get<AppScope>().launch(Dispatchers.IO) {
             runCatching {
-                val dir = File(filesDir, FileFolders.TOOL_OUTPUTS)
-                if (dir.exists()) {
-                    dir.deleteRecursively()
-                }
+                // fork: 按天/按量清理，不再整目录删。ToolOutputStore 承诺「重启后仍可读回」，
+                // 冷启动 deleteRecursively() 会让历史消息里的 output_id 回执全部失效。
+                pruneToolOutputs(File(filesDir, FileFolders.TOOL_OUTPUTS))
+            }.onFailure {
+                Log.w(TAG, "cleanupToolOutputs failed", it)
             }
         }
     }
