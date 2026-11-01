@@ -115,6 +115,22 @@ class ScriptToolTest {
     }
 
     @Test(timeout = 60_000)
+    fun `call audit does not echo intermediate tool content`() = runBlocking {
+        val privateText = "INTERMEDIATE_BODY_MUST_STAY_IN_SCRIPT"
+        val output = runScript(
+            "const data = await tools.memory_read({}); return data.length;",
+            listOf(testTool("memory_read") { listOf(UIMessagePart.Text(privateText)) }),
+        )
+
+        assertEquals(privateText.length.toString(), output["result"]!!.jsonPrimitive.content)
+        assertFalse("intermediate content leaked into the audit: $output", output.toString().contains(privateText))
+        val call = output["calls"]!!.jsonArray.single().jsonObject
+        assertEquals("memory_read", call["tool"]!!.jsonPrimitive.content)
+        assertEquals(privateText.length.toString(), call["chars"]!!.jsonPrimitive.content)
+        assertFalse(call.containsKey("summary"))
+    }
+
+    @Test(timeout = 60_000)
     fun `runs independent calls in parallel with Promise all`() = runBlocking {
         val running = AtomicInteger()
         val peak = AtomicInteger()

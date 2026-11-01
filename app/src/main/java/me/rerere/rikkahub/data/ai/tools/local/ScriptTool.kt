@@ -82,8 +82,8 @@ private const val SCRIPT_MAX_RESULT_CHARS = 8 * 1024
 /** 嵌套调用并发闸门，对齐 `ToolBatch` 的 8。 */
 private const val SCRIPT_MAX_CONCURRENT_CALLS = 8
 
-/** calls[] 里每次调用的输出摘要长度。 */
-private const val SCRIPT_MAX_CALL_SUMMARY_CHARS = 240
+/** 单次嵌套调用的错误消息上限；成功调用的审计只记元数据，不回传中间正文。 */
+private const val SCRIPT_MAX_ERROR_CHARS = 240
 
 /** 与 [ToolOutputStore] 的预览块首行保持一致，用来判断这次输出是否已被外置。 */
 private const val OFFLOAD_NOTICE_PREFIX = "[Tool output offloaded: "
@@ -96,7 +96,7 @@ internal data class ScriptToolLimits(
     val maxLogChars: Int = SCRIPT_MAX_LOG_CHARS,
     val maxResultChars: Int = SCRIPT_MAX_RESULT_CHARS,
     val maxConcurrentCalls: Int = SCRIPT_MAX_CONCURRENT_CALLS,
-    val maxCallSummaryChars: Int = SCRIPT_MAX_CALL_SUMMARY_CHARS,
+    val maxErrorChars: Int = SCRIPT_MAX_ERROR_CHARS,
 ) {
     val javascript: JavaScriptLimits
         get() = JavaScriptLimits(
@@ -310,7 +310,7 @@ private suspend fun callTool(
     } catch (e: Exception) {
         return errorEnvelope(
             code = "tool_error",
-            message = "${e::class.simpleName ?: "Error"}: ${e.message ?: "tool failed"}".take(limits.maxCallSummaryChars),
+            message = "${e::class.simpleName ?: "Error"}: ${e.message ?: "tool failed"}".take(limits.maxErrorChars),
             name,
         )
     }
@@ -325,17 +325,10 @@ private suspend fun callTool(
             put("chars", text.length)
             if (attachments > 0) put("attachments", attachments)
             if (offloaded) put("offloaded", true)
-            put("summary", summarize(text, limits.maxCallSummaryChars))
         }
     )
     // 空输出不能变成空串：模型会把「没输出」当成没执行
     return successEnvelope(text.ifEmpty { "(no output)" })
-}
-
-private fun summarize(text: String, maxChars: Int): String = when {
-    text.isEmpty() -> ""
-    text.length <= maxChars -> text
-    else -> text.take(maxChars) + " …"
 }
 
 /** 脚本里能看到的外置读工具：名字可能被 ChatToolFactory 加了序号（`tool_output_read_2`）。 */
