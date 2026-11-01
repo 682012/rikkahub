@@ -2,6 +2,20 @@ package me.rerere.rikkahub.data.ai.tools
 
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.toList
+import me.rerere.ai.agent.AgentHooks
+import me.rerere.ai.agent.AgentRequest
+import me.rerere.ai.agent.StepRequest
+import me.rerere.ai.agent.runAgent
+import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.Provider
+import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.TextGenerationParams
+import me.rerere.ai.provider.TextGenerationResult
+import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.StreamChunk
+import me.rerere.ai.core.MessageRole
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -38,18 +52,30 @@ class AgentEfficiencyBenchmarkTest {
         })
     }
     @Test fun `four known independent reads are one batch instead of four model steps`() = runTest {
-        suspend fun run(mode: ToolExecutionMode): Long {
-            val reader = Tool(name="read",description="Read fixture",executionMode=mode,execute={ delay(250);listOf(UIMessagePart.Text("ok")) })
-            val calls = Json.parseToJsonElement("""{"calls":[{"name":"read"},{"name":"read"},{"name":"read"},{"name":"read"}]}""")
-            val start=testScheduler.currentTime; createToolBatch(listOf(reader)).execute(calls)
-            return testScheduler.currentTime-start
+        suspend fun replay(batched: Boolean): Pair<Long, Int> {
+            val reader = Tool(name="read",description="Read fixture",executionMode=ToolExecutionMode.PARALLEL,
+                execute={ delay(250);listOf(UIMessagePart.Text("ok")) })
+            val calls = """{"calls":[{"name":"read"},{"name":"read"},{"name":"read"},{"name":"read"}]}"""
+            fun assistant(part: UIMessagePart) = UIMessage(role=MessageRole.ASSISTANT,parts=listOf(part))
+            val responses = if (batched) listOf(assistant(UIMessagePart.Tool("batch", "tool_batch", calls)))
+                else (1..4).map { assistant(UIMessagePart.Tool("read$it", "read", "{}")) }
+            val provider = EfficiencyReplayProvider(responses + assistant(UIMessagePart.Text("done")))
+            val model=Model(modelId="benchmark")
+            val hooks=object:AgentHooks {
+                override suspend fun prepareStep(messages:List<UIMessage>)=StepRequest(messages,TextGenerationParams(model=model))
+            }
+            val start=testScheduler.currentTime
+            runAgent(AgentRequest(provider=provider,providerSetting=ProviderSetting.OpenAI(),messages=listOf(UIMessage.user("read")),
+                tools=listOf(reader,createToolBatch(listOf(reader))),stream=false,maxSteps=8),hooks).toList()
+            return (testScheduler.currentTime-start) to provider.requests
         }
-        val serial=run(ToolExecutionMode.SERIAL);val parallel=run(ToolExecutionMode.PARALLEL)
-        assertEquals(1_000,serial);assertEquals(250,parallel)
+        val serial=replay(false);val parallel=replay(true)
+        assertEquals(1_000L,serial.first);assertEquals(250L,parallel.first)
+        assertEquals(5,serial.second);assertEquals(2,parallel.second)
         println("BENCHMARK_JSON=" + buildJsonObject {
-            put("case","four_preplanned_independent_reads");put("virtualSerialMillis",serial);put("virtualParallelMillis",parallel)
-            put("sequentialModelRequestsIncludingFinalReply",5);put("batchedModelRequestsIncludingFinalReply",2)
-            put("scope","Preplanned independent arguments only; provider latency and actual token usage not measured")
+            put("case","four_preplanned_independent_reads");put("virtualSerialMillis",serial.first);put("virtualParallelMillis",parallel.first)
+            put("sequentialModelRequestsIncludingFinalReply",serial.second);put("batchedModelRequestsIncludingFinalReply",parallel.second)
+            put("scope","Fake provider replay; preplanned independent arguments only. Live provider latency and token usage not measured")
         })
     }
     @Test fun `large output is retained and initial model context is bounded`() = runTest {
@@ -66,4 +92,15 @@ class AgentEfficiencyBenchmarkTest {
             })
         } finally { dir.deleteRecursively() }
     }
+}
+
+private class EfficiencyReplayProvider(messages:List<UIMessage>):Provider<ProviderSetting> {
+    private val responses=ArrayDeque(messages)
+    var requests=0
+    override suspend fun listModels(providerSetting:ProviderSetting):List<Model> = emptyList()
+    override suspend fun generateText(providerSetting:ProviderSetting,messages:List<UIMessage>,params:TextGenerationParams):TextGenerationResult {
+        requests++
+        return TextGenerationResult(id="fixture-$requests",model="benchmark",message=responses.removeFirst())
+    }
+    override suspend fun streamText(providerSetting:ProviderSetting,messages:List<UIMessage>,params:TextGenerationParams):Flow<StreamChunk> = error("nonstream replay")
 }

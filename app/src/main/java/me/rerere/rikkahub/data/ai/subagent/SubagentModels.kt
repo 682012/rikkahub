@@ -377,7 +377,7 @@ fun SubagentTaskRecord.toTask(
         status = if (interrupted) SubagentStatus.CANCELLED else parsedStatus,
         createdAt = if (createdAt > 0L) createdAt else now,
         startedAt = startedAt,
-        finishedAt = if (interrupted) finishedAt ?: now else finishedAt,
+        finishedAt = if (interrupted) now else finishedAt,
         result = null,
         error = when {
             interrupted && this.error.isNullOrBlank() -> SUBAGENT_RESTART_ERROR
