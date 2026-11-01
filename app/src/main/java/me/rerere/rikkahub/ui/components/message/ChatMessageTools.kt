@@ -59,6 +59,7 @@ import me.rerere.rikkahub.data.ai.tools.local.ASK_USER_TOOL_NAME
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.ui.components.message.tools.DefaultToolPreview
 import me.rerere.rikkahub.ui.components.message.tools.effectiveTarget
+import me.rerere.rikkahub.ui.components.message.tools.ToolApprovalPreview
 import me.rerere.rikkahub.ui.components.message.tools.ToolUIContext
 import me.rerere.rikkahub.ui.components.message.tools.ToolUIRegistry
 import me.rerere.rikkahub.ui.components.richtext.ZoomableAsyncImage
@@ -183,11 +184,21 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
     val duration = rememberToolDuration(tool, loading)
 
     // 摘要由注册的渲染器决定; 图片输出与拒绝原因为所有工具通用
-    val hasExtraContent = renderer.hasSummary(context) || isDenied || images.isNotEmpty()
+    // 待审批时必须额外把真实入参算进内容：注册渲染器没有 Summary 的工具（外部 MCP、批量脚本等）
+    // 否则会出现"标题栏有批准按钮、展开后却没有任何参数"的盲签
+    val pendingInput = remember(tool.input, proxyTarget, tool.isPending) {
+        if (tool.isPending) (proxyTarget?.second?.toString() ?: tool.input) else ""
+    }
+    val showsApproval = isPending && onToolApproval != null
+    val hasPendingInput = showsApproval && pendingInput.isNotBlank()
+    // 批准动作在标题栏上，参数必须在下方可见；待审批期间不允许折叠起来藏掉载荷
+    val forceExpanded = hasPendingInput
+    val hasExtraContent =
+        renderer.hasSummary(context) || isDenied || images.isNotEmpty() || hasPendingInput
 
     ControlledChainOfThoughtStep(
-        expanded = expanded,
-        onExpandedChange = { expanded = it },
+        expanded = expanded || forceExpanded,
+        onExpandedChange = { if (!forceExpanded) expanded = it },
         icon = {
             if (loading) {
                 DotLoading(
@@ -255,6 +266,10 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
         content = if (hasExtraContent) {
             {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (hasPendingInput) {
+                        // 与悬浮窗审批卡共用同一个组件：完整、可滚动、等宽
+                        ToolApprovalPreview(text = pendingInput)
+                    }
                     renderer.Summary(context)
                     if (images.isNotEmpty()) {
                         LazyRow(

@@ -54,7 +54,6 @@ import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -76,6 +75,7 @@ import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.Wrench01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.tools.local.ASK_USER_TOOL_NAME
+import me.rerere.rikkahub.ui.components.message.tools.ToolApprovalPreview
 import me.rerere.rikkahub.ui.components.message.tools.effectiveTarget
 import me.rerere.rikkahub.data.model.GenerationPhase
 import me.rerere.rikkahub.service.ChatError
@@ -374,13 +374,11 @@ private fun PendingToolCard(
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
             if (!isAskUser && inputPreview.isNotBlank()) {
-                Text(
-                    text = inputPreview.take(300),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = FontFamily.Monospace,
+                // 完整入参：批量工具最后一个 write/shell 常常排在第 300 个字符之后，
+                // 截断加 Ellipsis 会让"批准"按钮指向用户根本没看到的那部分载荷
+                ToolApprovalPreview(
+                    text = inputPreview,
                     color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Row(
