@@ -364,6 +364,50 @@ class ToolOutputStoreTest {
     }
 
     @Test
+    fun `output whose manifest vanished is reported as cleaned up on restart`() {
+        val full = flatText()
+        val id = offloadedId(newStore(), full)
+        // 只丢 manifest（写盘中断、目录被外部动过）：全文还在，但没有 manifest 就证明不了归属
+        assertTrue(File(dir, "$id.json").delete())
+
+        val response = textOf(
+            call(ToolOutputStore(dir, OWNER).createReaderTool(), buildJsonObject { put("output_id", id) })
+        )
+        // 没有 manifest 也要说清「读不到是因为清理/失效」，不能让模型拿同一个 id 反复重试
+        assertTrue(response, response.contains("cleaned up"))
+        assertFalse(response, response.contains("\"text\""))
+        // 全文一个字都不许回：manifest 丢了就没有 owner 可校验
+        assertFalse(response, response.contains(full.take(50)))
+    }
+
+    @Test
+    fun `unknown and cleaned up ids get the same non committing answer`() {
+        val id = offloadedId(newStore(), flatText())
+        val expired = System.currentTimeMillis() - (TOOL_OUTPUT_RETENTION_DAYS + 1) * 86_400_000L
+        assertTrue(File(dir, "$id.json").setLastModified(expired))
+        assertTrue(File(dir, "$id.txt").setLastModified(expired))
+        pruneToolOutputs(dir)
+        // 清理后不留墓碑：目录里不该再有记录这个 id 的文件（磁盘增长必须有界）
+        assertFalse(dir.listFiles().orEmpty().any { it.name.contains(id) })
+
+        val unknownId = UUID.randomUUID().toString()
+        val reader = newStore().createReaderTool()
+        val filesBefore = dir.listFiles().orEmpty().size
+        val cleaned = textOf(call(reader, buildJsonObject { put("output_id", id) }))
+        val unknown = textOf(call(reader, buildJsonObject { put("output_id", unknownId) }))
+        // 读失败不落任何文件
+        assertEquals(filesBefore, dir.listFiles().orEmpty().size)
+
+        // 「曾经存在但被清理」和「id 根本不存在」必须给一模一样的回答，否则清理历史就成了存在性探针
+        assertEquals(cleaned.replace(id, "<id>"), unknown.replace(unknownId, "<id>"))
+        // 也不编造 manifest 里的信息（工具名、总字符数都已经随 manifest 删掉了）
+        assertFalse(cleaned, cleaned.contains("workspace_shell"))
+        assertTrue(cleaned, cleaned.contains("Unknown"))
+        assertTrue(cleaned, cleaned.contains("cleaned up"))
+        assertFalse(cleaned, cleaned.contains("\"text\""))
+    }
+
+    @Test
     fun `reader rejects bad offset and limit but clamps oversized limit`() {
         val full = bigText()
         val store = newStore()

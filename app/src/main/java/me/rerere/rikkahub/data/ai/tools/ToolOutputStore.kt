@@ -85,7 +85,7 @@ internal const val TOOL_OUTPUT_READ_DEFAULT_LIMIT = 4_000
 /** 读工具单页上限；单页足够大，不需要也不允许靠拼页绕过。 */
 internal const val TOOL_OUTPUT_READ_MAX_LIMIT = 12_000
 
-/** 外置输出的保留天数：冷启动按它清理，超期的输出读回时会被明确告知「已清理」。 */
+/** 外置输出的保留天数：冷启动按它清理；超期的输出读回时得到「未知或已清理」的通用回执（[ToolOutputStore] 里的 `unavailable`）。 */
 internal const val TOOL_OUTPUT_RETENTION_DAYS = 7
 
 /** 外置输出最多保留多少个（manifest 数），超过就删最旧的。 */
@@ -452,10 +452,9 @@ class ToolOutputStore(
         // 超上限直接夹到上限而不是报错：模型偶尔会写个大数，没必要为它多跑一轮
         val pageLimit = limit.coerceAtMost(TOOL_OUTPUT_READ_MAX_LIMIT.toLong()).toInt()
 
-        val manifest = readManifest(outputId) ?: return ReadResult.Failed(
-            "Unknown `output_id` `$outputId`: this conversation has no offloaded output with that id. " +
-                "Use the exact id printed by the tool output notice."
-        )
+        // manifest 不见了的两种可能（id 根本不存在 / 已随轮转或保留期清理）在磁盘上没有可区分的痕迹，
+        // 见 [unavailable]：给同一句通用回执，别猜也别编。
+        val manifest = readManifest(outputId) ?: return unavailable(outputId)
         if (manifest.owner != scopeOwner) {
             // 别人的输出一个字都不给：owner 不匹配就是不存在
             return ReadResult.Failed(
@@ -517,9 +516,33 @@ class ToolOutputStore(
     }
 
     /**
-     * 输出已被清理（超过 [TOOL_OUTPUT_RETENTION_DAYS] 天或目录轮转把它挤掉了）。
+     * 这个 id 在本会话里读不到任何东西。
      *
-     * 文案必须说清是「清理掉了」而不是「id 写错了」，否则模型会拿同一个 id 反复重试。
+     * 为什么不是「Unknown」也不是「expired」：轮转和保留期清理都是**manifest 与全文一起删**
+     * （见 [pruneToolOutputs]），删完磁盘上不剩任何能判定死因的痕迹。所以只剩两种事实可依据：
+     *  - 没有任何可读的 manifest，就不知道这份输出是「从来没存在过」还是「被清理了」；
+     *  - 编一个原因就是撒谎：说「已清理」会把模型给的错 id 说成曾经有效，说「Unknown」
+     *    会把真正被清理的历史输出说成写错了 id——后者正是模型拿同一个 id 反复重试的来源。
+     *
+     * 于是这里给**一句同时覆盖两种可能的通用回执**，并明确写出「重试同一个 id 没用」。
+     * 不为已清理的 id 落墓碑（tombstone）是刻意的：那会把「有界磁盘」换成一条随清理无限增长的
+     * 记录表，而它带来的唯一收益只是把这句话拆成两句。
+     *
+     * 跨会话隔离不受影响：别人的输出如果还在，走 owner 校验那条「another conversation」分支；
+     * 已经被清理的则落在这里，回答与「id 不存在」完全一致，连「这个 id 曾经属于别人」都不泄露。
+     */
+    private fun unavailable(outputId: String): ReadResult.Failed = ReadResult.Failed(
+        "Offloaded output `$outputId` is unavailable: Unknown or already cleaned up. " +
+            "This conversation has no readable offloaded output with that id — either it was never " +
+            "offloaded here, or it was removed by the tool output cache (kept for " +
+            "$TOOL_OUTPUT_RETENTION_DAYS days or the most recent $TOOL_OUTPUT_MAX_FILES outputs). " +
+            "Re-running this read with the same id will not help; re-run the original tool instead " +
+            "if you still need that output."
+    )
+
+    /**
+     * manifest 还在、但全文已经不在（目录被外部动过、写盘中断留下的半份）——这时能确定是被清理，
+     * 也知道原来是什么工具，所以给比 [unavailable] 更具体的一句。
      */
     private fun cleanedUp(outputId: String, textFile: File, manifest: ToolOutputManifest): ReadResult.Failed =
         ReadResult.Failed(
