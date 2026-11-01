@@ -2,17 +2,17 @@
 
 基于 [RikkaHub 官方 3.1.1](https://github.com/rikkahub/rikkahub/tree/3.1.1) 的非官方分支。保留官方聊天客户端，重点补上**多代理协作、后台长任务、自动压缩和工作区文件迁移**。
 
-**当前版本：`3.1.1-fork.41` / `3000045` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
+**当前版本：`3.1.1-fork.42` / `3000046` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
 
 已跟进官方 master **`5ad19405`（2026-11-01）**，另带官方尚未合入 master 的后台命令（预览）；官方最新稳定版仍为3.1.1。
 
 > 与官方团队没有隶属关系。本仓库记录个人修改，并在 GitHub Releases 保存已验安装包，方便重复下载；不提供官方或面向终端用户的技术支持。官方渠道下载的是官方版，不是此分支。上游版权与 AGPL-3.0 许可证保持不变。
 
-[完整功能对比](fork/FEATURES.md) · [fork.41 更新与验收](fork/RELEASE-fork41.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
+[完整功能对比](fork/FEATURES.md) · [fork.42 更新与验收](fork/RELEASE-fork42.md) · [Agent 架构](fork/AGENT-ARCHITECTURE.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
 
 ## 下载与重复使用
 
-**[下载 fork.41 通用 APK（18.0 MiB）](https://github.com/682012/rikkahub/releases/download/v3.1.1-fork.41/rikkahub-3.1.1-fork.41.apk)** · [版本说明与 SHA-256](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.41) · [最新正式版](https://github.com/682012/rikkahub/releases/latest)
+**[下载 fork.42 通用 APK](https://github.com/682012/rikkahub/releases/download/v3.1.1-fork.42/rikkahub-3.1.1-fork.42.apk)** · [版本说明与 SHA-256](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.42) · [最新正式版](https://github.com/682012/rikkahub/releases/latest)
 
 固定版本链接不会随 nightly 被覆盖；每个正式版本保留对应源码 tag、APK 与校验文件。直接安装不需要编译环境，也不会附带维护者的聊天、账号或服务凭据。
 
@@ -24,7 +24,7 @@
 
 | 分类 | 能力 | 官方 3.1.1 已有 | 本分支的增量 |
 |---|---|---|---|
-| 新增 ① | 子代理协作 | 没有内置子代理任务管理 | 独立上下文/模型的任务；排队、等待、取结果、取消；默认并发 2，可设 1–4 |
+| 新增 ① | 子代理协作 | 没有内置子代理任务管理 | 独立上下文/模型的任务；排队、等待、取结果、取消；默认并发 4，可设 1–8 |
 | 新增 ② | 工作区后台任务 | shell 与终端 | `workspace_job_start/status/kill`；独立任务、状态和日志；超时可配，0 表示不限 |
 | 新增 ③ | HTTP 远程执行 | SSH/SFTP 工作区 | 可选自托管 HTTP shell/job 后端；与 SSH 分开路由，不把命令误送到另一台机器 |
 | 新增 ④ | 自动上下文压缩 | 手动压缩与检查点 | 达到模型窗口阈值时自动摘要，可指定压缩模型；保留原始历史 |
@@ -33,6 +33,16 @@
 | 增强 ② | 单会话用量面板 | 请求用量记录、全局统计 | 聊天页按会话查看输入/输出/缓存与模型明细，包含关联子代理用量 |
 
 计数说明：单会话用量面板是官方统计能力的增强；ZIP 是新增迁移流程，不代表官方没有文件导出。前两组共增加 **5 个子代理工具 + 3 个后台任务工具**，不能再把它们分别算成 8 组功能。[计数与源码依据 →](fork/FEATURES.md)
+
+## fork.42：Agent 工具架构重做
+
+- 相邻独立读取最多 8 路并发；未知工具与写操作保持顺序屏障，同批相同原生读取只执行一次，不做跨轮缓存。
+- `tool_batch` 一次安排最多 16 个已知参数的操作；大 MCP 目录只暴露稳定的 `tool_search` / `tool_call`，定义按需读取。
+- 超长输出保留全文并分页读回，HTTP/SSH/无工作区也可用；重启不再清空已提交的结果。
+- 子代理终态发小通知，支持最多 8 个任务共用期限等待；重复 wait 不反复回填正文，结果仍可重读。
+- 修复流式/非流式工具 ID 碰撞、中断后未知副作用被重放；工具开始和结果即时落库。
+
+[实现、代价与协议边界 →](fork/AGENT-ARCHITECTURE.md) · [真实测试与效率对照 →](fork/RELEASE-fork42.md)
 
 ## fork.41 修复：结束命令时真正结束进程
 
