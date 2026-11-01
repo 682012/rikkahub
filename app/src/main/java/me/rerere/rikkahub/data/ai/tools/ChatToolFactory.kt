@@ -108,11 +108,9 @@ class ChatToolFactory(
                         description = tool.description ?: "",
                         parameters = { tool.inputSchema },
                         needsApproval = { tool.needsApproval },
-                        executionMode = when {
-                            tool.readOnlyHint == true && tool.idempotentHint == true -> ToolExecutionMode.PARALLEL_DEDUPLICATED
-                            tool.readOnlyHint == true -> ToolExecutionMode.PARALLEL
-                            else -> ToolExecutionMode.SERIAL
-                        },
+                        // MCP 的 annotations 由服务器自报、不可信：readOnlyHint 只换来并发执行（每次调用照样执行），
+                        // 不据 idempotentHint 合并相同调用，免得自报不实时把真实执行吞掉
+                        executionMode = if (tool.readOnlyHint == true) ToolExecutionMode.PARALLEL else ToolExecutionMode.SERIAL,
                         execute = { mcpManager.callTool(serverId, tool.name, it.jsonObject) },
                     )
                 )
