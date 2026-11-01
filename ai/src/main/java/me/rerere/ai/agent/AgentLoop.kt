@@ -41,6 +41,7 @@ internal class AgentLoop(
 
     // 本轮的助手消息；新的一轮在第一次请求模型时才创建
     private var message: UIMessage?
+    private val loopGuard = ToolLoopGuard()
 
     init {
         val last = request.messages.lastOrNull()
@@ -166,9 +167,11 @@ internal class AgentLoop(
         }
         val requestTime = requestMark.elapsedNow()
         // 和流式一样只追加 part，不并进之前步骤的文本或推理里，否则 newPartsFrom 之后就不全是这一步的内容了。
+        // 追加前先给重复或空白的 toolCallId 换新 id，否则结果写回时会把之前步骤的工具结果一起覆盖掉。
         // 一次请求只有一份 usage；没有返回时保持为空，累加时沿用之前步骤的统计
+        val newParts = normalizeNewToolCallIds(base.parts, result.message.parts)
         val generated = base.copy(
-            parts = base.parts + result.message.parts,
+            parts = base.parts + newParts,
             annotations = result.message.annotations.ifEmpty { base.annotations },
             modelId = params.model.id,
             usage = result.usage,
@@ -201,6 +204,12 @@ internal class AgentLoop(
             while (index < pending.size && canRunInParallel(pending[index], blocked)) index++
             executeParallel(pending.subList(from, index))
         }
+        val current = checkNotNull(message)
+        val ids = pending.map { it.toolCallId }.toSet()
+        loopGuard.observe(current.getTools().filter { it.toolCallId in ids }) { name ->
+            findTool(name)?.takeUnless { it.repeatable }?.executionMode
+        }
+            ?.let { notice -> update(current.copy(parts = current.parts + notice)) }
     }
 
     private fun UIMessagePart.Tool.runs() =

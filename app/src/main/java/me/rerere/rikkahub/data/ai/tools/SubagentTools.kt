@@ -15,9 +15,13 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.ai.subagent.SUBAGENT_MAX_WAIT_TASKS
 import me.rerere.rikkahub.data.ai.subagent.SUBAGENT_RESULT_DEFAULT_LIMIT
 import me.rerere.rikkahub.data.ai.subagent.SUBAGENT_RESULT_MAX_LIMIT
+import me.rerere.rikkahub.data.ai.subagent.SUBAGENT_WAIT_MIN_PAGE
+import me.rerere.rikkahub.data.ai.subagent.SUBAGENT_WAIT_PAGE_BUDGET
+import me.rerere.rikkahub.data.ai.subagent.SubagentResultPage
 import me.rerere.rikkahub.data.ai.subagent.SubagentRunner
 import me.rerere.rikkahub.data.ai.subagent.SubagentTask
 import me.rerere.rikkahub.data.ai.subagent.resolveWaitTaskIds
+import me.rerere.rikkahub.data.ai.subagent.subagentWaitPageLimit
 import me.rerere.rikkahub.data.datastore.SubagentSettings
 import kotlin.uuid.Uuid
 
@@ -65,24 +69,29 @@ fun createSubagentTools(
         return if (raw <= 0) SUBAGENT_RESULT_DEFAULT_LIMIT else raw.coerceAtMost(SUBAGENT_RESULT_MAX_LIMIT)
     }
 
+    /** wait 侧单条额度：多任务按整体预算均分，避免一次 wait 倒进 8 份满页正文。 */
+    fun waitLimit(params: JsonObject, taskCount: Int): Int =
+        subagentWaitPageLimit(pageLimit(params), taskCount)
+
     fun pageOffset(params: JsonObject): Int =
         (params.string("offset")?.trim()?.toIntOrNull() ?: 0).coerceAtLeast(0)
 
-    /** 首次交付：带分页字段和这一页正文；之后同一个 task 的 wait 只给状态和读取提示。 */
-    fun waitEntry(task: SubagentTask, limit: Int): JsonObject {
-        if (task.isFinished && runner.isDelivered(task.id)) {
-            return buildJsonObject {
-                put("taskId", task.id)
-                put("status", task.status.name)
-                put("resultAvailable", runner.resultChars(task.id) > 0)
-                put("readHint", "Result was already returned once. Read it with subagent_result(task_id=\"${task.id}\", offset=…); it is still fully readable.")
-            }
-        }
-        val page = runner.readResult(task.id, 0, limit)
-            ?: error("Task not found: ${task.id}")
-        // 只有终态才算"结果已交付"；还在跑的任务下次 wait 仍应给最新内容，不能提前吞掉首次输出。
-        if (task.isFinished) runner.markDelivered(task.id)
-        return buildJsonObject {
+    /** 已交付过的任务：只给状态和读取提示，结果本身仍然可以分页读。 */
+    fun statusOnlyEntry(task: SubagentTask): JsonObject = buildJsonObject {
+        put("taskId", task.id)
+        put("status", task.status.name)
+        put("steps", task.steps)
+        put("resultAvailable", runner.resultChars(task.id) > 0)
+        put("delivered", true)
+        put(
+            "readHint",
+            "Result was already returned once. Read it with subagent_result(task_id=\"${task.id}\", offset=…); it is still fully readable.",
+        )
+    }
+
+    /** 首屏：状态 + 这一页正文 + 分页字段。 */
+    fun firstScreenEntry(task: SubagentTask, page: SubagentResultPage): JsonObject =
+        buildJsonObject {
             put("taskId", task.id)
             put("status", task.status.name)
             put("modelId", task.modelId?.toString() ?: "")
@@ -106,6 +115,22 @@ fun createSubagentTools(
                     "More output remains: subagent_result(task_id=\"${task.id}\", offset=${page.nextOffset})."
             })
         }
+
+    /** 首次交付：带分页字段和这一页正文；之后同一个 task 的 wait 只给状态和读取提示。 */
+    fun waitEntry(task: SubagentTask, limit: Int): JsonObject {
+        // 还在跑的任务永远给最新 partial，不参与交付占位。
+        if (!task.isFinished) {
+            val page = runner.readResult(task.id, 0, limit) ?: error("Task not found: ${task.id}")
+            return firstScreenEntry(task, page)
+        }
+        // 已经交付过就只回状态，不必读文件。
+        if (runner.isDelivered(task.id)) return statusOnlyEntry(task)
+        // 先读 page 再 claim：读失败时不能先把"已交付"占掉，否则结果被吞掉再也拿不到首屏。
+        // claimDelivery 是原子的：同 task 并发 wait 时只有一次 add 成功，其余走 status。
+        val page = runner.claimFirstScreenOnDelivery(task.id) {
+            runner.readResult(task.id, 0, limit) ?: error("Task not found: ${task.id}")
+        } ?: return statusOnlyEntry(task)
+        return firstScreenEntry(task, page)
     }
 
     val run = Tool(
@@ -116,6 +141,7 @@ fun createSubagentTools(
             append("Each task automatically posts one short completion notice (task id, status, steps, result size) into this conversation when it finishes, fails, times out or is cancelled — do not poll to detect completion. ")
             append("Read output with subagent_result, which pages long results ($SUBAGENT_RESULT_DEFAULT_LIMIT chars per page, max $SUBAGENT_RESULT_MAX_LIMIT); use subagent_wait (task_ids for up to $SUBAGENT_MAX_WAIT_TASKS tasks at once) to block until several tasks are done. ")
             append("The subagent has its own context and the same workspace/tool access (except subagent tools). ")
+            append("Task metadata and result.md are persisted on disk, so task ids stay readable after an app restart; a task interrupted by a restart is reported CANCELLED with a restart note and its partial output stays readable. ")
             append(modelHint)
         },
         parameters = {
@@ -175,7 +201,9 @@ fun createSubagentTools(
         description = buildString {
             append("Wait for one or more subagent tasks to finish, or until the wait timeout, and return their status. ")
             append("Pass task_ids (up to $SUBAGENT_MAX_WAIT_TASKS) to wait for several tasks in one call: they are awaited concurrently under a single shared timeout_sec, not one timeout each, and results come back in the order of the ids. ")
+            append("A task's first screen is delivered only once: if several waits race on the same task, exactly one gets the result text and the others get status plus a read hint. ")
             append("The first wait for a task returns the first $SUBAGENT_RESULT_DEFAULT_LIMIT characters of its result with offset/nextOffset/totalChars/eof/truncated. ")
+            append("When waiting for several tasks the first screens share one budget of about $SUBAGENT_WAIT_PAGE_BUDGET chars ($SUBAGENT_WAIT_MIN_PAGE minimum each), so a single-task wait may use up to $SUBAGENT_RESULT_MAX_LIMIT. ")
             append("Waiting again for a result that was already delivered returns only status, resultAvailable and a read hint — the result is not consumed, page through it with subagent_result instead of waiting again. ")
             append("Unknown task ids or ids from another conversation are rejected before waiting.")
         },
@@ -213,7 +241,8 @@ fun createSubagentTools(
             // 先校验全部归属再等待：未知 id 不能借等待去触碰别的会话。
             ids.forEach { owned(it) }
             val waitSec = params.string("timeout_sec")?.toIntOrNull() ?: 600
-            val limit = pageLimit(params)
+            // 多任务共用一份首屏预算：单条最多 12000，多条按整体预算均分。
+            val limit = waitLimit(params, ids.size)
             val tasks = runner.awaitAll(ids, waitSec)
             val entries = ids.mapIndexed { index, id ->
                 val task = tasks.getOrNull(index) ?: error("Task not found: $id")
@@ -261,8 +290,8 @@ fun createSubagentTools(
             val task = owned(id)
             val page = runner.readResult(id, pageOffset(params), pageLimit(params))
                 ?: error("Task not found: $id")
-            // 通过 result 读到也算交付，之后的 wait 只回状态 + 读取提示。
-            runner.markDelivered(id)
+            // 通过 result 读到也算交付，之后的 wait 只回状态 + 读取提示（原子占位，重复读不报错）。
+            runner.claimDelivery(id)
             val text = buildJsonObject {
                 page.toJsonObject().forEach { (key, value) -> put(key, value) }
                 put("modelId", task.modelId?.toString() ?: "")

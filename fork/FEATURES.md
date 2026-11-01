@@ -1,6 +1,6 @@
 # 相比官方 3.1.1：新增工作流、功能增强与限制
 
-对比功能增量的基线为官方 **3.1.1 / `ad2c4430`**；当前 **`3.1.1-fork.42 / 3000046`** 已跟进官方 master **`5ad19405`（2026-11-01）**，另带官方预览分支 `feat/background-shell`，数据库 schema 34。[本轮更新与说明](RELEASE-fork42.md)。不沿用早期版本的“官方没有”结论。
+对比功能增量的基线为官方 **3.1.1 / `ad2c4430`**；当前 **`3.1.1-fork.43 / 3000047`** 已跟进官方 master **`5ad19405`（2026-11-01）**，另带官方预览分支 `feat/background-shell`，数据库 schema 34。[本轮更新与说明](RELEASE-fork43.md)。不沿用早期版本的“官方没有”结论。
 
 ## 怎样数功能？
 
@@ -8,7 +8,7 @@
 
 一组按独立使用目的计数，不按按钮、端点或提交数凑数。旧版说明的“6 组新增”把单会话用量面板也计入了新增；此处明确将它归为官方统计功能的增强。ZIP 导入与导出合为一组文件迁移流程，不拆成两个数字。这是计数更准确，不是删掉功能。
 
-**fork.42 的工具调用层重做不计入组数。** 它没有新的使用目的，改的是已有工作流的调用方式（并发、去重、大输出读回、子代理结果分页、代码模式），因此单列一节，见下面的「fork.42：工具调用层重做」。`workspace_grep`/`workspace_glob`/`run_script` 这些新工具服务于同一个“在设备上做文件与会话工作”的目的，也不为了凑数拆成新组。
+**fork.43 的工具调用层重做不计入组数。** 它没有新的使用目的，改的是已有工作流的调用方式（并发、去重、大输出读回、子代理结果分页、代码模式），因此单列一节，见下面的「fork.43：工具调用层重做」。`workspace_grep`/`workspace_glob`/`run_script` 这些新工具服务于同一个“在设备上做文件与会话工作”的目的，也不为了凑数拆成新组。
 
 ## 五组新增工作流
 
@@ -16,9 +16,9 @@
 
 **官方已有**：模型调用、工具、MCP、Skills，以及会话历史检索。官方 3.1.1 没有本分支的子代理任务管理器。
 
-**本分支增加**：`subagent_run`、`subagent_wait`、`subagent_result`、`subagent_list`、`subagent_cancel`。每个任务独立上下文和模型，支持排队、超时、取消、结果与日志落盘。默认并发 4，可设置 1–8；fork.42 起按设备 `ActivityManager.memoryClass` 自动封顶（≥256MB 用配置值、≥192MB 最多 4、其余最多 2），因为每个子代理都有独立上下文与工具集，内部还带 `tool_batch` 的 8 路并发。
+**本分支增加**：`subagent_run`、`subagent_wait`、`subagent_result`、`subagent_list`、`subagent_cancel`。每个任务独立上下文和模型，支持排队、超时、取消、结果与日志落盘。默认并发 4，可设置 1–8；fork.43 起按设备 `ActivityManager.memoryClass` 自动封顶（≥256MB 用配置值、≥192MB 最多 4、其余最多 2），因为每个子代理都有独立上下文与工具集，内部还带 `tool_batch` 的 8 路并发。
 
-fork.42 起 `subagent_result` 支持分页：`offset`/`limit`，一页默认 6000、最多 12000 字符，回带 `nextOffset`/`totalChars`/`eof`；运行中、失败、超时、取消的任务都能读部分结果，不再只能一次性拿全文或日志。
+fork.43 起 `subagent_result` 支持分页：`offset`/`limit`，一页默认 6000、最多 12000 字符，回带 `nextOffset`/`totalChars`/`eof`；运行中、失败、超时、取消的任务都能读部分结果，不再只能一次性拿全文或日志。
 
 子代理可以按设置继承工作区、MCP 和官方历史工具；历史检索本身不算新增。fallback 只在尚未收到模型响应的安全边界尝试，不借重试重放已经执行的工具。
 
@@ -85,11 +85,11 @@ fork.40 起另带官方预览的后台命令（`workspace_shell` 的 `run_in_bac
 
 源码：[重试设置](../app/src/main/java/me/rerere/rikkahub/ui/pages/setting/RetryDelaySettings.kt)、[重试策略](../ai/src/main/java/me/rerere/ai/agent/Retry.kt)、[UsageSheet](../app/src/main/java/me/rerere/rikkahub/ui/pages/chat/UsageSheet.kt)、[UsageRecordDAO](../app/src/main/java/me/rerere/rikkahub/data/db/dao/UsageRecordDAO.kt)。
 
-## fork.42：工具调用层重做
+## fork.43：工具调用层重做
 
-**这部分改的是“怎么调用、怎么读回”，不是新的使用目的，所以不计入上面的 5 组 + 2 项。** 数字为代码里的阈值与上限；[受控工具测量](verification/fork42-benchmark.md)单列，不等于端到端模型加速或 token 收益。
+**这部分改的是“怎么调用、怎么读回”，不是新的使用目的，所以不计入上面的 5 组 + 2 项。** 数字为代码里的阈值与上限；[受控工具测量](verification/fork43-benchmark.md)单列，不等于端到端模型加速或 token 收益。
 
-| 机制 | 官方 3.1.1 | 本分支 fork.42 | 硬边界 |
+| 机制 | 官方 3.1.1 | 本分支 fork.43 | 硬边界 |
 |---|---|---|---|
 | 同批并发 | 工具调用按顺序执行 | 只读工具可重叠执行，并发上限 8；同批同名同参数的只读调用只跑一次、结果共享 | 写操作与语义未知的工具仍是顺序屏障；MCP 工具不按名字猜语义 |
 | `tool_batch` | 无 | 一次提交 1–16 个已规划调用，结果按调用顺序返回 | 成员失败只回错误字段；批内审批照样生效，判定异常时失败关闭；`ask_user`/`run_script`/`tool_batch` 不能进批 |
@@ -114,7 +114,7 @@ fork.40 起另带官方预览的后台命令（`workspace_shell` 的 `run_in_bac
 
 流式 1.5 秒节流落库、节点差分写入、超大消息完整分片回退、跨分支备份 staging 对齐、用量表归一化、记忆路径冲突保留、FTS 自检与对齐、工具全文可读性、技能元数据校验、通知身份和生命周期、SSH/HTTP 路由边界等。
 
-fork.42 另修了流式工具调用的 id 归属（不属于本步的输出直接丢弃，不再串到别的调用上）、参数增量缺失时的回退，以及分页窗口的偏移在裁剪前先转整型；MCP 调用不再因为服务器自称 `idempotentHint` 就被同批合并。见 [RELEASE-fork42.md](RELEASE-fork42.md)。
+fork.43 另修了流式工具调用的 id 归属（不属于本步的输出直接丢弃，不再串到别的调用上）、参数增量缺失时的回退，以及分页窗口的偏移在裁剪前先转整型；MCP 调用不再因为服务器自称 `idempotentHint` 就被同批合并。见 [RELEASE-fork43.md](RELEASE-fork43.md)。
 
 fork.41 修复 PRoot 里的命令结束不了：停止任务、shell 超时与取消、结束后台命令时，结束命令启动的整棵进程树，见 [RELEASE-fork41.md](RELEASE-fork41.md)。
 
@@ -126,10 +126,10 @@ fork.38 还用真实 Android 原生窗口发现了 requery 的特殊错误文本
 
 ## 验证与取舍
 
-**fork.42 的构建与测试结果尚未定稿。** 维护者正在排查 CI，这里不写“全部测试通过”，也没有安装包校验值。本版能确认的是：版本 `3.1.1-fork.42` / `3000046`、schema 34 无新迁移，改动落在工具调度、MCP 目录、输出外置、子代理、工作区搜索/按行读、`run_script` 与提示词稳定性上。**速度与 token 用量没有测量**，上一版 fork.41 的 CI 数据（JVM 1352 项、模拟器 50 项、R8 + lintVital）不能当作本版结果。
+**fork.43 的构建与测试结果尚未定稿。** 维护者正在排查 CI，这里不写“全部测试通过”，也没有安装包校验值。本版能确认的是：版本 `3.1.1-fork.43` / `3000047`、schema 34 无新迁移，改动落在工具调度、MCP 目录、输出外置、子代理、工作区搜索/按行读、`run_script` 与提示词稳定性上。**速度与 token 用量没有测量**，上一版 fork.41 的 CI 数据（JVM 1352 项、模拟器 50 项、R8 + lintVital）不能当作本版结果。
 
 fork.38 另做过 Python 11、SQLite 模拟 38 及 Unicode 分片检查。用户真机生产数据库升级、厂商通知与锁屏保活始终未验。
 
 这个分支用更多设置、工具和后台逻辑换取可操作性；不提升模型本身的智力，也不保证更快或更便宜。新增的并发、去重、外置与分页是为了少重复、少浪费上下文，不是已测出的性能收益。不需要这些增量时，官方版更省心。
 
-[本版更新与说明](RELEASE-fork42.md) · [上一版更新与验收](RELEASE-fork41.md) · [历史记录](CHANGES.md) · [维护方法](README.md) · [修改声明](../NOTICE.md)
+[本版更新与说明](RELEASE-fork43.md) · [上一版更新与验收](RELEASE-fork41.md) · [历史记录](CHANGES.md) · [维护方法](README.md) · [修改声明](../NOTICE.md)

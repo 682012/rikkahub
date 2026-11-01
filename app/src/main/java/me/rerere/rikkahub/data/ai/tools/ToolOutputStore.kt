@@ -464,6 +464,9 @@ class ToolOutputStore(
         }
 
         val textFile = File(baseDir, "${manifest.id}$TEXT_SUFFIX")
+        if (textFile.canonicalFile.parentFile != baseDir.canonicalFile) {
+            return ReadResult.Failed("Output file is outside this store.")
+        }
         if (!textFile.isFile) return cleanedUp(outputId, textFile, manifest)
 
         // 总字符数信 manifest：它是写盘那一刻的 fullText.length，不需要为了报个数把文件读一遍

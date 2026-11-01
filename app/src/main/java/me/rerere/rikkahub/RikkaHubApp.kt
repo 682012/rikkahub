@@ -223,7 +223,11 @@ class RikkaHubApp : Application() {
             runCatching {
                 // fork: 按天/按量清理，不再整目录删。ToolOutputStore 承诺「重启后仍可读回」，
                 // 冷启动 deleteRecursively() 会让历史消息里的 output_id 回执全部失效。
-                pruneToolOutputs(File(filesDir, FileFolders.TOOL_OUTPUTS))
+                // 合并远端诉求：目录本身必须始终存在（PRoot bind source 要跨启动保留），
+                // 已提交的 .txt/.json 属于会话历史，只有过保留期/超上限才摘掉（含 .tmp 孤儿）。
+                val dir = File(filesDir, FileFolders.TOOL_OUTPUTS)
+                dir.mkdirs()
+                pruneToolOutputs(dir)
             }.onFailure {
                 Log.w(TAG, "cleanupToolOutputs failed", it)
             }

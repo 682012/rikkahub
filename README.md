@@ -2,25 +2,25 @@
 
 基于 [RikkaHub 官方 3.1.1](https://github.com/rikkahub/rikkahub/tree/3.1.1) 的非官方分支。保留官方聊天客户端，重点补上**多代理协作、后台长任务、自动压缩、工作区文件迁移，以及工具调用层的调用效率与可读性**。
 
-**当前版本：`3.1.1-fork.42` / `3000046` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
+**当前版本：`3.1.1-fork.43` / `3000047` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
 
 官方最新稳定版仍为 3.1.1。本版没有跟进新的官方提交（仍以 master `5ad19405` 为基线），改动集中在工具调用层；另保留官方尚未合入 master 的后台命令（预览）。
 
 > 与官方团队没有隶属关系。本仓库记录个人修改，并在 GitHub Releases 保存已验安装包，方便重复下载；不提供官方或面向终端用户的技术支持。官方渠道下载的是官方版，不是此分支。上游版权与 AGPL-3.0 许可证保持不变。
 
-[完整功能对比](fork/FEATURES.md) · [fork.42 更新与说明](fork/RELEASE-fork42.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
+[完整功能对比](fork/FEATURES.md) · [fork.43 更新与说明](fork/RELEASE-fork43.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
 
 ## 下载与重复使用
 
-**本版安装包与校验值待构建后填写。** fork.42 的构建与验收尚未定稿，这里不写没有核对过的文件大小与 SHA-256；[最新正式版](https://github.com/682012/rikkahub/releases/latest) 目前仍是 fork.41，[全部版本](https://github.com/682012/rikkahub/releases) 保留每个版本固定的 tag、源码、APK 与校验文件。
+**本版安装包与校验值待构建后填写。** fork.43 的构建与验收尚未定稿，这里不写没有核对过的文件大小与 SHA-256；[最新正式版](https://github.com/682012/rikkahub/releases/latest) 目前仍是 fork.41，[全部版本](https://github.com/682012/rikkahub/releases) 保留每个版本固定的 tag、源码、APK 与校验文件。
 
 固定版本链接不会随 nightly 被覆盖；每个正式版本保留对应源码 tag、APK 与校验文件。直接安装不需要编译环境，也不会附带维护者的聊天、账号或服务凭据。
 
-同包名、同签名的 fork.36–41 可按常规覆盖升级，先备份聊天和设置；不要为升级先卸载。官方包与本分支不同，不能直接覆盖官方版。需要重新编译时见 [构建与维护](fork/README.md)，签名密钥和本机配置自行准备。
+同包名、同签名的 fork.36–42 可按常规覆盖升级，先备份聊天和设置；不要为升级先卸载。官方包与本分支不同，不能直接覆盖官方版。需要重新编译时见 [构建与维护](fork/README.md)，签名密钥和本机配置自行准备。
 
 ## 相比官方，到底增加了什么？
 
-**按独立使用场景分为 5 组新增工作流、2 项主要功能增强，稳定性修复另列。** 这不是按按钮或提交数统计，也不把官方已有功能算成分支原创。fork.42 重做了工具调用层，改的是“怎么调用、怎么读回”，没有新增使用目的，因此不改变这里的组数。
+**按独立使用场景分为 5 组新增工作流、2 项主要功能增强，稳定性修复另列。** 这不是按按钮或提交数统计，也不把官方已有功能算成分支原创。fork.43 重做了工具调用层，改的是“怎么调用、怎么读回”，没有新增使用目的，因此不改变这里的组数。
 
 | 分类 | 能力 | 官方 3.1.1 已有 | 本分支的增量 |
 |---|---|---|---|
@@ -34,7 +34,7 @@
 
 计数说明：单会话用量面板是官方统计能力的增强；ZIP 是新增迁移流程，不代表官方没有文件导出。前两组共增加 **5 个子代理工具 + 3 个后台任务工具**，不能再把它们分别算成 8 组功能。[计数与源码依据 →](fork/FEATURES.md)
 
-## fork.42：工具调用层重做
+## fork.43：工具调用层重做
 
 **这一版没有新的使用目的，改的是“一次回复里怎么调工具、大输出怎么读回来”。下面的数字都是代码里的硬上限，不是实测加速；没有端到端模型耗时或令牌账单对比。**
 
@@ -53,7 +53,7 @@
 
 **这些改动不承诺更快或更省 token。** 并发、去重、外置、分页都是“少一次重复上下文、少一轮多余调用”的机制，实际效果取决于模型、工具组合和任务本身；受控 mock 工具的返回字符数已测量，见下方链接；没有端到端模型收益数据。
 
-[改动细节与文件级说明 →](fork/RELEASE-fork42.md) · [受控工具测量](fork/verification/fork42-benchmark.md)
+[改动细节与文件级说明 →](fork/RELEASE-fork43.md) · [受控工具测量](fork/verification/fork43-benchmark.md)
 
 ## fork.41 修复：结束命令时真正结束进程
 
@@ -108,7 +108,7 @@ SSH入口：**设置 → 扩展 → 工作区 → 加号 → SSH远程工作区*
 
 | 本轮已确认 | 状态 |
 |---|---|
-| 版本与数据库 | `3.1.1-fork.42` / `3000046`；schema 34，本版没有数据库迁移（`app/build.gradle.kts`、`AppDatabase`）|
+| 版本与数据库 | `3.1.1-fork.43` / `3000047`；schema 34，本版没有数据库迁移（`app/build.gradle.kts`、`AppDatabase`）|
 | 改动范围 | 工具调度与重复调用、MCP 精简目录、输出外置与分页、子代理并发与结果分页、工作区搜索/按行读、`run_script`、提示词与缓存前缀稳定性 |
 | 构建 | TODO：待主分支 CI 完成后填入 run 号与 R8/lintVital 结果 |
 | 测试 | TODO：待填入 JVM 与模拟器计数 |
@@ -132,10 +132,10 @@ SSH入口：**设置 → 扩展 → 工作区 → 加号 → SSH远程工作区*
 
 ## 维护与许可
 
-功能增量对比基线为官方 **3.1.1 / `ad2c4430`**；当前已合入截至 2026-11-01 的官方 master **`5ad19405`**，fork.42 没有再跟进新提交，也不承诺永远领先后续官方版本。`master` 保留上游镜像，`fork/3.1.0` 与 `fork/3.0.0` 是历史分支。
+功能增量对比基线为官方 **3.1.1 / `ad2c4430`**；当前已合入截至 2026-11-01 的官方 master **`5ad19405`**，fork.43 没有再跟进新提交，也不承诺永远领先后续官方版本。`master` 保留上游镜像，`fork/3.1.0` 与 `fork/3.0.0` 是历史分支。
 
 [构建与回退](fork/README.md) · [AGPL-3.0](LICENSE) · [个人分支声明](DISCLAIMER.md) · [修改记录](NOTICE.md)
 
 ### English summary
 
-Unofficial personal fork of RikkaHub **3.1.1**, based on upstream master **5ad19405 (2026-11-01)**. Preserves subagents, background jobs, HTTP execution, automatic compression, ZIP migration, configurable retries and per-chat usage. **fork.42 reworks the tool-calling layer**: concurrent independent read calls with same-batch dedup and serial barriers, a compact MCP catalog with `tool_search`/`tool_call`, offloaded large outputs with paged read-back, paged subagent results with memory-aware concurrency, collapse of repeated tool results, `workspace_grep`/`workspace_glob` and paged file reads, and `run_script` for read-only tool chains. `run_script` cannot reach shell, MCP, writes or subagents, and none of this is a measured speed or token guarantee. **Build and test results for this version are not final yet** — no checksums or "all tests passed" claims are made here. Signed packages and checksums live in [GitHub Releases](https://github.com/682012/rikkahub/releases); no end-user support is offered. See the [release notes](fork/RELEASE-fork42.md) for boundaries.
+Unofficial personal fork of RikkaHub **3.1.1**, based on upstream master **5ad19405 (2026-11-01)**. Preserves subagents, background jobs, HTTP execution, automatic compression, ZIP migration, configurable retries and per-chat usage. **fork.43 reworks the tool-calling layer**: concurrent independent read calls with same-batch dedup and serial barriers, a compact MCP catalog with `tool_search`/`tool_call`, offloaded large outputs with paged read-back, paged subagent results with memory-aware concurrency, collapse of repeated tool results, `workspace_grep`/`workspace_glob` and paged file reads, and `run_script` for read-only tool chains. `run_script` cannot reach shell, MCP, writes or subagents, and none of this is a measured speed or token guarantee. **Build and test results for this version are not final yet** — no checksums or "all tests passed" claims are made here. Signed packages and checksums live in [GitHub Releases](https://github.com/682012/rikkahub/releases); no end-user support is offered. See the [release notes](fork/RELEASE-fork43.md) for boundaries.

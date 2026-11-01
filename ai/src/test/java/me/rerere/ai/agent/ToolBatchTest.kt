@@ -226,6 +226,28 @@ class ToolBatchTest {
     }
 
     @Test
+    fun `parallel reads cap the concurrency at eight`() = runTest {
+        var active = 0
+        var peak = 0
+        val read = batchTool("read", ToolExecutionMode.PARALLEL) {
+            active++
+            peak = maxOf(peak, active)
+            delay(100)
+            active--
+            text("done:" + argString(it, "n"))
+        }
+        val batch = createToolBatch(listOf(read))
+        val calls = (1..16).map { n -> call("read", """{"n":"$n"}""") }
+
+        val results = batch.execute(batchInput(*calls.toTypedArray())).results()
+
+        // 16 个只读调用要真正并发推进，但并发度封顶 8（避免一次把 Provider/磁盘打满）。
+        assertEquals("并发度应封顶在 8", 8, peak)
+        assertEquals(16, results.size)
+        assertEquals((0 until 16).toList(), results.map { it.resultIndex() })
+    }
+
+    @Test
     fun `a write between reads is a full ordering barrier inside the batch`() = runTest {
         val log = mutableListOf<String>()
         val read = batchTool("read", ToolExecutionMode.PARALLEL) {
@@ -281,6 +303,25 @@ class ToolBatchTest {
     }
 
     @Test
+    fun `deduplication does not leak across executions`() = runTest {
+        val runs = AtomicInteger()
+        val read = batchTool("read", ToolExecutionMode.PARALLEL_DEDUPLICATED) {
+            runs.incrementAndGet()
+            text("fresh")
+        }
+        val batch = createToolBatch(listOf(read))
+        val input = batchInput(
+            call("read", """{"path":"a"}"""),
+            call("read", """{"path":"a"}"""),
+        )
+
+        assertEquals(2, batch.execute(input).results().size)
+        assertEquals("批内相同参数只执行一次", 1, runs.get())
+        batch.execute(input)
+        assertEquals("去重只在一批内生效，下一次执行必须重新跑", 2, runs.get())
+    }
+
+    @Test
     fun `plain parallel members with identical arguments still run twice`() = runTest {
         val runs = AtomicInteger()
         val read = batchTool("read", ToolExecutionMode.PARALLEL) {
@@ -315,6 +356,29 @@ class ToolBatchTest {
         val failure = results[0].resultOutputs().joinToString("")
         assertTrue("失败要作为 error 字段回给模型：$failure", failure.contains("error"))
         assertTrue("要带上异常信息：$failure", failure.contains("kaboom"))
+        assertEquals(listOf("fine"), results[1].resultOutputs())
+    }
+
+    @Test
+    fun `a member throwing an error is contained like any other failure`() = runTest {
+        val executed = mutableListOf<String>()
+        val fatal = batchTool("fatal", ToolExecutionMode.SERIAL) {
+            executed += "fatal"
+            throw StackOverflowError("boom")
+        }
+        val read = batchTool("read", ToolExecutionMode.SERIAL) {
+            executed += "read"
+            text("fine")
+        }
+        val batch = createToolBatch(listOf(fatal, read))
+
+        val results = batch.execute(batchInput(call("fatal"), call("read"))).results()
+
+        // 成员抛出的是 Error 而不是 Exception 时也必须只算单项失败，不能掀掉整批。
+        assertEquals("Error 之后其余成员仍要执行", listOf("fatal", "read"), executed)
+        val failure = results[0].resultOutputs().joinToString("")
+        assertTrue("要变成 error 字段：$failure", failure.contains("error"))
+        assertTrue("要带上异常类型：$failure", failure.contains("StackOverflowError"))
         assertEquals(listOf("fine"), results[1].resultOutputs())
     }
 
