@@ -165,3 +165,41 @@ jobs:
           name: instrumented-test-results
           retention-days: 7
           path: app/build/outputs/androidTest-results/**
+
+  upgrade:
+    name: Signed fork.43 to r1 upgrade (API 34)
+    needs: release
+    # This fixed-source transition check is specific to the r1 release branch.
+    if: startsWith(github.ref_name, 'ci/r1-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-apk
+          path: upgrade-apk
+      - name: Get immutable previous release
+        run: |
+          curl --fail --location --retry 2 -o fork43.apk https://github.com/682012/rikkahub/releases/download/v3.1.1-fork.43/rikkahub-3.1.1-fork.43.apk
+          echo '14905740a7649da27c5e1d8cade74059d46b482cad42629c56b5a986f8e9f3d1  fork43.apk' | sha256sum -c -
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Upgrade and launch actual signed APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash .github/scripts/verify-r1-upgrade.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: upgrade-results
+          retention-days: 7
+          path: upgrade-results/**

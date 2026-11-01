@@ -42,7 +42,7 @@ import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.useThrottle
 import me.rerere.rikkahub.ui.pages.chat.ChatVM
 import me.rerere.rikkahub.utils.UpdateDownload
-import me.rerere.rikkahub.utils.Version
+import me.rerere.rikkahub.utils.compareForkVersions
 import me.rerere.rikkahub.utils.onError
 import me.rerere.rikkahub.utils.onSuccess
 import me.rerere.rikkahub.utils.toLocalDateTime
@@ -80,9 +80,10 @@ fun UpdateCard(vm: ChatVM) {
     state.onSuccess { info ->
         var showDetail by remember { mutableStateOf(false) }
         var dismissed by remember { mutableStateOf(false) }
-        val current = remember { Version(BuildConfig.VERSION_NAME) }
-        val latest = remember(info) { Version(info.version) }
-        if (latest > current && !dismissed) {
+        val hasUpdate = remember(info.version) {
+            compareForkVersions(info.version, BuildConfig.VERSION_NAME) > 0
+        }
+        if (hasUpdate && !dismissed) {
             Card(
                 onClick = {
                     showDetail = true

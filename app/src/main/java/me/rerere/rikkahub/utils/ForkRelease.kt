@@ -4,6 +4,9 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.util.Locale
 
+// Stable releases of this maintained branch. Upstream and nightly builds are excluded.
+private val FORK_VERSION = Regex("""\d+\.\d+\.\d+-(?:fork\.\d+|r[1-9]\d*)""")
+
 /** GitHub's release response, converted to the existing update UI contract. */
 @Serializable
 internal data class ForkRelease(
@@ -14,8 +17,12 @@ internal data class ForkRelease(
 ) {
     fun toUpdateInfo(): UpdateInfo {
         val version = tagName.removePrefix("v")
-        require(version.contains("-fork.")) { "The release is not a RikkaHub fork build" }
-        val downloads = assets.filter { it.name.endsWith(".apk", ignoreCase = true) }.map {
+        require(FORK_VERSION.matches(version)) { "The release is not a RikkaHub maintained build" }
+        val apkName = Regex("^rikkahub-${Regex.escape(version)}(?:-(?:arm64-v8a|x86_64|universal))?\\.apk$")
+        val downloads = assets.filter {
+            apkName.matches(it.name) && it.size > 0 &&
+                it.downloadUrl == "https://github.com/682012/rikkahub/releases/download/$tagName/${it.name}"
+        }.map {
             UpdateDownload(
                 name = it.name,
                 url = it.downloadUrl,

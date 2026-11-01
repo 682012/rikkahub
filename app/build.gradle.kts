@@ -26,8 +26,9 @@ android {
         applicationId = "me.rerere.rikkahub.fork"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3000047
-        versionName = "3.1.1-fork.43"
+        // Visible version follows upstream; the Android code remains monotonic.
+        versionCode = 3000048
+        versionName = "3.1.1-r1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
