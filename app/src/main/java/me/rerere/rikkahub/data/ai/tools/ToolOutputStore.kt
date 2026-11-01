@@ -497,7 +497,8 @@ class ToolOutputStore(
         // 文件被外部截断时以实际长度为准，否则模型会一直拿到空页却看到 eof=false
         val totalChars = if (reachedEof) windowStart + window.length else hintedTotal
         // 窗口可能比预期短（文件被截断）：所有下标都要夹在窗口内，否则 substring 会越界
-        val localRequested = (offset - windowStart).coerceIn(0, window.length)
+        // offset < hintedTotal（Int）已在上面保证，差值只会是 0 或 1，转 Int 安全
+        val localRequested = (offset - windowStart).toInt().coerceIn(0, window.length)
         val localStart = alignPageStart(window, localRequested)
         val localEnd = pageEndFor(window, localStart, pageLimit).coerceIn(localStart, window.length)
         val start = windowStart + localStart
