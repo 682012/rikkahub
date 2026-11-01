@@ -1,0 +1,120 @@
+{
+  "version": "3.1.1-fork.43",
+  "versionCode": 3000047,
+  "schema": 34,
+  "base": {
+    "release": "v3.1.1-fork.42",
+    "commit": "4a3d6ab9b1e2513bb177aa2b480ba4c2db70323c"
+  },
+  "upstreamMaster": "5ad19405c1a14899c69bb92e249a3adb3f65fbbd",
+  "buildCommit": "76f7c389035fb6f27696ee5daa75351074bc6334",
+  "ci": {
+    "workflow": "Fork Verify",
+    "run": 41325551257,
+    "jobs": {
+      "Signed release (R8 + lintVital)": "success",
+      "Android instrumented tests (API 34)": "success",
+      "JVM unit tests": "success"
+    }
+  },
+  "jvm": {
+    "suites": 216,
+    "tests": 1561,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 1,
+    "skippedTests": [
+      "me.rerere.document.pdf.PdfCorpusTest.extractCorpus"
+    ]
+  },
+  "instrumented": {
+    "suites": 14,
+    "tests": 54,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "keyTests": {
+    "me.rerere.ai.agent.AgentToolSchedulingTest": {
+      "tests": 15,
+      "failed": 0,
+      "skipped": 0
+    },
+    "me.rerere.ai.agent.ToolBatchTest": {
+      "tests": 19,
+      "failed": 0,
+      "skipped": 0
+    },
+    "me.rerere.ai.agent.ToolRepetitionTest": {
+      "tests": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    "me.rerere.ai.provider.providers.claude.ClaudePromptCacheRequestTest": {
+      "tests": 11,
+      "failed": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.prompts.MemoryPromptTest": {
+      "tests": 5,
+      "failed": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.subagent.SubagentConcurrencyTest": {
+      "tests": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.tools.CompactMcpToolsTest": {
+      "tests": 21,
+      "failed": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.tools.ToolOutputStoreTest": {
+      "tests": 26,
+      "failed": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.tools.WorkspaceSearchToolsTest": {
+      "tests": 3,
+      "failed": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.tools.local.JavascriptToolTest": {
+      "tests": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.tools.local.ScriptToolTest": {
+      "tests": 15,
+      "failed": 0,
+      "skipped": 0
+    },
+    "me.rerere.workspace.WorkspaceSearchTest": {
+      "tests": 33,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  "approvalPreviewTests": {
+    "tests": 4,
+    "failed": 0,
+    "skipped": 0
+  },
+  "apk": {
+    "file": "rikkahub-3.1.1-fork.43.apk",
+    "bytes": 18999938,
+    "sha256": "14905740a7649da27c5e1d8cade74059d46b482cad42629c56b5a986f8e9f3d1",
+    "certSha256": "cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89",
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ],
+    "r8": true,
+    "lintVital": true
+  },
+  "boundaries": {
+    "deviceRetest": false,
+    "endToEndModelPerformance": false
+  }
+}

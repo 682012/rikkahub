@@ -12,7 +12,7 @@
 
 ## 下载与重复使用
 
-**本版安装包与校验值待构建后填写。** fork.43 的构建与验收尚未定稿，这里不写没有核对过的文件大小与 SHA-256；[最新正式版](https://github.com/682012/rikkahub/releases/latest) 目前仍是 fork.41，[全部版本](https://github.com/682012/rikkahub/releases) 保留每个版本固定的 tag、源码、APK 与校验文件。
+**[下载 fork.43 通用 APK（18.1 MiB）](https://github.com/682012/rikkahub/releases/download/v3.1.1-fork.43/rikkahub-3.1.1-fork.43.apk)** · [版本说明与 SHA-256](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.43) · [最新正式版](https://github.com/682012/rikkahub/releases/latest)
 
 固定版本链接不会随 nightly 被覆盖；每个正式版本保留对应源码 tag、APK 与校验文件。直接安装不需要编译环境，也不会附带维护者的聊天、账号或服务凭据。
 
@@ -104,18 +104,16 @@ SSH入口：**设置 → 扩展 → 工作区 → 加号 → SSH远程工作区*
 
 ## 验证到哪里了？
 
-**本轮的构建与测试结果尚未定稿。** 维护者正在排查 CI，没有拿到可引用的完整运行；这里不写“全部测试通过”，也不提供安装包校验值。
-
-| 本轮已确认 | 状态 |
+| 检查 | 真实结果 |
 |---|---|
-| 版本与数据库 | `3.1.1-fork.43` / `3000047`；schema 34，本版没有数据库迁移（`app/build.gradle.kts`、`AppDatabase`）|
-| 改动范围 | 工具调度与重复调用、MCP 精简目录、输出外置与分页、子代理并发与结果分页、工作区搜索/按行读、`run_script`、提示词与缓存前缀稳定性 |
-| 构建 | TODO：待主分支 CI 完成后填入 run 号与 R8/lintVital 结果 |
-| 测试 | TODO：待填入 JVM 与模拟器计数 |
-| 安装包 | TODO：待填入大小、SHA-256 与签名证书核对结果 |
-| 速度/令牌 | **未测量**：本版没有做过耗时或 token 用量对比 |
+| 正式构建 | [Fork Verify run 41325551257](https://github.com/682012/rikkahub/actions/runs/41325551257)；R8 + lintVital 通过 |
+| JVM | 216 suites、1561 项，1560 通过，0 失败、0 错误，1 项跳过 |
+| Android | API 34 x86_64，54 项，0 失败、0 错误、0 跳过 |
+| 审批预览 | 4 项：完整参数、真实滚动、320dp 窄屏、待审批聊天集成 |
+| 签名与版本 | 证书与前版一致；3.1.1-fork.43 / 3000047；schema 34 无新迁移 |
+| 未验证 | 用户真机升级、厂商后台行为、端到端模型 token/费用/耗时对比 |
 
-上一版 fork.41 的验收（GitHub Actions run 41294941469：JVM 1352 项、模拟器 50 项、R8 + lintVital 通过）见 [RELEASE-fork41.md](fork/RELEASE-fork41.md)，**不能当作本版结果**。
+[完整验收与边界](fork/RELEASE-fork43.md) · [机器可读摘要](fork/verification/fork43.json)
 
 ## 使用前知道这些限制
 
@@ -138,4 +136,4 @@ SSH入口：**设置 → 扩展 → 工作区 → 加号 → SSH远程工作区*
 
 ### English summary
 
-Unofficial personal fork of RikkaHub **3.1.1**, based on upstream master **5ad19405 (2026-11-01)**. Preserves subagents, background jobs, HTTP execution, automatic compression, ZIP migration, configurable retries and per-chat usage. **fork.43 reworks the tool-calling layer**: concurrent independent read calls with same-batch dedup and serial barriers, a compact MCP catalog with `tool_search`/`tool_call`, offloaded large outputs with paged read-back, paged subagent results with memory-aware concurrency, collapse of repeated tool results, `workspace_grep`/`workspace_glob` and paged file reads, and `run_script` for read-only tool chains. `run_script` cannot reach shell, MCP, writes or subagents, and none of this is a measured speed or token guarantee. **Build and test results for this version are not final yet** — no checksums or "all tests passed" claims are made here. Signed packages and checksums live in [GitHub Releases](https://github.com/682012/rikkahub/releases); no end-user support is offered. See the [release notes](fork/RELEASE-fork43.md) for boundaries.
+Unofficial personal fork of RikkaHub **3.1.1**, based on upstream master **5ad19405 (2026-11-01)**. Preserves subagents, background jobs, HTTP execution, automatic compression, ZIP migration, configurable retries and per-chat usage. **fork.43 reworks the tool-calling layer**: concurrent independent read calls with same-batch dedup and serial barriers, a compact MCP catalog with `tool_search`/`tool_call`, offloaded large outputs with paged read-back, paged subagent results with memory-aware concurrency, collapse of repeated tool results, `workspace_grep`/`workspace_glob` and paged file reads, and `run_script` for read-only tool chains. `run_script` cannot reach shell, MCP, writes or subagents, and none of this is a measured speed or token guarantee. GitHub Actions run 41325551257: 1561 JVM tests (1 skipped), 54 Android emulator tests, and signed R8/lintVital release build; no failures. Signed packages and checksums live in [GitHub Releases](https://github.com/682012/rikkahub/releases); no end-user support is offered. See the [release notes](fork/RELEASE-fork43.md) for boundaries.

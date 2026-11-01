@@ -11,10 +11,10 @@
 | 当前版本 | `3.1.1-fork.43` / `3000047` |
 | 包名 | `me.rerere.rikkahub.fork` |
 | 数据库 | schema 34；与 fork.37 相同，不与官方编号混用 |
-| 已验发布构建 | TODO：待主分支 CI 完成后填入（R8 release，arm64-v8a + x86_64 通用包，字节数与 run 号） |
-| 构建 SHA-256 | TODO：待填入 |
+| 已验发布构建 | R8 release，arm64-v8a + x86_64 通用包，18,999,938 字节，run 41325551257 |
+| 构建 SHA-256 | `14905740a7649da27c5e1d8cade74059d46b482cad42629c56b5a986f8e9f3d1` |
 
-`master` 是上游镜像，旧 fork 分支是历史版本。每个正式版的已验原包保存在对应 Release（当前 [最新正式版](https://github.com/682012/rikkahub/releases/latest) 仍是 fork.41），附 APK 与 SHA256SUMS；旧 nightly 不代表当前已验安装包。fork.40 起由 GitHub Actions `Fork Verify` 构建签名；旧包保留，不触发旧 nightly，也不替换其资产。fork.43 的包与校验值尚未发布，本页不预先填写大小或哈希。
+`master` 是上游镜像，旧 fork 分支是历史版本。每个正式版的已验原包保存在对应 Release（当前 [最新正式版](https://github.com/682012/rikkahub/releases/latest) 为 fork.43），附 APK 与 SHA256SUMS；旧 nightly 不代表当前已验安装包。fork.40 起由 GitHub Actions `Fork Verify` 构建签名；旧包保留，不触发旧 nightly，也不替换其资产。fork.43 的包与校验值由本次验收产物生成。
 
 ## 重复下载、复用与后续维护
 
@@ -82,3 +82,7 @@ keyPassword=<local-secret>
 升级前备份聊天、设置和工作区。用 Git 历史或已验源码包回退代码；设备数据库必须单独处理，不要为了降级先卸载 App 再找数据。
 
 ZIP 迁移只覆盖文件区，不含 Rootfs/数据库/整机；旧包未保存的符号链接和权限无法恢复。跨分支备份对齐只修改 staging 副本，不承诺所有分支业务数据都兼容。
+
+## 并行维护与版本号
+
+开始维护和发布前核对远端维护分支、最新 Release 与标签；先合并远端已生效的修复，再选未占用的版本号。已发布 tag、APK 和历史验收不覆盖。若已有同名资产，发布脚本先比对摘要，不同就拒绝，不能拿新包冒用旧版本。CI 构建提交与最终文档提交分开记录；最终 tag 相对已验构建只能增加说明和验收文件。

@@ -88,19 +88,24 @@
 
 ## 本次运行的检查
 
-TODO：由主分支在 CI 完成后填入运行编号与真实结果（JVM 数量、模拟器数量、R8 + lintVital、签名证书核对）。维护者当前正在排查 CI，**本文件不写“全部测试通过”**。
+| 检查 | 真实结果 |
+|---|---|
+| 正式构建 | [Fork Verify run 41325551257](https://github.com/682012/rikkahub/actions/runs/41325551257)；R8 + lintVital 通过 |
+| JVM | 216 suites、1561 项，1560 通过，0 失败、0 错误，1 项跳过 |
+| Android | API 34 x86_64，54 项，0 失败、0 错误、0 跳过 |
+| 审批预览 | 4 项：完整参数、真实滚动、320dp 窄屏、待审批聊天集成 |
+| 签名与版本 | 证书与前版一致；3.1.1-fork.43 / 3000047；schema 34 无新迁移 |
+| 未验证 | 用户真机升级、厂商后台行为、端到端模型 token/费用/耗时对比 |
 
-本版未在用户真机上运行，也没有端到端模型请求对比。
+真机安装及真实模型对比尚未执行。
 
 ## 安装包
 
-TODO：由主分支在构建完成后填入。
+- 文件：`rikkahub-3.1.1-fork.43.apk`，通用包 arm64-v8a + x86_64
+- 大小：18,999,938 字节（18.1 MiB）
+- SHA-256：`14905740a7649da27c5e1d8cade74059d46b482cad42629c56b5a986f8e9f3d1`
+- 签名证书 SHA-256：`cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89`
+- 构建源码：`76f7c389035fb6f27696ee5daa75351074bc6334`；发布 tag 的后续提交仅改文档，APK 代码与此提交一致
+- [固定版本 Release](https://github.com/682012/rikkahub/releases/tag/v3.1.1-fork.43) · [下载 APK](https://github.com/682012/rikkahub/releases/download/v3.1.1-fork.43/rikkahub-3.1.1-fork.43.apk) · [机器可读验收](verification/fork43.json)
 
-- 文件：`rikkahub-3.1.1-fork.43.apk`（通用包，arm64-v8a + x86_64）
-- 大小：TODO
-- SHA-256：TODO
-- 签名证书 SHA-256：TODO（与前版同签名才可直接覆盖升级）
-- 构建源码：TODO
-- Release：固定版本 tag 待发布；[最新正式版](https://github.com/682012/rikkahub/releases/latest) 当前仍是 fork.41
-
-旧版本 Release 全部保留，不被覆盖。
+同包名、同签名可覆盖升级，不必卸载；旧版本 Release 保留。

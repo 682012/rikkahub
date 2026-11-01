@@ -17,7 +17,7 @@
 - 提示词与缓存前缀：Claude messages 断点落在最后一条消息内容块（system/tools 各 1、messages 最多 2，顶层自动断点只作兜底）；`AGENTS.md` 按 mtime/size 缓存；记忆清单去掉更新日期；工具使用规范按工作区后端固定成几句
 - 其他加固：流式工具调用的 id 归属与参数增量回退；无归属的 `ToolCallOutput` 丢弃而不污染本步
 - 版本 3.1.1-fork.43 / 3000047，schema 34 不变（无新迁移）；本轮没有跟进新的官方提交，基线仍是 master `5ad19405`
-- 构建与测试结果尚未定稿（维护者排查 CI 中），本轮也没有做速度/令牌测量；详见 [RELEASE-fork43.md](RELEASE-fork43.md)
+- GitHub Actions run 41325551257：JVM 1561 项、Android 54 项，0 失败；R8 + lintVital 通过；未做端到端模型速度/令牌测量；详见 [RELEASE-fork43.md](RELEASE-fork43.md)
 
 ## fork.42：Agent 工具执行与结果交付重构（2026-11-01）
 
