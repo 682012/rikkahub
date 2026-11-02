@@ -92,7 +92,7 @@ fun ChatMessageNerdLine(
         enableUserInput = false,
         modifier = modifier,
     ) {
-        ProvideTextStyle(MaterialTheme.typography.labelSmall.copy(color = color)) {
+        ProvideTextStyle(MaterialTheme.typography.labelSmall.copy(color = if (settings.displaySetting.useStudioDisplay) MaterialTheme.colorScheme.onSurfaceVariant else color)) {
             CompositionLocalProvider(LocalContentColor provides color) {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -117,9 +117,9 @@ fun ChatMessageNerdLine(
                     StatsItem(
                         icon = { StatsIcon(HugeIcons.Layers01, stringResource(R.string.chat_message_usage_context)) },
                         content = {
-                            Text(text = stringResource(R.string.chat_message_usage_context_short, stats.contextTokens.formatNumber()))
+                            Text(text = stringResource(R.string.chat_message_usage_context_short, stats.contextTokens?.formatNumber() ?: "待报告"))
                             val cached = stats.lastUsage.cachedTokens
-                            if (cached > 0) {
+                            if (cached > 0 && stats.contextTokens != null) {
                                 Text(text = stringResource(R.string.chat_message_usage_cached_short, cached.formatNumber()))
                             }
                         }
@@ -137,19 +137,22 @@ private fun UsageDetails(stats: NerdStats, contextLength: Int?) {
         modifier = Modifier.padding(vertical = 4.dp),
     ) {
         val total = stats.total
-        ContextUsageBar(
+        if (stats.contextTokens != null) ContextUsageBar(
             lastUsage = stats.lastUsage,
             contextLength = contextLength,
             modifier = Modifier.padding(bottom = 8.dp),
         )
+        if (stats.contextTokens == null) Text("没有可信的单次上下文报告", style = MaterialTheme.typography.bodySmall)
+        stats.firstContentMs?.let { UsageDetailRow("最近首内容延迟", "${(it / 1000f).toFixed(2)}s") }
+        Text("吞吐按上游输出口径（可能含推理）；不含本地工具等待。", style = MaterialTheme.typography.bodySmall)
         if (stats.steps > 1) {
             UsageDetailRow(stringResource(R.string.chat_message_usage_step_count), stats.steps.toString())
             UsageDetailRow(stringResource(R.string.chat_message_usage_total_input), total.promptTokens.exact())
             if (total.cachedTokens > 0) UsageDetailRow(stringResource(R.string.chat_message_usage_total_cached), total.cachedTokens.exact())
             UsageDetailRow(stringResource(R.string.chat_message_usage_total_output), total.completionTokens.exact())
         }
-        if (stats.tps != null) UsageDetailRow(stringResource(R.string.chat_message_usage_speed), "${stats.tps.toFixed(1)} tok/s")
-        if (stats.durationMillis != null) UsageDetailRow(stringResource(R.string.chat_message_usage_duration), "${(stats.durationMillis / 1000f).toFixed(1)}s")
+        if (stats.tps != null) UsageDetailRow("流式吞吐", "${stats.tps.toFixed(1)} tok/s")
+        if (stats.durationMillis != null) UsageDetailRow(if (stats.legacy) "全程耗时（旧记录）" else "已记录请求耗时", "${(stats.durationMillis / 1000f).toFixed(1)}s")
     }
 }
 
@@ -174,7 +177,7 @@ private fun ContextUsageBar(
         ),
         UsageSegment(stringResource(R.string.chat_message_usage_output), lastUsage.completionTokens, colorScheme.tertiary),
     ).filter { it.tokens > 0 }
-    val contextTokens = lastUsage.promptTokens + lastUsage.completionTokens
+    val contextTokens = (lastUsage.promptTokens.toLong() + lastUsage.completionTokens).coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
     // 窗口未知或已经超出时，占用本身铺满整条
     val capacity = maxOf(contextLength ?: 0, contextTokens, 1)
     val hasFreeSpace = capacity > contextTokens
@@ -295,16 +298,18 @@ private data class NerdStats(
     val total: TokenUsage,
     val lastUsage: TokenUsage,
     val steps: Int,
-    val contextTokens: Int,
+    val contextTokens: Int?,
     val durationMillis: Long?,
     val tps: Float?,
+    val firstContentMs: Long?,
+    val legacy: Boolean,
 )
 
 private fun UIMessage.nerdStats(usage: TokenUsage): NerdStats {
     val last = lastRequestUsage() ?: usage
     // 旧消息没有记录生成耗时，退回用创建到完成的总时长估算
     val durationMillis = finishedAt?.let { finishedAt ->
-        generationTimeMs ?: Duration.between(
+        generationTiming?.requestMs ?: Duration.between(
             createdAt.toJavaLocalDateTime(),
             finishedAt.toJavaLocalDateTime()
         ).toMillis()
@@ -313,9 +318,11 @@ private fun UIMessage.nerdStats(usage: TokenUsage): NerdStats {
         total = usage,
         lastUsage = last,
         steps = stepCount ?: 1,
-        contextTokens = last.promptTokens + last.completionTokens,
+        contextTokens = contextTokens(),
         durationMillis = durationMillis,
-        tps = durationMillis?.let { usage.completionTokens.toFloat() / it * 1000 },
+        tps = if (finishedAt != null) generationTiming?.speedTokensPerSecond?.toFloat() else null,
+        firstContentMs = generationTiming?.firstContentMs,
+        legacy = generationTiming == null,
     )
 }
 

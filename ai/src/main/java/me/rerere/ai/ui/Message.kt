@@ -29,6 +29,8 @@ data class UIMessage(
     val usage: TokenUsage? = null,
     // 模型实际生成耗时（各步从首个 chunk 到响应结束的累计），不含首 token 延迟、工具执行和审批等待
     val generationTimeMs: Long? = null,
+    // r5: typed monotonic request/content timing. Old messages stay unknown rather than invented TPS.
+    val generationTiming: me.rerere.ai.agent.GenerationTiming? = null,
     // 最后一次请求自己的 usage；usage 是多步累计值，看上下文占用和缓存命中要用这个
     val lastUsage: TokenUsage? = null,
     // 这条消息累计请求了多少次模型（多轮工具调用共用同一条消息）
@@ -89,7 +91,13 @@ data class UIMessage(
     fun lastRequestUsage(): TokenUsage? = lastUsage ?: usage
 
     /** 最后一次请求结束时的上下文占用（prompt + completion） */
-    fun contextTokens(): Int? = lastRequestUsage()?.let { it.promptTokens + it.completionTokens }
+    fun contextTokens(): Int? {
+        // Legacy multi-step totals cannot reconstruct a request window. Unknown is safer than a false full window.
+        if (lastUsage == null && ((stepCount ?: 1) > 1 || getTools().isNotEmpty())) return null
+        return lastRequestUsage()?.let {
+            (it.promptTokens.toLong() + it.completionTokens).coerceIn(0, Int.MAX_VALUE.toLong()).toInt()
+        }
+    }
 
     /**
      * 用快照还原出一个只用于展示名称和图标的 [Model]

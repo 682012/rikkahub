@@ -74,6 +74,18 @@ class ConversationContextTokensTest {
     }
 
     @Test
+    fun `old multi step totals are not a context window`() {
+        val old = assistantMessage(1, usage = TokenUsage(promptTokens = 400_000, completionTokens = 1000)).copy(stepCount = 4)
+        assertNull(conversation(old).lastContextTokens())
+    }
+
+    @Test
+    fun `context addition cannot overflow to negative`() {
+        val large = assistantMessage(1, lastUsage = TokenUsage(promptTokens = Int.MAX_VALUE, completionTokens = 100))
+        assertEquals(Int.MAX_VALUE, conversation(large).lastContextTokens())
+    }
+
+    @Test
     fun `returns null without any reply`() {
         assertNull(conversation(UIMessage.user("hi")).lastContextTokens())
     }

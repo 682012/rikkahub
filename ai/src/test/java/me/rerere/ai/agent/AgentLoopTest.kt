@@ -410,6 +410,9 @@ class AgentLoopTest {
         assertEquals(TokenUsage(promptTokens = 150, completionTokens = 20, totalTokens = 170), message.lastUsage)
         assertEquals(2, message.stepCount)
         assertNotNull(message.generationTimeMs)
+        assertEquals(2, message.generationTiming?.totalSteps)
+        // Buffered one-chunk steps cannot support a credible token/second measurement.
+        assertNull(message.generationTiming?.speedTokensPerSecond)
     }
 
     @Test

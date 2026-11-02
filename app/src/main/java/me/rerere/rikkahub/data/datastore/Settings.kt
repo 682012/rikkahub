@@ -206,6 +206,8 @@ data class DisplaySetting(
     val showModelName: Boolean = true,
     val showDateTimeInMessage: Boolean = false,
     val showTokenUsage: Boolean = true,
+    // One data pipeline, two presentations; existing users can keep the classic layout.
+    val useStudioDisplay: Boolean = true,
     val showThinkingContent: Boolean = true,
     val autoCloseThinking: Boolean = true,
     val updateCheckDisabledUntilEpochMillis: Long = 0L,

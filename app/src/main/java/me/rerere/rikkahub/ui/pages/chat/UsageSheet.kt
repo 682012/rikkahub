@@ -1,109 +1,87 @@
 package me.rerere.rikkahub.ui.pages.chat
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import me.rerere.rikkahub.data.db.dao.UsageByModel
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.launch
+import me.rerere.ai.core.MessageRole
+import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.datastore.findModelById
+import me.rerere.rikkahub.data.db.dao.ConversationUsageGroup
 import me.rerere.rikkahub.data.db.dao.UsageRecordDAO
-import me.rerere.rikkahub.data.db.dao.UsageTotals
+import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.lastContextTokens
+import me.rerere.rikkahub.ui.context.LocalSettings
 import org.koin.java.KoinJavaComponent.getKoin
 
-/**
- * 单会话用量明细。
- *
- * 数据来自 usage_record；主对话与子代理分开统计，这里一次性展示并按模型拆分。
- */
 @Composable
-fun UsageSheet(
-    conversationId: String,
-    onDismiss: () -> Unit,
-) {
-    val dao = remember { runCatching { getKoin().get<UsageRecordDAO>() }.getOrNull() }
-    var totals by remember { mutableStateOf<UsageTotals?>(null) }
-    var byModel by remember { mutableStateOf<List<UsageByModel>>(emptyList()) }
-
-    LaunchedEffect(conversationId, dao) {
-        if (dao == null) return@LaunchedEffect
-        runCatching {
-            totals = dao.totals(conversationId, includeSubagents = true)
-            byModel = dao.byModel(conversationId, includeSubagents = true)
-        }
+fun UsageSheet(conversation: Conversation, onDismiss: () -> Unit) {
+    val settings = LocalSettings.current
+    val dao = remember { getKoin().get<UsageRecordDAO>() }
+    val store = remember { getKoin().get<SettingsStore>() }
+    val coroutineScope = rememberCoroutineScope()
+    var filter by rememberSaveable { mutableStateOf(UsageScope.ALL) }
+    var retry by remember { mutableIntStateOf(0) }
+    var error by remember(conversation.id, retry) { mutableStateOf(false) }
+    val groups by produceState<List<ConversationUsageGroup>?>(null, conversation.id, retry) {
+        value = null
+        dao.observeConversationGroups(conversation.id.toString())
+            .catch { error = true }
+            .collect { value = it }
     }
-
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text("本会话用量", style = MaterialTheme.typography.titleMedium)
-            val t = totals
-            if (dao == null) {
-                Text("统计服务未初始化", style = MaterialTheme.typography.bodySmall)
-            } else if (t == null || t.requests == 0L) {
-                Text(
-                    "还没有记录。这版之前产生的消息不会补记，之后的新请求会开始统计。",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            } else {
-                UsageRow("生成记录数", t.requests.toString())
-                UsageRow("输入 tokens", t.promptTokens.toString())
-                UsageRow("输出 tokens", t.completionTokens.toString())
-                UsageRow("缓存命中", t.cachedTokens.toString())
-                UsageRow("合计 tokens", t.totalTokens.toString())
-                if (t.promptTokens > 0) {
-                    val rate = t.cachedTokens * 100.0 / t.promptTokens
-                    UsageRow("缓存命中率", "%.1f%%".format(rate))
-                }
-                HorizontalDivider()
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 360.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    byModel.forEach { model ->
-                        Column {
-                            Text(model.modelId, style = MaterialTheme.typography.labelLarge)
-                            Text(
-                                "记录 ${model.requests} · 输入 ${model.promptTokens} · 输出 ${model.completionTokens} · 缓存 ${model.cachedTokens}",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                        }
-                    }
-                }
+    val names = remember(settings.providers) {
+        settings.providers.flatMap { it.models }.associate { it.id.toString() to it.displayName.ifBlank { it.modelId } }
+    }
+    val summary = remember(groups, filter, names) { summarizeConversationUsage(groups.orEmpty(), filter, names) }
+    val last = conversation.currentMessages.lastOrNull { it.role == MessageRole.ASSISTANT }
+    val context = DashboardContext(
+        used = conversation.lastContextTokens(),
+        capacity = settings.findModelById(last?.modelId)?.contextLength?.takeIf { it > 0 },
+        approximate = last?.lastUsage == null,
+    )
+    fun setStudio(enabled: Boolean) {
+        coroutineScope.launch { store.update { it.copy(displaySetting = it.displaySetting.copy(useStudioDisplay = enabled)) } }
+    }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        when {
+            error -> Column(Modifier.padding(24.dp)) {
+                Text("用量暂时读取失败")
+                TextButton(onClick = { retry++ }) { Text("重试") }
             }
+            groups == null -> Box(Modifier.fillMaxWidth().padding(32.dp)) { CircularProgressIndicator() }
+            settings.displaySetting.useStudioDisplay -> UsageDashboard(
+                summary.totals, summary.models, context, filter, { filter = it }, { setStudio(false) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            else -> ClassicUsage(summarizeConversationUsage(groups.orEmpty(), UsageScope.ALL, names), onStudio = { setStudio(true) })
         }
     }
 }
 
 @Composable
-private fun UsageRow(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Text(label, style = MaterialTheme.typography.bodyMedium)
-        Text(value, style = MaterialTheme.typography.bodyMedium)
+private fun ClassicUsage(summary: ConversationUsageSummary, onStudio: () -> Unit) {
+    val t = summary.totals
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("本会话用量", style = MaterialTheme.typography.titleMedium)
+            TextButton(onClick = onStudio) { Text("工作台") }
+        }
+        Text("全部已报告请求（含子代理及辅助请求）", style = MaterialTheme.typography.bodySmall)
+        listOf("生成记录数" to t.requests, "输入 tokens" to t.prompt, "输出 tokens" to t.output,
+            "已报告缓存" to t.cached, "合计 tokens" to t.prompt + t.output).forEach { (label, value) ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(label); Text("$value") }
+        }
+        HorizontalDivider()
+        if (t.requests == 0L) Text("暂无上游用量记录；未报告与历史未记录的请求不计入。")
+        summary.models.forEach { model ->
+            Text(model.name, style = MaterialTheme.typography.labelLarge)
+            Text("${model.requests} 次请求 · ${model.tokens} tokens", style = MaterialTheme.typography.bodySmall)
+        }
     }
 }

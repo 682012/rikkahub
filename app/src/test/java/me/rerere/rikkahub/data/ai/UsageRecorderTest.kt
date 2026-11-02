@@ -103,6 +103,9 @@ class UsageRecorderTest {
 private class FakeUsageRecordDAO : UsageRecordDAO {
     val records = mutableListOf<UsageRecordEntity>()
 
+    override fun observeConversationGroups(conversationId: String): Flow<List<me.rerere.rikkahub.data.db.dao.ConversationUsageGroup>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    override fun observeRecordCount(): Flow<Long> = kotlinx.coroutines.flow.flowOf(records.size.toLong())
+
     override suspend fun insert(record: UsageRecordEntity) {
         records += record
     }

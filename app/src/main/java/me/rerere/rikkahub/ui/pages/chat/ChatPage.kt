@@ -577,6 +577,7 @@ private fun TopBar(
     }
     var showUsage by remember { mutableStateOf(false) }
 
+    Column {
     TopAppBar(
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
         navigationIcon = {
@@ -617,7 +618,7 @@ private fun TopBar(
                             maxLines = 1,
                             color = LocalContentColor.current.copy(0.65f),
                             style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 8.sp,
+                                fontSize = if (settings.displaySetting.useStudioDisplay) 11.sp else 8.sp,
                             )
                         )
                     }
@@ -646,8 +647,12 @@ private fun TopBar(
             }
         },
     )
+    if (settings.displaySetting.useStudioDisplay) {
+        ChatStudioStatus(conversation, settings) { showUsage = true }
+    }
+    }
     if (showUsage) {
-        UsageSheet(conversationId = conversation.id.toString()) { showUsage = false }
+        UsageSheet(conversation = conversation) { showUsage = false }
     }
 
     titleState.EditStateContent { title, onUpdate ->
