@@ -369,7 +369,6 @@ fun WorkspaceAccessCard(
                         selected = activeMode == mode,
                         onClick = {
                             if (busy) return@FilterChip
-                            if (activeMode == mode) return@FilterChip
                             if (workspacePrivilegeModeRequiresConfirm(mode)) {
                                 pendingModeName = mode.name
                             } else {

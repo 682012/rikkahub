@@ -116,6 +116,11 @@ class WorkspacePrivilegeManager(private val context: Context) {
         io.launch { releaseShizukuIfIdle(force = true) }
     }
 
+    suspend fun closeAndJoin() {
+        cancelOwner("")
+        withContext(kotlinx.coroutines.NonCancellable) { releaseShizukuIfIdle(force = true) }
+    }
+
     /** Structured, honest status for the settings UI. No privilege is reported as granted unless it is. */
     fun shizukuStatus(): String {
         val alive = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
@@ -287,10 +292,10 @@ class WorkspacePrivilegeManager(private val context: Context) {
             )
         }
         val version = runCatching { Shizuku.getVersion() }.getOrDefault(-1)
-        if (version in 0..9) {
+        if (version < 13) {
             throw WorkspacePrivilegeException(
                 WorkspacePrivilegeFailure.SHIZUKU_UNSUPPORTED,
-                "Shizuku API 10+ is required to bind a user service (reported v$version).",
+                "Shizuku API 13+ is required for the context-aware workspace service (reported v$version).",
             )
         }
         val granted = runCatching { Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED }.getOrDefault(false)
@@ -399,7 +404,7 @@ class WorkspacePrivilegeManager(private val context: Context) {
         .daemon(false)
         .processNameSuffix("workspace_shell")
         .debuggable(BuildConfig.DEBUG)
-        .version(BuildConfig.VERSION_CODE)
+        .version(BuildConfig.VERSION_CODE.toInt())
         .tag("workspace-shell")
 
     private fun shizukuUid(): Int {
@@ -616,13 +621,15 @@ class WorkspacePrivilegeManager(private val context: Context) {
         onStarted: (NativeProcessControl) -> Unit = {},
     ): NativeCommandOutcome = WorkspaceNativeCommandRunner.run(
         NativeCommandRequest(
-            argv = listOf(su, "-c", script),
+            argv = listOf(su, "-c", if (marker.isEmpty()) script else
+                "export ${WorkspaceProcessReaper.MARKER_ENV}=${WorkspaceShellCommand.singleQuote(marker)}\n" + script),
             cwd = WorkspaceCommandLimits.DEFAULT_CWD,
             timeoutMillis = timeoutMillis,
             stdin = stdin,
             environment = if (marker.isEmpty()) emptyMap() else mapOf(WorkspaceProcessReaper.MARKER_ENV to marker),
             marker = marker,
             cancelToken = token,
+            privilegedCleanup = if (marker.isEmpty()) null else ({ WorkspaceRootReaper.reap(su, marker) }),
         ),
         onStarted = onStarted,
     )

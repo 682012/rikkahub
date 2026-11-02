@@ -5,7 +5,7 @@ import java.io.File
 /** SAF document IDs are not filesystem paths. Only external-storage trees are resolvable. */
 object WorkspaceStoragePaths {
     private val reserved = listOf(
-        "/workspace", "/skills", "/builtin_skills", "/upload", "/tool_outputs", "/proc", "/sys", "/dev",
+        "/workspace", "/skills", "/builtin_skills", "/upload", "/tool_outputs", "/tmp", "/proc", "/sys", "/dev",
     )
 
     fun target(path: String): String {

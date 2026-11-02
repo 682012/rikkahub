@@ -1,10 +1,12 @@
 # RikkaHub · 个人增强分支
 
-## r4 网页会话与缓存修复实验分支
+## r6 工作区授权与目录挂载
 
-**当前代码：`3.1.1-r4 / 3000051`。** Gemini/Claude网页会话直接作为模型接入，另修客户端提示词缓存与上下文计数。账号凭据只在手机加密存储；真实账号登录/生成和供应商命中率尚未实测。此版标记prerelease，**稳定版latest仍为r3**。
+**当前代码：`3.1.1-r6 / 3000053`。** 新增用户主动授权的 Android 原生命令、Shizuku/Root 接入、按工作区保存的手机目录映射及 Linux 信任设置；保留 r5 的会话统计界面和真实流式计时，也保留此前每模型设置、网络恢复与缓存修复。没有内置 AI CLI、Node 或 su，不把 PRoot 的假 root 当系统提权。
 
-[下载r4实验APK](https://github.com/682012/rikkahub/releases/download/v3.1.1-r4/rikkahub-3.1.1-r4.apk) · [完整验收与边界](fork/RELEASE-r4.md) · [网页会话使用](fork/WEB-ACCOUNTS.md) · [缓存修复](fork/CACHE-r4.md)
+[权限与挂载使用说明](fork/WORKSPACE-ACCESS.md) · [版本发布](https://github.com/682012/rikkahub/releases) · [网页会话仍属实验功能](fork/WEB-ACCOUNTS.md) · [缓存修复](fork/CACHE-r4.md)
+
+实际身份、设备测试范围及安装包签名/哈希以对应 Release 验收记录为准。Gemini/Claude 网页会话仍未完成真实账号端到端验收，本轮没有用重型 CLI 替代这条功能。
 
 以下功能分组和下载区保留稳定版r3基线；r4额外变化见上方，不把实验性网页功能算成官方能力。
 

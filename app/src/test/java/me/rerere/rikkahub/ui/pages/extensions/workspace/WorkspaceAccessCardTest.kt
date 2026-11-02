@@ -181,7 +181,7 @@ class WorkspaceAccessCardTest {
         )
         assertTrue(tags.all { it.isNotBlank() })
         assertEquals(tags.size, tags.toSet().size)
-        assertEquals(tags.size, WorkspacePrivilegeMode.entries.map { WorkspaceAccessTestTags.mode(it) }.toSet().size)
+        assertEquals(WorkspacePrivilegeMode.entries.size, WorkspacePrivilegeMode.entries.map { WorkspaceAccessTestTags.mode(it) }.toSet().size)
         assertTrue(WorkspaceAccessTestTags.mountRow("a") != WorkspaceAccessTestTags.mountRow("b"))
     }
 }

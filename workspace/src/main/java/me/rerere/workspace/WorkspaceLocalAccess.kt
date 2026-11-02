@@ -30,6 +30,7 @@ val RESERVED_BIND_MOUNT_TARGETS: List<String> = listOf(
     "/builtin_skills",
     "/upload",
     "/tool_outputs",
+    "/tmp", // background command logs and other app-managed temporary paths
     "/proc",
     "/sys",
     "/dev",

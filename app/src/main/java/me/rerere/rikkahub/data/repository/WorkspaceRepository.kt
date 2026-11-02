@@ -271,7 +271,7 @@ class WorkspaceRepository(
         if (workspace.isSsh()) {
             workspace.sshSettings()?.let { SshWorkspaceBackend.layoutOf(it.remoteDir) }
         } else {
-            manager.layout
+            manager.layout(workspace.root)
         }
     }
 

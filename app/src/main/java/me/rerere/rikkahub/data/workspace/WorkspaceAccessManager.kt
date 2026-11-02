@@ -45,10 +45,11 @@ class WorkspaceAccessManager(context: Context, private val privileges: Workspace
         val config = get(root)
         val mounts = config.mounts.map {
             val source = WorkspaceStoragePaths.source(it.sourcePath)
-            check(source.isDirectory && source.canRead() && source.canWrite()) {
+            requireSharedStorageConsent(source)
+            check(source.isDirectory && source.canRead()) {
                 "Mount ${it.targetPath} is unavailable; restore storage authorization or remove this mount"
             }
-            WorkspaceBindMount(source, WorkspaceStoragePaths.target(it.targetPath), writable = true)
+            WorkspaceBindMount(source, WorkspaceStoragePaths.target(it.targetPath), writable = source.canWrite())
         }
         return WorkspaceLocalAccess(mounts, config.trustedLinux)
     }
@@ -94,7 +95,8 @@ class WorkspaceAccessManager(context: Context, private val privileges: Workspace
 
     suspend fun addMount(root: String, sourcePath: String, targetPath: String, treeUri: String? = null) {
         val source = WorkspaceStoragePaths.source(sourcePath)
-        check(source.isDirectory && source.canRead() && source.canWrite()) {
+        requireSharedStorageConsent(source)
+        check(source.isDirectory && source.canRead()) {
             "This folder is not directly accessible. Grant shared-storage access first; SAF alone is not a filesystem mount."
         }
         val target = WorkspaceStoragePaths.target(targetPath)
@@ -114,7 +116,8 @@ class WorkspaceAccessManager(context: Context, private val privileges: Workspace
             }
         }
         val source = WorkspaceStoragePaths.fromDocumentId(DocumentsContract.getTreeDocumentId(uri), roots)
-        check(source.isDirectory && source.canRead() && source.canWrite()) {
+        requireSharedStorageConsent(source)
+        check(source.isDirectory && source.canRead()) {
             "Folder selected, but Linux cannot access it yet. Enable shared-storage access, then select it again."
         }
         val resolver = context.contentResolver
@@ -142,6 +145,18 @@ class WorkspaceAccessManager(context: Context, private val privileges: Workspace
     suspend fun clear(root: String) {
         revoke(root)
         update(root) { WorkspaceAccessSettings() }
+    }
+
+    private fun requireSharedStorageConsent(source: File) {
+        if (Build.VERSION.SDK_INT < 30) return
+        val path = source.path
+        if (path != "/storage" && !path.startsWith("/storage/") && !path.startsWith("/mnt/media_rw/")) return
+        val ownedRoots = context.getExternalFilesDirs(null).mapNotNull { it?.parentFile?.canonicalFile } +
+            context.externalMediaDirs.mapNotNull { it?.canonicalFile }
+        if (ownedRoots.any { source.toPath().startsWith(it.toPath()) }) return
+        check(storageAccessGranted()) {
+            "Phone storage is not authorized. Open workspace settings and grant shared-storage access, or remove this mount."
+        }
     }
 
     private suspend fun update(root: String, change: (WorkspaceAccessSettings) -> WorkspaceAccessSettings) {

@@ -127,7 +127,8 @@ object WorkspaceShellCommand {
      * when the directory is unavailable, so a command never silently runs in another directory.
      */
     fun rootScript(command: String, cwd: String): String =
-        "cd " + singleQuote(cwd) + " || exit 125\n" + command
+        "[ \"$(id -u)\" = 0 ] || exit 126\n" +
+            "cd " + singleQuote(cwd) + " || exit 125\n" + command
 }
 
 internal class BoundedByteSink(private val limit: Int) {
@@ -216,6 +217,7 @@ class NativeProcessControl internal constructor(
     val process: Process,
     private val marker: String,
     private val killCommand: String,
+    private val privilegedCleanup: (() -> Unit)? = null,
 ) {
     fun terminate() {
         runCatching { process.destroy() }
@@ -229,6 +231,7 @@ class NativeProcessControl internal constructor(
         if (marker.isEmpty()) return
         val pids = WorkspaceProcessReaper.findMarkedPids(marker)
         if (pids.isNotEmpty()) WorkspaceProcessReaper.killAll(pids, killCommand)
+        privilegedCleanup?.invoke()
     }
 }
 
@@ -242,6 +245,7 @@ data class NativeCommandRequest(
     val outputLimitBytes: Int = WorkspaceCommandLimits.MAX_OUTPUT_BYTES_PER_STREAM,
     val killCommand: String = WorkspaceProcessReaper.DEFAULT_KILL,
     val cancelToken: NativeCancelToken = NativeCancelToken(),
+    val privilegedCleanup: (() -> Unit)? = null,
 )
 
 data class NativeCommandOutcome(
@@ -294,7 +298,7 @@ object WorkspaceNativeCommandRunner {
             )
         }
 
-        val control = NativeProcessControl(process, request.marker, request.killCommand)
+        val control = NativeProcessControl(process, request.marker, request.killCommand, request.privilegedCleanup)
         onStarted(control)
         if (request.cancelToken.isCancelled) control.terminate()
 

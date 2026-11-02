@@ -63,8 +63,8 @@ internal fun WorkspaceAccessSection(workspace: WorkspaceEntity) {
     }
     val folderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) act {
-            closeLinuxSessions()
             access.addMountFromTree(root, uri)
+            closeLinuxSessions()
             status = changedText
         }
     }
