@@ -149,8 +149,12 @@ fun ChatMessage(
     val navController = LocalNavController.current
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
+    val wallpaperPanel = if (me.rerere.rikkahub.ui.theme.LocalWallpaperActive.current) {
+        Modifier.background(chatPanel(colorScheme.surfaceContainerLow), RoundedCornerShape(rememberChatStyleSpec().bubbleCorner))
+            .padding(8.dp)
+    } else Modifier
     Column(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().then(wallpaperPanel),
         horizontalAlignment = if (message.role == MessageRole.USER) Alignment.End else Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -437,7 +441,7 @@ private fun MessagePartsBlock(
                                     )
                                 }
                             } else {
-                                if (settings.displaySetting.showAssistantBubble || me.rerere.rikkahub.ui.theme.LocalWallpaperActive.current) {
+                                if (settings.displaySetting.showAssistantBubble) {
                                     ChatMessageBubble(
                                         role = role,
                                         color = chatPanel(
@@ -589,7 +593,7 @@ private fun ChatMessageBubble(
     } else {
         RoundedCornerShape(topStart = tailCorner, topEnd = corner, bottomEnd = corner, bottomStart = corner)
     }
-    val contentColor = contentColorFor(color)
+    val contentColor = contentColorFor(color.copy(alpha = 1f))
     Box(
         modifier = modifier
             .clipDrawing(shape)

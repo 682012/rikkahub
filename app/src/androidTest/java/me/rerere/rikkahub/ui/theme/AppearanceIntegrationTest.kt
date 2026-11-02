@@ -318,6 +318,35 @@ class AppearanceIntegrationTest {
         show("noise", noise, null)
     }
 
+    @Test fun transparentHostsKeepTheCurrentThemeForegroundInBothModes() {
+        var dark by mutableStateOf(false)
+        var appForeground: Color? = null
+        var chatForeground: Color? = null
+        val settings = settingsWith(AppearanceSettings())
+        rule.setContent {
+            val scheme = if (dark) darkColorScheme() else lightColorScheme()
+            MaterialExpressiveTheme(colorScheme = scheme) {
+                AppAppearanceHost(settings) {
+                    val app = androidx.compose.material3.LocalContentColor.current
+                    ChatAppearanceHost(settings, settings.getCurrentAssistant()) {
+                        val chat = androidx.compose.material3.LocalContentColor.current
+                        SideEffect { appForeground = app; chatForeground = chat }
+                        Text("Foreground probe")
+                    }
+                }
+            }
+        }
+        for (night in listOf(false, true)) {
+            rule.runOnIdle { dark = night }
+            rule.waitForIdle()
+            val expected = (if (night) darkColorScheme() else lightColorScheme()).onBackground
+            rule.runOnIdle {
+                assertEquals("transparent app host lost theme foreground", expected, appForeground)
+                assertEquals("transparent chat host lost theme foreground", expected, chatForeground)
+            }
+        }
+    }
+
     @Test
     fun brokenWallpaperKeepsTheSolidPageInsteadOfGoingTransparent() {
         val missing = android.net.Uri.fromFile(File(context.cacheDir, "r6-missing-${System.nanoTime()}.png")).toString()

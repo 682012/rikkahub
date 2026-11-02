@@ -35,6 +35,7 @@ fun AppAppearanceHost(settings: Settings, content: @Composable () -> Unit) {
     Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (source != null) WallpaperBackdrop(source, appearance, onLoaded = { loaded = it })
         CompositionLocalProvider(
+            androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onBackground,
             LocalAppearance provides appearance,
             LocalWallpaperActive provides active,
             LocalPageContainer provides if (active) Color.Transparent else MaterialTheme.colorScheme.background,
@@ -65,6 +66,7 @@ fun ChatAppearanceHost(settings: Settings, assistant: Assistant, content: @Compo
             WallpaperBackdrop(visibleImage, appearance.copy(wallpaperOpacity = opacity), onLoaded = { loaded = it })
         }
         CompositionLocalProvider(
+            androidx.compose.material3.LocalContentColor provides MaterialTheme.colorScheme.onBackground,
             LocalAppearance provides appearance,
             LocalWallpaperActive provides active,
             LocalPageContainer provides if (active) Color.Transparent else MaterialTheme.colorScheme.background,
