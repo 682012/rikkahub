@@ -1,6 +1,8 @@
 # 个人分支：构建与维护
 
-当前实验代码为**r4 /3000051**，APK 19,118,258字节，SHA256 `17652736e2900f93fa41b1ecc780625b1fc6ec02d478904b191fcaba1965026f`，完整[R4验收](RELEASE-r4.md)。发布在实验分支和独立tag，prerelease不改变r3稳定latest。下面保留稳定r3维护基线。
+当前实验分支在r4基础上加入[r5会话工作台与统计修正](RELEASE-r5.md)，稳定latest仍r3。以下历史基线说明保留。
+
+r4基线代码为**r4 /3000051**，APK 19,118,258字节，SHA256 `17652736e2900f93fa41b1ecc780625b1fc6ec02d478904b191fcaba1965026f`，完整[R4验收](RELEASE-r4.md)。发布在实验分支和独立tag，prerelease不改变r3稳定latest。下面保留稳定r3维护基线。
 
 用户可见功能统一维护在 [仓库首页](../README.md) 与 [官方差异表](FEATURES.md)。本页记录构建、签名与回退；本版说明见 [r3 更新说明](RELEASE-r3.md)。
 
