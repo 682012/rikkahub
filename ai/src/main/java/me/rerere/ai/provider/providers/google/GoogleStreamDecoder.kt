@@ -12,6 +12,7 @@ import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.provider.stream.DecodeResult
 import me.rerere.ai.provider.stream.SseEvent
 import me.rerere.ai.provider.stream.StreamChunkDecoder
+import me.rerere.ai.provider.stream.StreamTruncatedException
 import me.rerere.ai.ui.GoogleThoughtMetadata
 import me.rerere.ai.ui.ServerToolMetadata
 import me.rerere.ai.ui.ServerToolProtocol
@@ -34,19 +35,35 @@ internal class GoogleStreamDecoder(
     private var finished = false
     private var toolSequence = 0
 
+    /**
+     * 是否已收到协议终态：`finishReason`，或 promptFeedback 的 blocking 判定。
+     * 只用于 [onClosed] 判断正常收尾还是断流。
+     */
+    private var terminalReceived = false
+
     override fun accept(event: SseEvent): DecodeResult {
         if (finished) return DecodeResult(completed = true)
-        if (event.data == "[DONE]") return DecodeResult(finish(), completed = true)
+        if (event.data == "[DONE]") {
+            terminalReceived = true
+            return DecodeResult(finish(), completed = true)
+        }
 
         val jsonData = json.parseToJsonElement(event.data).jsonObject
         val blockedReason = jsonData["promptFeedback"]?.jsonObject
             ?.get("blockReason")?.jsonPrimitiveOrNull?.contentOrNull
-        if (blockedReason != null) error("Prompt feedback: $blockedReason")
+        if (blockedReason != null) {
+            // 被拦截是协议的确定性终态，不是断流
+            terminalReceived = true
+            error("Prompt feedback: $blockedReason")
+        }
 
         val chunks = buildList {
             parseUsage(jsonData["usageMetadata"] as? JsonObject)?.let { add(StreamChunk.Usage(it)) }
             val candidate = jsonData["candidates"]?.jsonArray?.firstOrNull()?.jsonObject ?: return@buildList
-            candidate["finishReason"]?.jsonPrimitive?.contentOrNull?.let { finishReason = it }
+            candidate["finishReason"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let {
+                finishReason = it
+                terminalReceived = true
+            }
             val content = candidate["content"]?.jsonObject ?: return@buildList
             val message = parseMessage(content, candidate["groundingMetadata"] as? JsonObject)
             addAll(streamState.append(message, responseId))
@@ -54,7 +71,15 @@ internal class GoogleStreamDecoder(
         return DecodeResult(chunks)
     }
 
-    override fun onClosed(): List<StreamChunk> = finish()
+    override fun onClosed(): List<StreamChunk> {
+        if (finished) return emptyList()
+        if (!terminalReceived) {
+            throw StreamTruncatedException(
+                "Gemini 流在 finishReason/promptFeedback 之前关闭，回复可能被截断",
+            )
+        }
+        return finish()
+    }
 
     private fun finish(): List<StreamChunk> {
         if (finished) return emptyList()

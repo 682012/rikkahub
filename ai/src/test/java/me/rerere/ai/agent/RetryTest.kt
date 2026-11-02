@@ -7,6 +7,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
@@ -79,6 +80,14 @@ class RetryTest {
 
         assertTrue(job.isCancelled)
         assertEquals(1, calls)
+    }
+
+    @Test
+    fun `network handover is opt-in and absent by default`() {
+        // 不挂网络观察者时行为和以前完全一样：策略自带 60s 上限的指数退避
+        assertNull(RetryPolicy(maxRetries = 4).networkHandover)
+        assertNull(RetryPolicy.NETWORK.networkHandover)
+        assertNull(RetryPolicy.NONE.networkHandover)
     }
 
     @Test

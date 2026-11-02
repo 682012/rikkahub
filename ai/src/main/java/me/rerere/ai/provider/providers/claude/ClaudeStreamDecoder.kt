@@ -9,6 +9,7 @@ import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.provider.stream.DecodeResult
 import me.rerere.ai.provider.stream.SseEvent
 import me.rerere.ai.provider.stream.StreamChunkDecoder
+import me.rerere.ai.provider.stream.StreamTruncatedException
 import me.rerere.ai.ui.ClaudeReasoningMetadata
 import me.rerere.ai.ui.ServerToolMetadata
 import me.rerere.ai.ui.ServerToolProtocol
@@ -25,9 +26,20 @@ internal class ClaudeStreamDecoder : StreamChunkDecoder {
     private var finishReason: String? = null
     private var finished = false
 
+    /**
+     * 是否已收到协议终态：`[DONE]`、`message_stop`，或明确的非空 `stop_reason`。
+     *
+     * 只用于 [onClosed] 判断正常收尾还是断流；收到终态后不提前 finish，
+     * 让 `message_stop` 之前/之后的 usage 帧照常解析。
+     */
+    private var terminalReceived = false
+
     override fun accept(event: SseEvent): DecodeResult {
         if (finished) return DecodeResult(completed = true)
-        if (event.data == "[DONE]") return DecodeResult(finish(), completed = true)
+        if (event.data == "[DONE]") {
+            terminalReceived = true
+            return DecodeResult(finish(), completed = true)
+        }
 
         val dataJson = json.parseToJsonElement(event.data).jsonObject
         if (event.event == "error") {
@@ -37,9 +49,15 @@ internal class ClaudeStreamDecoder : StreamChunkDecoder {
         dataJson["message"]?.jsonObject?.let { message ->
             responseId = message["id"]?.jsonPrimitive?.contentOrNull ?: responseId
             responseModel = message["model"]?.jsonPrimitive?.contentOrNull ?: responseModel
+            // 非流式的 message 也会带 stop_reason，同样算明确的协议终态
+            message["stop_reason"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let {
+                if (finishReason == null) finishReason = it
+                terminalReceived = true
+            }
         }
-        dataJson["delta"]?.jsonObject?.get("stop_reason")?.jsonPrimitive?.contentOrNull?.let {
+        dataJson["delta"]?.jsonObject?.get("stop_reason")?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let {
             finishReason = it
+            terminalReceived = true
         }
 
         val chunks = buildList {
@@ -53,7 +71,7 @@ internal class ClaudeStreamDecoder : StreamChunkDecoder {
                     ?: contentBlock["tool_use_id"]?.jsonPrimitive?.contentOrNull
                     ?: "${responseId ?: event.id ?: "response"}:block-$index"
                 val metadata = when (kind) {
-                    "thinking" -> contentBlock["signature"]?.jsonPrimitive?.contentOrNull?.let {
+                    "thinking" -> contentBlock["signature"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let {
                         ClaudeReasoningMetadata(signature = it).toMetadata()
                     }
                     else -> null
@@ -120,7 +138,7 @@ internal class ClaudeStreamDecoder : StreamChunkDecoder {
                         block.metadata,
                     ))
                     "signature_delta" -> {
-                        val metadata = delta["signature"]?.jsonPrimitive?.contentOrNull?.let {
+                        val metadata = delta["signature"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let {
                             ClaudeReasoningMetadata(signature = it).toMetadata()
                         }
                         blocks[index] = block.copy(metadata = metadata ?: block.metadata)
@@ -144,13 +162,22 @@ internal class ClaudeStreamDecoder : StreamChunkDecoder {
         }
 
         return if (event.event == "message_stop") {
+            terminalReceived = true
             DecodeResult(chunks + finish(), completed = true)
         } else {
             DecodeResult(chunks)
         }
     }
 
-    override fun onClosed(): List<StreamChunk> = finish()
+    override fun onClosed(): List<StreamChunk> {
+        if (finished) return emptyList()
+        if (!terminalReceived) {
+            throw StreamTruncatedException(
+                "Claude 流在 message_stop/stop_reason 之前关闭，回复可能被截断",
+            )
+        }
+        return finish()
+    }
 
     private fun finish(): List<StreamChunk> {
         if (finished) return emptyList()

@@ -14,6 +14,7 @@ import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.provider.stream.DecodeResult
 import me.rerere.ai.provider.stream.SseEvent
 import me.rerere.ai.provider.stream.StreamChunkDecoder
+import me.rerere.ai.provider.stream.StreamTruncatedException
 import me.rerere.ai.ui.StreamChunk
 import me.rerere.ai.ui.OpenRouterReasoningMetadata
 import me.rerere.ai.ui.UIMessage
@@ -47,6 +48,14 @@ internal class ChatCompletionsStreamDecoder : StreamChunkDecoder {
     private var finished = false
 
     /**
+     * 是否已收到协议终态：`[DONE]` 或非空 `finish_reason`。
+     *
+     * 只在 [onClosed] 里用来判断这次连接关闭是正常结束还是断流。收到终态后不立刻 finish，
+     * 因为不少网关会在 finish_reason 之后继续下发只带 usage 的尾帧。
+     */
+    private var terminalReceived = false
+
+    /**
      * 没有响应 id 时用于合成工具调用 id 的随机后缀。
      *
      * 每条响应流一个解码器实例，所以这个值等价于"每次响应"的随机前缀。它在整个响应内保持不变，
@@ -60,7 +69,10 @@ internal class ChatCompletionsStreamDecoder : StreamChunkDecoder {
 
     override fun accept(event: SseEvent): DecodeResult {
         if (finished) return DecodeResult(completed = true)
-        if (event.data == "[DONE]") return DecodeResult(finish(), completed = true)
+        if (event.data == "[DONE]") {
+            terminalReceived = true
+            return DecodeResult(finish(), completed = true)
+        }
 
         val chunks = buildList {
             event.data.trim().split("\n").filter(String::isNotBlank).forEach { line ->
@@ -112,7 +124,14 @@ internal class ChatCompletionsStreamDecoder : StreamChunkDecoder {
                             ))
                         }
                     }
-                    choice["finish_reason"]?.jsonPrimitive?.contentOrNull?.let { finishReason = it }
+                    // 非空 finish_reason 就是协议终态；显式 null（兼容中转常见）不算。
+                    // 这里只记录，不立刻 finish，避免丢掉紧随其后的 usage 尾帧。
+                    choice["finish_reason"]?.jsonPrimitive?.contentOrNull
+                        ?.takeIf(String::isNotBlank)
+                        ?.let {
+                            finishReason = it
+                            terminalReceived = true
+                        }
                 }
                 parseUsage(payload["usage"] as? JsonObject)?.let { add(StreamChunk.Usage(it)) }
             }
@@ -120,7 +139,15 @@ internal class ChatCompletionsStreamDecoder : StreamChunkDecoder {
         return DecodeResult(chunks)
     }
 
-    override fun onClosed(): List<StreamChunk> = finish()
+    override fun onClosed(): List<StreamChunk> {
+        if (finished) return emptyList()
+        if (!terminalReceived) {
+            throw StreamTruncatedException(
+                "Chat Completions 流在 [DONE]/finish_reason 之前关闭，回复可能被截断",
+            )
+        }
+        return finish()
+    }
 
     /**
      * 本次响应合成 id 用的稳定前缀：拿到响应 id 就用它（保持原有格式），

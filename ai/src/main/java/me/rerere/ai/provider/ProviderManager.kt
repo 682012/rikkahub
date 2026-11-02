@@ -7,6 +7,7 @@ import me.rerere.ai.provider.providers.google.GoogleProvider
 import me.rerere.ai.provider.providers.grok.GrokProvider
 import me.rerere.ai.provider.providers.openai.OpenAIProvider
 import okhttp3.OkHttpClient
+import me.rerere.common.http.NetworkHandover
 
 /**
  * Provider管理器，负责注册和获取Provider实例
@@ -22,6 +23,7 @@ class ProviderManager(
     context: Context,
     accountCredentials: AccountCredentialProvider,
     requestLimit: (Model) -> Int? = { it.maxConcurrentRequests },
+    val networkHandover: NetworkHandover? = null,
 ) {
     // 存储已注册的Provider实例
     private val providers = mutableMapOf<String, Provider<*>>()
@@ -48,7 +50,8 @@ class ProviderManager(
      */
     fun registerProvider(name: String, provider: Provider<*>) {
         @Suppress("UNCHECKED_CAST")
-        providers[name] = RequestLimitedProvider(provider as Provider<ProviderSetting>, limiter)
+        val limited = RequestLimitedProvider(provider as Provider<ProviderSetting>, limiter)
+        providers[name] = networkHandover?.let { NetworkAwareProvider(limited, it) } ?: limited
     }
 
     /**

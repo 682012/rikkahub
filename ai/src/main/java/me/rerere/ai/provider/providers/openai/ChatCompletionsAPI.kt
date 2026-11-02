@@ -208,8 +208,15 @@ class ChatCompletionsAPI(
             }
 
             override fun onClosed(eventSource: EventSource) {
-                sendChunks(decoder.onClosed())
-                close()
+                // 断流时 decoder.onClosed() 会抛 StreamTruncatedException；
+                // 必须在这里转成 close(e) 交给下游，不能让异常从 OkHttp 回调冒泡把进程带崩
+                try {
+                    sendChunks(decoder.onClosed())
+                    close()
+                } catch (e: Throwable) {
+                    Log.w(TAG, "onClosed: stream truncated (${e.message})")
+                    close(e)
+                }
             }
         }
 

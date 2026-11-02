@@ -47,6 +47,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import org.koin.dsl.module
+import org.koin.dsl.onClose
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.util.Locale
@@ -54,6 +55,11 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 
 val dataSourceModule = module {
+    single { me.rerere.rikkahub.utils.DefaultNetworkMonitor(get()) } onClose { it?.close() }
+    single<me.rerere.common.http.NetworkHandover> {
+        get<me.rerere.rikkahub.utils.DefaultNetworkMonitor>().handover
+    }
+
     single {
         SettingsStore(context = get(), scope = get())
     }
@@ -139,7 +145,7 @@ val dataSourceModule = module {
         MessageFtsManager(get())
     }
 
-    single { McpManager(settingsStore = get(), appScope = get(), filesManager = get()) }
+    single { McpManager(settingsStore = get(), appScope = get(), filesManager = get(), networkHandover = get()) }
 
     single {
         MemoryConsolidator(
@@ -240,6 +246,17 @@ val dataSourceModule = module {
                 level = HttpLoggingInterceptor.Level.HEADERS
             })
             .build()
+        val network = get<me.rerere.common.http.NetworkHandover>()
+        get<AppScope>().launch {
+            var epoch = network.state.value.epoch
+            network.state.collect { state ->
+                if (state.epoch != epoch) {
+                    epoch = state.epoch
+                    // Idle sockets may still point at the pre-VPN route. Do not cancel tool HTTP calls.
+                    client.connectionPool.evictAll()
+                }
+            }
+        }
         client.also { SearchService.init(it, get()) }
     }
 
@@ -265,6 +282,7 @@ val dataSourceModule = module {
             client = get(),
             context = get(),
             accountCredentials = get<ProviderAccountManager>(),
+            networkHandover = get(),
             requestLimit = { snapshot ->
                 // Read the current value even before the asynchronous notification collector runs.
                 val current = settingsStore.settingsFlow.value.providers.asSequence()

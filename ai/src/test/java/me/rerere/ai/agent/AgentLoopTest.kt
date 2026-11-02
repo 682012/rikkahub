@@ -430,6 +430,11 @@ class AgentLoopTest {
         assertEquals(3, retrying.attempt.maxRetries)
         val finished = events.finished()
         assertEquals(listOf("full"), finished.message.texts())
+        // 重试期间已经展示的 "partial" 不会被清空或缩水：最后一次预览仍是它，成功后才整体替换
+        val previews = events.filterIsInstance<AgentEvent.MessageUpdated>().dropLast(1).map { it.message.texts() }
+        assertEquals(listOf("partial"), previews.last())
+        val previewLengths = previews.map { it.single().length }
+        assertEquals(previewLengths.sorted(), previewLengths)
         assertEquals(setOf(finished.message.id), events.messageIds())
         assertEquals(2, provider.requests.size)
     }

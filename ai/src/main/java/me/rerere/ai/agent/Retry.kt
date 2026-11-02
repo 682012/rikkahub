@@ -4,6 +4,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import me.rerere.common.http.NetworkHandover
 import java.io.IOException
 import kotlin.random.Random
 import kotlin.time.Duration
@@ -72,8 +73,17 @@ data class RetryPolicy(
     val initialDelay: Duration = 1.seconds,
     /** 指数退避的上限。重试次数调大后指数增长会失控，超过这个值就按固定间隔重试。 */
     val maxDelay: Duration = 60.seconds,
-    val retryOn: (Throwable) -> Boolean = { it is IOException },
+    val retryOn: (Throwable) -> Boolean = {
+        it is IOException && it !is javax.net.ssl.SSLHandshakeException && it !is javax.net.ssl.SSLPeerUnverifiedException
+    },
     val delayMode: RetryDelay = RetryDelay.Exponential,
+    /**
+     * 可选的网络代际观察者：退避期间网络换了路由（切 Wi-Fi、切 VPN）时提前结束等待。
+     *
+     * 为 null 时完全按 [delayMode] 等，和不传这个参数之前的行为一致。
+     * 它只改变"等多久"，不改变"要不要重试"——是否重试仍然只看 [maxRetries] 和 [retryOn]。
+     */
+    val networkHandover: NetworkHandover? = null,
 ) {
     /**
      * 第 [retry] 次重试（从 1 开始）之前要等多久。
@@ -109,14 +119,23 @@ data class RetryAttempt(
 
 /**
  * 按 [policy] 执行 [block]：失败且允许重试时先调用 [onRetry]，等待后再执行一次。
+ *
+ * 每次尝试开始前记下当时的网络代际；如果 [RetryPolicy.networkHandover] 在退避期间换了路由，
+ * 就交给它提前结束等待，而不是干等完整退避。没有网络事件时仍然等 [RetryPolicy.delayFor] 给的时长，
+ * 所以"最多重试几次"和"哪些错误重试"的语义都没变。
  */
 suspend fun <T> withRetry(
     policy: RetryPolicy,
     onRetry: suspend (RetryAttempt) -> Unit = {},
     block: suspend () -> T,
 ): T {
+    val handover = policy.networkHandover
     var retries = 0
     while (true) {
+        // 已取消/已停止的协程不能再被拉起；正常取消在这里直接抛出，不消耗重试次数
+        currentCoroutineContext().ensureActive()
+        // 这次尝试是在哪个网络代际上开始的，退避时用它判断网络是否已经变了
+        val epoch = handover?.state?.value?.epoch ?: 0L
         try {
             return block()
         } catch (error: Throwable) {
@@ -129,7 +148,9 @@ suspend fun <T> withRetry(
             retries++
             val backoff = policy.delayFor(retries)
             onRetry(RetryAttempt(error, retries, policy.maxRetries, backoff))
-            delay(backoff)
+            // 网络切换导致的失败不必干等完整退避；没有网络事件时 awaitRetry 同样按 backoff 等满。
+            // 等待本身可取消，停止生成不会被这里的等待拖住。
+            if (handover == null) delay(backoff) else handover.awaitRetry(epoch, backoff)
         }
     }
 }

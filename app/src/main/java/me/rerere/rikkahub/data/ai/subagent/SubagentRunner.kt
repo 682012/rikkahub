@@ -335,6 +335,7 @@ class SubagentRunner(
             tools = tools,
             maxSteps = maxSteps,
             settings = settings,
+            networkHandover = providerManager.networkHandover,
         )
         val timeoutMs = if (timeoutSec <= 0) 0L else timeoutSec * 1000L
         var latest: UIMessage? = null
@@ -549,6 +550,7 @@ internal fun buildSubagentRequest(
     tools: List<Tool>,
     maxSteps: Int,
     settings: Settings,
+    networkHandover: me.rerere.common.http.NetworkHandover? = null,
 ): AgentRequest = AgentRequest(
     provider = provider,
     providerSetting = providerSetting,
@@ -556,5 +558,5 @@ internal fun buildSubagentRequest(
     tools = tools,
     stream = false,
     maxSteps = maxSteps.coerceIn(1, HARD_MAX_STEPS),
-    retry = settings.retryPolicy(),
+    retry = settings.retryPolicy().copy(networkHandover = networkHandover),
 )

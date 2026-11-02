@@ -210,7 +210,7 @@ class MemoryConsolidator(
                 tools = tools,
                 stream = false,
                 maxSteps = MAX_STEPS,
-                retry = settings.retryPolicy(),
+                retry = settings.retryPolicy().copy(networkHandover = providerManager.networkHandover),
             ),
             hooks = hooks,
         ).filterIsInstance<AgentEvent.Finished>().single()

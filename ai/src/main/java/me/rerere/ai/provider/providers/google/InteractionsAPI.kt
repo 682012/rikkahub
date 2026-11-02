@@ -155,8 +155,14 @@ internal class InteractionsAPI(
             }
 
             override fun onClosed(eventSource: EventSource) {
-                sendChunks(decoder.onClosed())
-                close()
+                // 断流时 decoder.onClosed() 会抛 StreamTruncatedException，必须转成 close(e)
+                try {
+                    sendChunks(decoder.onClosed())
+                    close()
+                } catch (e: Throwable) {
+                    Log.w(TAG, "onClosed: stream truncated (${e.message})")
+                    close(e)
+                }
             }
         }
 

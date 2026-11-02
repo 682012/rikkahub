@@ -6,6 +6,7 @@ import kotlinx.serialization.json.jsonObject
 import me.rerere.ai.provider.stream.DecodeResult
 import me.rerere.ai.provider.stream.SseEvent
 import me.rerere.ai.provider.stream.StreamChunkDecoder
+import me.rerere.ai.provider.stream.StreamTruncatedException
 import me.rerere.ai.ui.ServerToolMetadata
 import me.rerere.ai.ui.ServerToolProtocol
 import me.rerere.ai.ui.StreamChunk
@@ -30,9 +31,15 @@ internal class InteractionsStreamDecoder(
     private var status: String? = null
     private var finished = false
 
+    /** 是否已收到协议终态：`interaction.completed` 或 `[DONE]`。只用于 [onClosed]。 */
+    private var terminalReceived = false
+
     override fun accept(event: SseEvent): DecodeResult {
         if (finished) return DecodeResult(completed = true)
-        if (event.data == "[DONE]") return DecodeResult(finish(), completed = true)
+        if (event.data == "[DONE]") {
+            terminalReceived = true
+            return DecodeResult(finish(), completed = true)
+        }
 
         val payload = json.parseToJsonElement(event.data).jsonObject
         val eventType = payload.stringOrNull("event_type") ?: event.event ?: payload.stringOrNull("type")
@@ -49,6 +56,7 @@ internal class InteractionsStreamDecoder(
             "interaction.completed" -> {
                 val interaction = payload["interaction"]?.jsonObjectOrNull
                 captureInteraction(interaction)
+                terminalReceived = true
                 DecodeResult(
                     chunks = buildList {
                         parseInteractionsUsage(interaction?.get("usage")?.jsonObjectOrNull)?.let {
@@ -73,7 +81,15 @@ internal class InteractionsStreamDecoder(
         }
     }
 
-    override fun onClosed(): List<StreamChunk> = finish()
+    override fun onClosed(): List<StreamChunk> {
+        if (finished) return emptyList()
+        if (!terminalReceived) {
+            throw StreamTruncatedException(
+                "Interactions 流在 interaction.completed 之前关闭，回复可能被截断",
+            )
+        }
+        return finish()
+    }
 
     private fun captureInteraction(interaction: JsonObject?) {
         if (interaction == null) return

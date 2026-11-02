@@ -11,6 +11,7 @@ import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.provider.stream.DecodeResult
 import me.rerere.ai.provider.stream.SseEvent
 import me.rerere.ai.provider.stream.StreamChunkDecoder
+import me.rerere.ai.provider.stream.StreamTruncatedException
 import me.rerere.ai.ui.OpenAIReasoningMetadata
 import me.rerere.ai.ui.ReasoningType
 import me.rerere.ai.ui.ServerToolStatus
@@ -23,19 +24,39 @@ import me.rerere.common.http.jsonObjectOrNull
 internal class ResponseApiStreamDecoder : StreamChunkDecoder {
     private val state = ResponseStreamState()
 
+    /**
+     * 是否已收到协议终态：`response.completed` / `response.incomplete` / `response.failed`（错误路径）。
+     *
+     * 只用于 [onClosed] 判断正常收尾还是断流。
+     */
+    private var terminalReceived = false
+
     override fun accept(event: SseEvent): DecodeResult {
         if (state.finished) return DecodeResult(completed = true)
-        if (event.data == "[DONE]") return DecodeResult(state.finish(), completed = true)
+        if (event.data == "[DONE]") {
+            terminalReceived = true
+            return DecodeResult(state.finish(), completed = true)
+        }
 
         val payload = json.parseToJsonElement(event.data).jsonObject
         val eventType = payload["type"]?.jsonPrimitive?.contentOrNull
         val chunks = parseEvent(payload)
         val completed = eventType == "response.completed" || eventType == "response.incomplete" ||
             event.event == "response.completed" || event.event == "response.incomplete"
+        if (completed) terminalReceived = true
         return DecodeResult(chunks, completed)
     }
 
-    override fun onClosed(): List<StreamChunk> = state.finish()
+    override fun onClosed(): List<StreamChunk> {
+        // response.failed / error 已经把错误抛给上层，这里不再重复报截断
+        if (state.finished) return emptyList()
+        if (!terminalReceived) {
+            throw StreamTruncatedException(
+                "Responses 流在 response.completed/incomplete 之前关闭，回复可能被截断",
+            )
+        }
+        return state.finish()
+    }
 
     private fun parseEvent(payload: JsonObject): List<StreamChunk> {
         val chunkType = payload["type"]?.jsonPrimitive?.content ?: error("chunk type not found")

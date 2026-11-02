@@ -115,6 +115,9 @@ class GoogleToolCombinationTest {
                             add(functionCallPart)
                         })
                     })
+                    // 显式终态：原来靠 onClosed() 在没有任何 finishReason 时收尾，
+                    // 等价于把断流当成功；补上真实终态帧后断言不变。
+                    put("finishReason", "STOP")
                 })
             }
         }))

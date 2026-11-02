@@ -16,6 +16,7 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ToolExecutionMode
 import me.rerere.ai.core.sum
 import me.rerere.ai.provider.TextGenerationParams
+import me.rerere.ai.ui.StreamChunk
 import me.rerere.ai.ui.StreamChunkHandler
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessage
@@ -128,6 +129,8 @@ internal class AgentLoop(
         // 多轮工具调用共用同一条助手消息，消息上已有的 usage 和耗时来自之前的步骤。
         // 本步从清空的统计开始（merge 只适合同一次请求内的快照），再与之前的步骤累加。
         val stepStart = base.copy(usage = null, generationTimeMs = null)
+        // 重试时已经展示出去的半截回复不能先缩水再重画，是否放行这次预览由它判断
+        val previews = StreamPreviewGuard(base.parts.size)
         return try {
             withRetry(request.retry, onRetry = { events.emit(AgentEvent.Retrying(it)) }) {
                 // 每次重试都从本步开始时的消息重新合并，不会把重试的响应接在已经展示的半截回复后面；
@@ -135,11 +138,18 @@ internal class AgentLoop(
                 val handler = StreamChunkHandler(params.model)
                 var attempt = stepStart
                 var firstChunk: TimeMark? = null
+                previews.beginAttempt()
                 request.provider.streamText(request.providerSetting, messages, params).collect { chunk ->
                     try {
                         val mark = firstChunk ?: TimeSource.Monotonic.markNow().also { firstChunk = it }
                         attempt = handler.handle(listOf(attempt), chunk).single()
-                        preview(attempt.withStepStats(base, mark.elapsedNow()), newPartsFrom = base.parts.size)
+                        previews.onChunk(chunk)
+                        // 重试后的新尝试要追上已展示的内容才更新预览，界面不会退回到更短的半截
+                        if (previews.canShow(attempt.parts)) {
+                            val shown = attempt.withStepStats(base, mark.elapsedNow())
+                            preview(shown, newPartsFrom = base.parts.size)
+                            previews.record(shown.parts)
+                        }
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Throwable) {
@@ -344,6 +354,82 @@ internal class AgentLoop(
 
 private fun UIMessagePart?.isModelsTurn() =
     (this is UIMessagePart.Tool && isExecuted) || this is UIMessagePart.Notice
+
+/**
+ * 重试时保住已经展示给用户的内容。
+ *
+ * 第一次尝试照常逐字刷新预览；某次尝试失败后，新尝试的内容先不往外发，直到它明确延续
+ * 已展示的文本并且长度追上来——否则界面会先缩水、再从零重画，看起来像回复被打断重写。
+ *
+ * 判定用增量长度做闸门，再比一次前缀：本次尝试的内容一旦确认延续，后面就不再重复比较
+ * （同一次尝试里的文本只会往后加），长回复不会退化成逐字符的全量比较。
+ * 如果新尝试和已展示的内容对不上（模型换了内容重新生成），本次尝试就不再尝试追上，
+ * 等它成功之后由这一步的最终消息整体替换：安全优先于逐字无缝。
+ */
+private class StreamPreviewGuard(private val baseParts: Int) {
+    // 上一次真正发出去的本步内容，以及它的文本总长
+    private var shown: List<UIMessagePart> = emptyList()
+    private var shownTextLength = 0
+    // 本次尝试已经收到的文本长度，只累加增量
+    private var attemptTextLength = 0
+    // 本次尝试已经确认延续了已展示的内容，之后的预览不必再比前缀
+    private var trusted = false
+    // 本次尝试已经确认和已展示的内容不同，直到这次尝试结束都不再更新预览
+    private var diverged = false
+
+    fun beginAttempt() {
+        attemptTextLength = 0
+        trusted = false
+        diverged = false
+    }
+
+    fun onChunk(chunk: StreamChunk) {
+        if (chunk is StreamChunk.TextDelta) attemptTextLength += chunk.text.length
+    }
+
+    /** 这次尝试的当前内容能不能更新预览 */
+    fun canShow(parts: List<UIMessagePart>): Boolean {
+        if (trusted) return true
+        // 还没有展示过任何内容（第一次尝试，或这一步本来就没产生内容），照常刷新
+        if (shown.isEmpty()) {
+            trusted = true
+            return true
+        }
+        if (diverged || attemptTextLength < shownTextLength) return false
+        val tail = parts.subList(baseParts, parts.size)
+        val extends = tail.size >= shown.size && shown.indices.all { tail[it].extendsPart(shown[it]) }
+        if (!extends) {
+            diverged = true
+            return false
+        }
+        trusted = true
+        return true
+    }
+
+    /** 记录这一次真正发出去的内容 */
+    fun record(parts: List<UIMessagePart>) {
+        shown = parts.subList(baseParts, parts.size).toList()
+        shownTextLength = shown.sumOf { it.textLength() }
+    }
+}
+
+// 新内容是否严格延续旧内容：占位不同就算不延续
+private fun UIMessagePart.extendsPart(shown: UIMessagePart): Boolean = when {
+    this is UIMessagePart.Text && shown is UIMessagePart.Text ->
+        text.length >= shown.text.length && text.startsWith(shown.text)
+
+    this is UIMessagePart.Reasoning && shown is UIMessagePart.Reasoning ->
+        reasoning.length >= shown.reasoning.length && reasoning.startsWith(shown.reasoning)
+
+    // 工具参数是流式拼的，只要求还是同一个调用，重试的工具卡片就不会串位
+    this is UIMessagePart.Tool && shown is UIMessagePart.Tool ->
+        toolCallId == shown.toolCallId && toolName == shown.toolName &&
+            input.length >= shown.input.length && input.startsWith(shown.input)
+
+    else -> this == shown
+}
+
+private fun UIMessagePart.textLength(): Int = (this as? UIMessagePart.Text)?.text?.length ?: 0
 
 private fun errorOutput(error: String): List<UIMessagePart> =
     listOf(UIMessagePart.Text(buildJsonObject { put("error", error) }.toString()))

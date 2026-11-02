@@ -155,7 +155,7 @@ class ChatRequestFactory(
             messages = messages,
             tools = turn.tools,
             stream = turn.assistant.streamOutput,
-            retry = turn.settings.retryPolicy(),
+            retry = turn.settings.retryPolicy().copy(networkHandover = providerManager.networkHandover),
         )
         val hooks = object : AgentHooks {
             override suspend fun prepareStep(messages: List<UIMessage>): StepRequest {
@@ -198,7 +198,7 @@ class ChatRequestFactory(
         val (requestMessages, params) = buildStep(turn, messages, includeTools = false)
         // 压缩指令不经过输入转换器，模板转换器会把其中的花括号当成模板语法
         val result = withRetry(
-            policy = turn.settings.retryPolicy(),
+            policy = turn.settings.retryPolicy().copy(networkHandover = providerManager.networkHandover),
             onRetry = { Log.w(TAG, "Compression request failed, retrying in ${it.delay}", it.cause) },
         ) {
             usageRecorder.wrap(

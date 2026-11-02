@@ -242,8 +242,12 @@ class ChatCompletionsToolCallFallbackTest {
         }.toString(),
     )
 
+    // 说明：这里补一个显式的 [DONE] 结束帧。这些用例原本靠 onClosed() 收尾，
+    // 相当于把"没有终态就 EOF"当成正常结束；现在解码器要求协议终态，
+    // 因此统一在帮助函数里补上真实的结束帧，断言保持不变。
     private fun collect(decoder: StreamChunkDecoder, vararg events: SseEvent): List<StreamChunk> =
-        events.flatMap { decoder.accept(it).chunks } + decoder.onClosed()
+        events.flatMap { decoder.accept(it).chunks } +
+            decoder.accept(SseEvent(data = "[DONE]")).chunks
 
     private fun toolCallIds(chunks: List<StreamChunk>): List<String> =
         chunks.filterIsInstance<StreamChunk.ToolCallStart>().map { it.id }
