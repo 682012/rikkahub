@@ -27,8 +27,8 @@ android {
         minSdk = 26
         targetSdk = 37
         // Visible version follows upstream; the Android code remains monotonic.
-        versionCode = 3000052
-        versionName = "3.1.1-r5"
+        versionCode = 3000053
+        versionName = "3.1.1-r6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -111,6 +111,8 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        // Shizuku user service contract (app/src/main/aidl/.../IWorkspaceShellService.aidl)
+        aidl = true
     }
     sourceSets {
         getByName("androidTest").assets.srcDirs("$projectDir/schemas")
@@ -180,12 +182,14 @@ kotlin {
 
 // kotlin-reflect 只由 ktor-server-core 传递引入，用到它的只有按配置加载模块、开发模式热重载等用不到的路径。
 // 它在 classpath 上时 stdlib 的 Reflection 会 Class.forName 加载 ReflectionFactoryImpl，R8 因此保留整个实现（约 0.7MB dex）
-configurations.matching { it.name.endsWith("RuntimeClasspath") }.configureEach {
+configurations.matching { it.name.endsWith("RuntimeClasspath") && !it.name.endsWith("UnitTestRuntimeClasspath") }.configureEach {
     exclude(group = "org.jetbrains.kotlin", module = "kotlin-reflect")
 }
 
 // Local JVM tests need the desktop native library instead of the Android AAR.
 configurations.matching { it.name.endsWith("UnitTestRuntimeClasspath") }.configureEach {
+    // Android logcat bindings cannot initialize in a plain JVM; SLF4J falls back to its JVM no-op provider.
+    exclude(group = "uk.uuid.slf4j", module = "slf4j-android")
     resolutionStrategy.dependencySubstitution {
         substitute(module("io.github.dokar3:quickjs-kt-android"))
             .using(module("io.github.dokar3:quickjs-kt-jvm:${libs.versions.quickjs.get()}"))
@@ -229,6 +233,12 @@ dependencies {
 
     // DataStore
     implementation(libs.androidx.datastore.preferences)
+
+    // Shizuku (user service + provider). The provider AAR ships its own R8 rules; our user service
+    // keeps itself alive through @Keep. Not available on the Play flavor build? It is: Shizuku is a
+    // regular library and needs no privileged install-time permission.
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
 
     // EXIF orientation for picked images
     implementation(libs.androidx.exifinterface)
@@ -356,6 +366,8 @@ dependencies {
     // tests
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    // Test-only: repository access wiring uses strict mocks; not shipped in the APK.
+    testImplementation("io.mockk:mockk:1.14.9")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

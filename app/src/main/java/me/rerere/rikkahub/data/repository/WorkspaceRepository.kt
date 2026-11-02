@@ -63,6 +63,7 @@ class WorkspaceRepository(
     private val context: android.content.Context,
     // 官方 3.1.1: SSH 远程工作区连接池
     private val sshPool: SshConnectionPool,
+    private val workspaceAccess: me.rerere.rikkahub.data.workspace.WorkspaceAccessManager? = null,
 ) {
     private val jobManager = WorkspaceJobManager(manager)
     private val workspaceFilesExporter = WorkspaceFilesExporter()
@@ -113,6 +114,27 @@ class WorkspaceRepository(
     }
 
     suspend fun getById(id: String): WorkspaceEntity? = dao.getById(id)
+
+    suspend fun androidShellAuthorized(id: String): Boolean {
+        val workspace = dao.getById(id) ?: return false
+        return !workspace.isSsh() && workspaceAccess?.get(workspace.root)?.androidShellEnabled == true
+    }
+
+    suspend fun executeAndroidCommand(
+        id: String, command: String, cwd: String = "/", timeoutMillis: Long = 30_000,
+    ): me.rerere.rikkahub.data.workspace.WorkspaceAndroidCommandResult {
+        val workspace = dao.getById(id) ?: error("Workspace not found: $id")
+        check(!workspace.isSsh()) { "Android host execution is only available for local workspaces" }
+        val access = checkNotNull(workspaceAccess) { "Android execution is unavailable" }
+        return access.executeAndroid(workspace.root, command, cwd, timeoutMillis)
+    }
+
+    /** Stop this app's owned local jobs before changing their filesystem view. Never signal old persisted PIDs. */
+    suspend fun stopLocalAccessJobs(id: String) = withContext(Dispatchers.IO) {
+        val workspace = dao.getById(id) ?: return@withContext
+        if (workspace.isSsh()) return@withContext
+        jobManager.list(workspace.root).forEach { job -> jobManager.kill(workspace.root, job.id) }
+    }
 
     suspend fun create(name: String): WorkspaceEntity {
         val id = Uuid.random().toString()
@@ -249,7 +271,7 @@ class WorkspaceRepository(
         if (workspace.isSsh()) {
             workspace.sshSettings()?.let { SshWorkspaceBackend.layoutOf(it.remoteDir) }
         } else {
-            manager.layout
+            manager.layout(workspace.root)
         }
     }
 
@@ -645,6 +667,7 @@ class WorkspaceRepository(
 
     suspend fun delete(id: String): Boolean {
         val workspace = dao.getById(id) ?: return false
+        if (!workspace.isSsh()) workspaceAccess?.clear(workspace.root)
         dao.deleteById(id)
         withContext(Dispatchers.IO) {
             sshPool.close(id)

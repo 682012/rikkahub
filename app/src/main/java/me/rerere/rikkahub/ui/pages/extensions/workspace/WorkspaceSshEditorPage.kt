@@ -104,7 +104,7 @@ fun WorkspaceSshEditorPage(id: String?) {
                 colors = CustomColors.topBarColors,
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageContainerColor,
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier

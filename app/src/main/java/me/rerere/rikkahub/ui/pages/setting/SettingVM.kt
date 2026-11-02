@@ -28,8 +28,16 @@ class SettingVM(
     val launchCount: StateFlow<Int> = settingsStore.launchCountFlow
         .stateIn(viewModelScope, SharingStarted.Lazily, 0)
 
+    suspend fun persistAppearance(appearance: me.rerere.rikkahub.data.datastore.AppearanceSettings) {
+        settingsStore.update { latest ->
+            latest.copy(displaySetting = latest.displaySetting.copy(
+                appearance = latest.displaySetting.appearance.copy(wallpaper = appearance.wallpaper),
+            ))
+        }
+    }
+
     fun updateSettings(fn: (Settings) -> Settings) {
-        viewModelScope.launch {
+        viewModelScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
             settingsStore.update(fn)
         }
     }

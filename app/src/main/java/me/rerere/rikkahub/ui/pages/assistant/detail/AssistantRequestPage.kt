@@ -50,7 +50,7 @@ fun AssistantRequestPage(id: String) {
             )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageContainerColor,
     ) { innerPadding ->
         AssistantRequestContent(
             innerPadding = innerPadding,

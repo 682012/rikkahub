@@ -240,6 +240,8 @@ data class DisplaySetting(
     val enableVolumeKeyScroll: Boolean = false,
     val volumeKeyScrollRatio: Float = 1.0f,
     val conversationSortOrder: ConversationSortOrder = ConversationSortOrder.UPDATE_TIME,
+    // 外观（聊天界面风格与壁纸）单独一份，见 AppearanceSettings.kt；旧配置没有这个字段，读出来就是默认值
+    val appearance: AppearanceSettings = AppearanceSettings(),
 )
 
 @Serializable

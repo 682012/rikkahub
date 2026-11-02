@@ -214,7 +214,7 @@ fun MemoryFilePage(memoryId: String, path: String?) {
             )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageContainerColor,
     ) { innerPadding ->
         when {
             editing -> MemoryFileEditor(

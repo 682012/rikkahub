@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="workspace_access_title">工作区权限与挂载</string>
+
+    <string name="workspace_access_trusted_title">信任 Linux 工作区</string>
+    <string name="workspace_access_trusted_desc">仅减少 Rootfs 文件操作的重复确认，不是 Android root。</string>
+    <string name="workspace_access_trusted_confirm_title">信任这个工作区？</string>
+    <string name="workspace_access_trusted_confirm_body">工作区内 Linux Rootfs 的文件操作不再逐次确认。Android 权限、命令执行身份和挂载目录都不受影响，可随时关闭。</string>
+
+    <string name="workspace_access_android_title">Android 执行权限</string>
+    <string name="workspace_access_android_unauthorized">未授权</string>
+    <string name="workspace_access_android_authorized">已授权 · %1$s</string>
+    <string name="workspace_access_android_desc">只影响从本工作区发起的命令。实际身份以状态行为准，Shizuku 也可能返回 UID 0。</string>
+    <string name="workspace_access_android_probe">检查状态</string>
+    <string name="workspace_access_android_revoke">撤销授权</string>
+    <string name="workspace_access_android_confirm_shizuku_title">切换到 Shizuku？</string>
+    <string name="workspace_access_android_confirm_shizuku_body">本工作区的命令将以 Shizuku 授予的身份执行，可能是 UID 0，可访问的文件更多。需要 Shizuku 正在运行，之后可随时撤销。</string>
+    <string name="workspace_access_android_confirm_root_title">切换到 Root？</string>
+    <string name="workspace_access_android_confirm_root_body">本工作区的命令将以设备 root 用户执行，可读写系统与应用数据。确认了解风险后再授权，之后可随时撤销。</string>
+
+    <string name="workspace_access_storage_title">共享存储</string>
+    <string name="workspace_access_storage_granted">已获得所有文件访问权限</string>
+    <string name="workspace_access_storage_denied">未获得所有文件访问权限</string>
+    <string name="workspace_access_storage_desc">这是 Android 系统权限，用于访问手机目录，与 Linux 信任和挂载不是一回事。</string>
+    <string name="workspace_access_storage_open">去系统设置</string>
+
+    <string name="workspace_access_mounts_title">挂载目录</string>
+    <string name="workspace_access_mounts_desc">当前只支持用户明确读写授权的 PRoot 路径映射，不是真正的内核 mount。</string>
+    <string name="workspace_access_mounts_empty">还没有映射任何目录。</string>
+    <string name="workspace_access_mount_pick">选择手机目录</string>
+    <string name="workspace_access_mount_pick_desc">通过系统目录选择器授权，重启后仍可访问。</string>
+    <string name="workspace_access_mount_add_path">填写路径</string>
+    <string name="workspace_access_mount_add_path_desc">手动填写手机绝对路径和 Rootfs 挂载点。</string>
+    <string name="workspace_access_mount_remove">移除挂载</string>
+    <string name="workspace_access_mount_remove_confirm_title">移除这个挂载？</string>
+    <string name="workspace_access_mount_remove_confirm_body">%1$s 会从当前工作区移除映射，手机上的文件不会被删除，之后可以重新挂载。</string>
+
+    <string name="workspace_access_path_dialog_title">填写挂载路径</string>
+    <string name="workspace_access_path_source">手机路径</string>
+    <string name="workspace_access_path_source_hint">/storage/emulated/0/Documents</string>
+    <string name="workspace_access_path_target">Rootfs 路径</string>
+    <string name="workspace_access_path_target_hint">/mnt/shared</string>
+    <string name="workspace_access_path_confirm">添加</string>
+    <string name="workspace_access_path_err_source_empty">请填写手机路径。</string>
+    <string name="workspace_access_path_err_source_not_path">content:// 授权请改用“选择手机目录”。</string>
+    <string name="workspace_access_path_err_source_relative">手机路径需要以 / 开头。</string>
+    <string name="workspace_access_path_err_source_broad">不要挂载整个 /，请选具体目录。</string>
+    <string name="workspace_access_path_err_target_relative">Rootfs 路径需要以 / 开头。</string>
+    <string name="workspace_access_path_err_target_broad">请选择 /mnt 下的子目录，不能是 / 或 /mnt。</string>
+    <string name="workspace_access_path_err_target_duplicate">这个 Rootfs 路径已经挂载过了。</string>
+</resources>

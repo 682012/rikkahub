@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_style_usage">Usage</string>
+    <string name="chat_style_new_chat">New chat</string>
+    <string name="chat_style_toggle_preview">Conversation outline</string>
+    <string name="chat_style_open_drawer">Conversations</string>
+    <string name="chat_style_last_context">Last context</string>
+    <string name="chat_style_context_pending">Pending</string>
+    <string name="chat_style_this_conversation">This chat ›</string>
+</resources>

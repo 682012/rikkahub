@@ -58,7 +58,7 @@ fun AssistantMcpPage(id: String) {
             )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageContainerColor,
     ) { innerPadding ->
         if (mcpServerConfigs.none { it.commonOptions.enable }) {
             Box(modifier = Modifier.padding(innerPadding)) {

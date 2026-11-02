@@ -111,6 +111,9 @@ import me.rerere.rikkahub.ui.context.LocalASRState
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.ChatInputState
+import me.rerere.rikkahub.ui.theme.chatPanelStrong
+import me.rerere.rikkahub.ui.theme.chatWallpaperActive
+import me.rerere.rikkahub.ui.theme.rememberChatStyleSpec
 import me.rerere.rikkahub.utils.SoundEffectPlayer
 import org.koin.compose.koinInject
 import me.rerere.rikkahub.ui.pages.chat.VoicePhase
@@ -144,18 +147,28 @@ fun ChatInput(
     onStopVoiceMode: () -> Unit = {},
 ) {
     val toaster = LocalToaster.current
-    val containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-
-    val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
-
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val styleSpec = rememberChatStyleSpec()
+    val hasWallpaper = chatWallpaperActive()
+    // 有壁纸时容器要压住字，没壁纸时就是原来的 surfaceContainerLow
+    val containerColor = if (hasWallpaper) {
+        chatPanelStrong(MaterialTheme.colorScheme.surfaceContainerLow)
+    } else {
+        MaterialTheme.colorScheme.surfaceContainerLow
+    }
+    // 贴底输入条的顶部圆角沿用主题；浮岛面板四角统一
     val themeShape = MaterialTheme.shapes.largeIncreased
-    val containerShape = RoundedCornerShape(
-        topStart = themeShape.topStart,
-        topEnd = themeShape.topEnd,
-        bottomEnd = themeShape.bottomEnd,
-        bottomStart = themeShape.bottomStart,
-    )
+    val containerShape = if (styleSpec.inputFloating) {
+        RoundedCornerShape(styleSpec.inputCorner)
+    } else {
+        RoundedCornerShape(
+            topStart = themeShape.topStart,
+            topEnd = themeShape.topEnd,
+            bottomEnd = androidx.compose.foundation.shape.CornerSize(if (styleSpec.style == me.rerere.rikkahub.data.datastore.ChatUiStyle.CLASSIC) 0.dp else styleSpec.inputCorner),
+            bottomStart = androidx.compose.foundation.shape.CornerSize(if (styleSpec.style == me.rerere.rikkahub.data.datastore.ChatUiStyle.CLASSIC) 0.dp else styleSpec.inputCorner),
+        )
+    }
     val modelListState = rememberModelListState(
         modelId = chatModel?.id,
         providers = settings.providers,
@@ -205,14 +218,16 @@ fun ChatInput(
         }
     }
 
-    // 底部渐变遮罩：从输入区顶部一直过渡到屏幕底部（键盘弹出时到键盘上沿），避免消息透到系统导航栏
+    // 底部渐变遮罩：从输入区顶部一直过渡到屏幕底部（键盘弹出时到键盘上沿），避免消息透到系统导航栏。
+    // 有壁纸时不能铺满不透明的 background，否则会把壁纸挡住；改成按风格强度压一层半透明。
     val scrimColor = MaterialTheme.colorScheme.background
+    val scrimStrength = (styleSpec.inputScrimStrength * if (hasWallpaper) 0.6f else 1f).coerceIn(0f, 1f)
     val imeInsets = WindowInsets.ime
     Surface(
         color = Color.Transparent,
         modifier = Modifier.drawWithCache {
             val brush = Brush.verticalGradient(
-                colors = listOf(scrimColor.copy(alpha = 0f), scrimColor),
+                colors = listOf(scrimColor.copy(alpha = 0f), scrimColor.copy(alpha = scrimStrength)),
                 startY = 0f,
                 endY = (size.height - imeInsets.getBottom(this)).coerceAtLeast(1f),
             )
@@ -223,8 +238,8 @@ fun ChatInput(
             modifier = modifier
                 .imePadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 8.dp)
-                .padding(bottom = 8.dp),
+                .padding(horizontal = styleSpec.inputSidePadding)
+                .padding(bottom = if (styleSpec.inputFloating) 12.dp else 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             MessageQueuePanel(
@@ -246,8 +261,17 @@ fun ChatInput(
                     ),
                 shape = containerShape,
                 tonalElevation = 0.dp,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-                color = if (settings.displaySetting.enableBlurEffect) Color.Transparent else containerColor,
+                // FOCUS 极简：不描边不投影，只留面板本身
+                border = if (styleSpec.inputFloating) {
+                    BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (hasWallpaper) 0.6f else 0.45f),
+                    )
+                } else {
+                    null
+                },
+                shadowElevation = if (styleSpec.inputFloating && !settings.displaySetting.enableBlurEffect) 6.dp else 0.dp,
+                color = if (settings.displaySetting.enableBlurEffect && !hasWallpaper) Color.Transparent else containerColor,
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),

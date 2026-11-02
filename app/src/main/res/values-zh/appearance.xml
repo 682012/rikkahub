@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_style_section">聊天界面风格</string>
+    <string name="appearance_style_classic">经典</string>
+    <string name="appearance_style_studio">工作台</string>
+    <string name="appearance_style_focus">专注</string>
+    <string name="appearance_style_classic_desc">左右气泡，和原来一模一样。</string>
+    <string name="appearance_style_studio_desc">卡片与会话仪表板，信息更密。</string>
+    <string name="appearance_style_focus_desc">低噪声，只剩对话本身。</string>
+    <string name="appearance_style_option_desc">已选 %1$s 风格</string>
+
+    <string name="appearance_wallpaper_none">未设置壁纸</string>
+    <string name="appearance_wallpaper_preview_desc">壁纸预览</string>
+    <string name="appearance_wallpaper_open_preview">预览壁纸</string>
+    <string name="appearance_wallpaper_pick">选择图片</string>
+    <string name="appearance_wallpaper_pick_title">壁纸</string>
+    <string name="appearance_wallpaper_pick_gallery">从相册选择</string>
+    <string name="appearance_wallpaper_pick_url">使用图片链接</string>
+    <string name="appearance_wallpaper_url_hint">https://example.com/image.jpg</string>
+    <string name="appearance_wallpaper_saved">壁纸已保存到应用内</string>
+    <string name="appearance_wallpaper_save_failed">这张图片没能保存（%1$s）</string>
+    <string name="appearance_wallpaper_remove">移除壁纸</string>
+
+    <string name="appearance_wallpaper_immersive_title">沉浸壁纸</string>
+    <string name="appearance_wallpaper_immersive_desc">壁纸铺到所有页面及系统栏后面。关闭后仅聊天页使用全局壁纸，助手背景仍优先。</string>
+
+    <string name="appearance_wallpaper_display_section">壁纸显示</string>
+    <string name="appearance_wallpaper_visibility">壁纸可见度</string>
+    <string name="appearance_wallpaper_scrim">亮度遮罩</string>
+    <string name="appearance_wallpaper_scrim_desc">压暗壁纸，保证文字可读。</string>
+    <string name="appearance_wallpaper_blur">模糊</string>
+    <string name="appearance_wallpaper_scale">适配模式</string>
+    <string name="appearance_wallpaper_scale_crop">裁剪</string>
+    <string name="appearance_wallpaper_scale_fit">适应</string>
+    <string name="appearance_wallpaper_focus">焦点位置</string>
+    <string name="appearance_wallpaper_focus_desc">裁剪时优先保留的位置。</string>
+    <string name="appearance_wallpaper_focus_option">焦点距左 %1$d%%、距顶 %2$d%%</string>
+
+    <string name="appearance_surface_section">面板</string>
+    <string name="appearance_surface_opacity">面板强度</string>
+    <string name="appearance_surface_opacity_desc">数值越高，消息在壁纸上越易读。</string>
+
+    <string name="appearance_value_percent">%1$d%%</string>
+    <string name="appearance_value_blur">%1$d</string>
+    <string name="appearance_cancel">取消</string>
+    <string name="appearance_confirm">确定</string>
+    <string name="appearance_style_section_desc">同一份消息，三种布局，只改呈现方式。</string>
+</resources>

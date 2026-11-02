@@ -55,6 +55,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withLink
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.util.fastAll
@@ -93,6 +94,8 @@ import me.rerere.rikkahub.ui.modifier.shimmer
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalWorkspaceId
 import me.rerere.rikkahub.ui.theme.LocalChatFontFamily
+import me.rerere.rikkahub.ui.theme.chatPanel
+import me.rerere.rikkahub.ui.theme.rememberChatStyleSpec
 import me.rerere.rikkahub.ui.theme.rememberChatFontFamily
 import me.rerere.rikkahub.utils.JsonInstant
 import me.rerere.rikkahub.utils.openUrl
@@ -302,6 +305,8 @@ private fun MessagePartsBlock(
     // 消息输出HapticFeedback
     val hapticFeedback = LocalHapticFeedback.current
     val settings = LocalSettings.current
+    // 气泡圆角/底色随风格走；有壁纸时 chatPanel 会补一档安全不透明度
+    val styleSpec = rememberChatStyleSpec()
     val partsState by rememberUpdatedState(parts)
 
     val handleClickCitation: (String) -> Unit = remember {
@@ -354,7 +359,10 @@ private fun MessagePartsBlock(
                         collapsedVisibleCount = collapsedVisibleCount,
                         collapsedAdaptiveWidth = isReasoningOnlyBlock,
                         cardColors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = settings.displaySetting.bubbleOpacity),
+                            containerColor = chatPanel(
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                                    .copy(alpha = settings.displaySetting.bubbleOpacity),
+                            ),
                         ),
                     ) { step ->
                         when (step) {
@@ -407,7 +415,12 @@ private fun MessagePartsBlock(
                             if (role == MessageRole.USER) {
                                 ChatMessageBubble(
                                     role = role,
-                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = settings.displaySetting.bubbleOpacity),
+                                    color = chatPanel(
+                                        MaterialTheme.colorScheme.primaryContainer
+                                            .copy(alpha = settings.displaySetting.bubbleOpacity),
+                                    ),
+                                    restCorner = styleSpec.bubbleCorner,
+                                    tailCorner = styleSpec.bubbleTailCorner,
                                     onClick = { onUserMessageClick?.invoke() },
                                     // 用户气泡不占满整行，和助手的回复错开
                                     modifier = Modifier
@@ -424,10 +437,15 @@ private fun MessagePartsBlock(
                                     )
                                 }
                             } else {
-                                if (settings.displaySetting.showAssistantBubble) {
+                                if (settings.displaySetting.showAssistantBubble || me.rerere.rikkahub.ui.theme.LocalWallpaperActive.current) {
                                     ChatMessageBubble(
                                         role = role,
-                                        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = settings.displaySetting.bubbleOpacity),
+                                        color = chatPanel(
+                                            MaterialTheme.colorScheme.surfaceContainerHigh
+                                                .copy(alpha = settings.displaySetting.bubbleOpacity),
+                                        ),
+                                        restCorner = styleSpec.bubbleCorner,
+                                        tailCorner = styleSpec.bubbleTailCorner,
                                         modifier = Modifier.animateContentSize(),
                                     ) {
                                         MarkdownBlock(
@@ -559,15 +577,17 @@ private fun ChatMessageBubble(
     color: Color,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    restCorner: Dp = BubbleCorner,
+    tailCorner: Dp = BubbleTailCorner,
     content: @Composable () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressProgress by animatePressProgress(interactionSource)
-    val corner = lerp(BubbleCorner, BubblePressedCorner, pressProgress)
+    val corner = lerp(restCorner, BubblePressedCorner, pressProgress)
     val shape = if (role == MessageRole.USER) {
-        RoundedCornerShape(topStart = corner, topEnd = BubbleTailCorner, bottomEnd = corner, bottomStart = corner)
+        RoundedCornerShape(topStart = corner, topEnd = tailCorner, bottomEnd = corner, bottomStart = corner)
     } else {
-        RoundedCornerShape(topStart = BubbleTailCorner, topEnd = corner, bottomEnd = corner, bottomStart = corner)
+        RoundedCornerShape(topStart = tailCorner, topEnd = corner, bottomEnd = corner, bottomStart = corner)
     }
     val contentColor = contentColorFor(color)
     Box(

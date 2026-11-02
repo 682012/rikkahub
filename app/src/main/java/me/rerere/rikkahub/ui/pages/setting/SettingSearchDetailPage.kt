@@ -115,7 +115,7 @@ fun SettingSearchDetailPage(
             )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = CustomColors.topBarColors.containerColor
+        containerColor = CustomColors.pageContainerColor
     ) { padding ->
         LazyColumn(
             modifier = Modifier

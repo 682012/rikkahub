@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_style_usage">用量</string>
+    <string name="chat_style_new_chat">新会话</string>
+    <string name="chat_style_toggle_preview">会话大纲</string>
+    <string name="chat_style_open_drawer">会话列表</string>
+    <string name="chat_style_last_context">上次上下文</string>
+    <string name="chat_style_context_pending">待报告</string>
+    <string name="chat_style_this_conversation">本对话 ›</string>
+</resources>

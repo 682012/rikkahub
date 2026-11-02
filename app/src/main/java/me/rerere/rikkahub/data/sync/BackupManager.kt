@@ -147,7 +147,9 @@ class BackupManager(
                     val settingsFile = File(staging, "settings.json")
                     if (settingsFile.exists()) {
                         val migrated = SettingsJsonMigrator.migrate(settingsFile.readText())
-                        val settings = restoreJson.decodeFromString<Settings>(migrated)
+                        val decodedSettings = restoreJson.decodeFromString<Settings>(migrated)
+                        // Owned wallpaper files move with the backup, not the old device's absolute app directory.
+                        val settings = decodedSettings.withRestoredWallpaperPath(context.filesDir)
                         require(!settings.init) { "Backup contains uninitialized settings" }
                         // Persist the migrated value once, including generated IDs, for restart/retry consistency.
                         PendingRestore.writeDurably(settingsFile, json.encodeSettings(settings, json.launchCountOf(migrated)))
@@ -177,7 +179,7 @@ class BackupManager(
 
     companion object {
         private val ATTACHMENT_FOLDERS =
-            listOf(FileFolders.UPLOAD, FileFolders.SKILLS, FileFolders.FONTS, FileFolders.MEDIA_CREATION, "msg_cache")
+            listOf(FileFolders.UPLOAD, FileFolders.SKILLS, FileFolders.FONTS, FileFolders.MEDIA_CREATION, "appearance_wallpapers", "msg_cache")
 
         /** Backed up with their subdirectories; the other folders only contain top-level files. */
         private val NESTED_ATTACHMENT_FOLDERS = setOf(FileFolders.SKILLS, FileFolders.MEDIA_CREATION)

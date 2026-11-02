@@ -310,6 +310,7 @@ class RouteActivity : ComponentActivity() {
             }
         }
 
+        me.rerere.rikkahub.ui.theme.AppAppearanceHost(settings) {
         SharedTransitionLayout {
             CompositionLocalProvider(
                 LocalNavController provides Navigator(backStack),
@@ -324,7 +325,6 @@ class RouteActivity : ComponentActivity() {
                     modifier = Modifier
                         .fillMaxSize()
                         .semantics { testTagsAsResourceId = true }
-                        .background(MaterialTheme.colorScheme.background)
                 ) {
                     NavDisplay(
                         backStack = backStack,
@@ -650,6 +650,7 @@ class RouteActivity : ComponentActivity() {
                     )
                 }
             }
+        }
         }
     }
 }

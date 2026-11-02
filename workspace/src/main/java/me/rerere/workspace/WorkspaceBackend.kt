@@ -89,6 +89,10 @@ data class WorkspaceLayout(
 
     fun isWritable(path: String): Boolean {
         val normalized = path.trimEnd('/').ifBlank { "/" }
-        return writableRoots.any { root -> normalized == root || normalized.startsWith("$root/") }
+        return writableRoots.any { root ->
+            val prefix = root.trimEnd('/').ifBlank { "/" }
+            if (prefix == "/") normalized.startsWith('/')
+            else normalized == prefix || normalized.startsWith("$prefix/")
+        }
     }
 }

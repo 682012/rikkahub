@@ -97,7 +97,7 @@ fun SettingSearchPage(vm: SettingVM = koinViewModel()) {
             )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = CustomColors.topBarColors.containerColor
+        containerColor = CustomColors.pageContainerColor
     ) {
         val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
             val fromIndex = from.index

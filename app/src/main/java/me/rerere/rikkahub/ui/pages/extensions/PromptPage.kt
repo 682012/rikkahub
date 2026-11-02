@@ -144,7 +144,7 @@ fun PromptPage(vm: PromptVM = koinViewModel()) {
             )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageContainerColor,
     ) { innerPadding ->
         Column(
             modifier = Modifier

@@ -68,7 +68,7 @@ fun SettingModelPage(vm: SettingVM = koinViewModel()) {
     val pagerState = rememberPagerState { ModelSettingTab.entries.size }
 
     Scaffold(
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageContainerColor,
         topBar = {
             LargeFlexibleTopAppBar(
                 title = { Text(stringResource(R.string.setting_model_page_title)) },

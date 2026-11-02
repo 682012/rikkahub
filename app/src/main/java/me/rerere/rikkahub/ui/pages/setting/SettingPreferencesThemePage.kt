@@ -51,13 +51,24 @@ fun SettingPreferencesThemePage(vm: SettingVM = koinViewModel()) {
             )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = CustomColors.topBarColors.containerColor
+        containerColor = me.rerere.rikkahub.ui.theme.LocalPageContainer.current
     ) { contentPadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = contentPadding + PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            item(key = "appearance") {
+                AppearanceSettingsCard(
+                    appearance = settings.displaySetting.appearance,
+                    persistChange = vm::persistAppearance,
+                    onChange = { appearance ->
+                        vm.updateSettings { latest ->
+                            latest.copy(displaySetting = latest.displaySetting.copy(appearance = appearance))
+                        }
+                    },
+                )
+            }
             item {
                 CardGroup {
                     switchItem(

@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListItemInfo
 import androidx.compose.foundation.lazy.LazyListState
@@ -106,6 +107,7 @@ import me.rerere.rikkahub.ui.components.message.ChatMessage
 import me.rerere.rikkahub.ui.components.ui.ErrorCardsDisplay
 import me.rerere.rikkahub.ui.hooks.ImeLazyListAutoScroller
 import me.rerere.rikkahub.ui.theme.ChatFontProvider
+import me.rerere.rikkahub.ui.theme.rememberChatStyleSpec
 import me.rerere.rikkahub.utils.plus
 import me.rerere.ui.components.ListSelectableItem
 import me.rerere.ui.components.Tooltip
@@ -235,6 +237,7 @@ private fun ChatListNormal(
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
 ) {
     val scope = rememberCoroutineScope()
+    val styleSpec = rememberChatStyleSpec()
     val loadingState by rememberUpdatedState(loading)
     var isRecentScroll by remember { mutableStateOf(false) }
     val conversationUpdated by rememberUpdatedState(conversation)
@@ -329,12 +332,13 @@ private fun ChatListNormal(
             LazyColumn(
                 state = state,
                 // 顶部留白放进 contentPadding，让消息可以滚动到透明标题栏下面
-                contentPadding = PaddingValues(16.dp) + PaddingValues(
+                // 左右留白和消息间距跟着风格走：CLASSIC 保持 r5，STUDIO 更密，FOCUS 更松
+                contentPadding = PaddingValues(horizontal = styleSpec.listSidePadding) + PaddingValues(
                     top = innerPadding.calculateTopPadding(),
                     bottom = 32.dp + innerPadding.calculateBottomPadding(),
                 ),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(styleSpec.messageSpacing),
                 modifier = Modifier
                     .fillMaxSize()
                     .topFadingEdge(innerPadding.calculateTopPadding() + 24.dp)
@@ -344,7 +348,12 @@ private fun ChatListNormal(
                 items = conversation.messageNodes,
                 key = { index, item -> item.id },
             ) { index, node ->
-                Column {
+                // 阅读区宽度上限：大屏/FOCUS 下不铺满整行，行太长不好读
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = styleSpec.contentMaxWidth)
+                        .fillMaxWidth(),
+                ) {
                     ListSelectableItem(
                         key = node.id,
                         onSelectChange = {

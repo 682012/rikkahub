@@ -193,7 +193,7 @@ fun SettingFilesPage(
             )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = CustomColors.topBarColors.containerColor
+        containerColor = CustomColors.pageContainerColor
     ) { innerPadding ->
         val layoutDirection = LocalLayoutDirection.current
         Column(

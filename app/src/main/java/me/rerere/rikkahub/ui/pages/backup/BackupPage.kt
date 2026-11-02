@@ -73,7 +73,7 @@ fun BackupPage(vm: BackupVM = koinViewModel()) {
             )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = CustomColors.topBarColors.containerColor
+        containerColor = CustomColors.pageContainerColor
     ) { contentPadding ->
         Column(
             modifier = Modifier

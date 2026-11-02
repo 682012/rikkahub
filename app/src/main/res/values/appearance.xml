@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_style_section">Chat UI style</string>
+    <string name="appearance_style_classic">Classic</string>
+    <string name="appearance_style_studio">Studio</string>
+    <string name="appearance_style_focus">Focus</string>
+    <string name="appearance_style_classic_desc">Bubbles on both sides, exactly like before.</string>
+    <string name="appearance_style_studio_desc">Cards and a session dashboard, denser information.</string>
+    <string name="appearance_style_focus_desc">Low noise, just the conversation.</string>
+    <string name="appearance_style_option_desc">%1$s style selected</string>
+
+    <string name="appearance_wallpaper_none">No wallpaper</string>
+    <string name="appearance_wallpaper_preview_desc">Wallpaper preview</string>
+    <string name="appearance_wallpaper_open_preview">Preview wallpaper</string>
+    <string name="appearance_wallpaper_pick">Choose image</string>
+    <string name="appearance_wallpaper_pick_title">Wallpaper</string>
+    <string name="appearance_wallpaper_pick_gallery">Pick from gallery</string>
+    <string name="appearance_wallpaper_pick_url">Use image link</string>
+    <string name="appearance_wallpaper_url_hint">https://example.com/image.jpg</string>
+    <string name="appearance_wallpaper_saved">Wallpaper saved in the app</string>
+    <string name="appearance_wallpaper_save_failed">Could not save this image (%1$s)</string>
+    <string name="appearance_wallpaper_remove">Remove wallpaper</string>
+
+    <string name="appearance_wallpaper_immersive_title">Immersive wallpaper</string>
+    <string name="appearance_wallpaper_immersive_desc">Extend wallpaper across pages and behind system bars. When off, use it only in chat. Assistant backgrounds take priority.</string>
+
+    <string name="appearance_wallpaper_display_section">Wallpaper display</string>
+    <string name="appearance_wallpaper_visibility">Wallpaper visibility</string>
+    <string name="appearance_wallpaper_scrim">Brightness mask</string>
+    <string name="appearance_wallpaper_scrim_desc">Darkens the wallpaper so text stays readable.</string>
+    <string name="appearance_wallpaper_blur">Blur</string>
+    <string name="appearance_wallpaper_scale">Fit mode</string>
+    <string name="appearance_wallpaper_scale_crop">Crop</string>
+    <string name="appearance_wallpaper_scale_fit">Fit</string>
+    <string name="appearance_wallpaper_focus">Focus point</string>
+    <string name="appearance_wallpaper_focus_desc">What stays visible when the image is cropped.</string>
+    <string name="appearance_wallpaper_focus_option">Focus %1$d%% from left, %2$d%% from top</string>
+
+    <string name="appearance_surface_section">Panels</string>
+    <string name="appearance_surface_opacity">Panel intensity</string>
+    <string name="appearance_surface_opacity_desc">Higher keeps messages easier to read over the wallpaper.</string>
+
+    <string name="appearance_value_percent">%1$d%%</string>
+    <string name="appearance_value_blur">%1$d</string>
+    <string name="appearance_cancel">Cancel</string>
+    <string name="appearance_confirm">Confirm</string>
+    <string name="appearance_style_section_desc">Same messages, three layouts. Only how they look changes.</string>
+</resources>

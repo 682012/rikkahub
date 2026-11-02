@@ -1,6 +1,6 @@
 # 相比官方 3.1.1：新增工作流、功能增强与限制
 
-当前实验分支在r4基础上加入[r5会话工作台与统计修正](RELEASE-r5.md)，稳定latest仍r3。以下历史基线说明保留。
+当前实验代码 **3.1.1-r6 / 3000053** 合并已发布 r5 的全部统计修复与工作区访问权限分支，另增加[可切换布局与沉浸壁纸](APPEARANCE-r6.md)、[主动授权与挂载](WORKSPACE-ACCESS.md)。稳定 latest 保持 r3，r4/r5 不撤回。验收只以 r6 的发布说明与 verification/r6.json 为准，下面保留历史基线。
 
 本实验分支额外加入[Gemini/Claude网页会话](WEB-ACCOUNTS.md)与[缓存/窗口计数修复](CACHE-r4.md)，见[r4验收与限制](RELEASE-r4.md)。以下分组保留稳定版r3基线；网页工具是需确认的提示词协议，账号兼容性未实测，不能算原生function calling。
 

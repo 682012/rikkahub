@@ -117,7 +117,7 @@ fun SettingMediaProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
     val name = provider.name.ifEmpty { provider.typeName }
 
     Scaffold(
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageContainerColor,
         topBar = {
             TopAppBar(
                 navigationIcon = {

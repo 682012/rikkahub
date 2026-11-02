@@ -201,7 +201,7 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
     }
 
     Scaffold(
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageContainerColor,
         topBar = {
             TopAppBar(
                 navigationIcon = {
@@ -1506,7 +1506,7 @@ private fun ProviderOverrideSettings(
                 },
                 sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded)),
                 // 和服务商详情页同一个底色，里面的分段表单才分得开
-                containerColor = CustomColors.topBarColors.containerColor,
+                containerColor = CustomColors.pageContainerColor,
             ) {
                 var internalProvider by remember(editingProvider) { mutableStateOf(editingProvider!!) }
 

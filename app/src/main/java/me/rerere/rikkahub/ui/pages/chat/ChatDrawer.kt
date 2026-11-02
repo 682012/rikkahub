@@ -113,6 +113,7 @@ fun ChatDrawerContent(
     val context = LocalContext.current
     val toaster = LocalToaster.current
     val repo = koinInject<ConversationRepository>()
+    val chatStyle = me.rerere.rikkahub.ui.theme.rememberChatStyleSpec()
 
     val activity = context as ComponentActivity
     val drawerVm: ChatDrawerVM = koinViewModel(viewModelStoreOwner = activity)
@@ -192,7 +193,7 @@ fun ChatDrawerContent(
     val drawerHeader: @Composable () -> Unit = {
         Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(if (chatStyle.drawerHeaderCompact) 4.dp else 8.dp),
         ) {
             if (updateChecksEnabled && !BuildConfig.IS_PLAY_STORE) {
                 UpdateCard(vm)
@@ -298,7 +299,13 @@ fun ChatDrawerContent(
     }
 
     ModalDrawerSheet(
-        modifier = Modifier.width(300.dp)
+        modifier = Modifier.width(if (chatStyle.drawerHeaderCompact) 280.dp else 300.dp),
+        drawerContainerColor = me.rerere.rikkahub.ui.theme.appearanceSurface(
+            if (chatStyle.drawerSheetTone) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surfaceContainer,
+            strong = true,
+        ),
+        drawerShape = if (chatStyle.headerFloating) androidx.compose.foundation.shape.RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp)
+            else MaterialTheme.shapes.large,
     ) {
         Column(
             modifier = Modifier.padding(8.dp),

@@ -138,7 +138,7 @@ fun AssistantPage(vm: AssistantVM = koinViewModel()) {
             )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageContainerColor,
     ) {
         Column(
             modifier = Modifier

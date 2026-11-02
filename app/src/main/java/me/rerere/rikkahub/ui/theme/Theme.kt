@@ -103,6 +103,8 @@ fun RikkahubTheme(
         LocalDarkMode provides darkTheme,
         LocalExtendColors provides extendColors,
         LocalOverscrollFactory provides null,
+        LocalAppearance provides settings.displaySetting.appearance.normalized(),
+        LocalPageContainer provides colorSchemeConverted.background,
     ) {
         MaterialExpressiveTheme(
             colorScheme = colorSchemeConverted,

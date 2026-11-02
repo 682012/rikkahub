@@ -124,7 +124,7 @@ fun SearchPage(vm: SearchVM = koinViewModel()) {
             )
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageContainerColor,
     ) { contentPadding ->
         Column(
             modifier = Modifier

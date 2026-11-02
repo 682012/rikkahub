@@ -228,7 +228,7 @@ fun WorkspaceDetailPage(id: String) {
                 colors = CustomColors.topBarColors,
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageContainerColor,
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -498,6 +498,10 @@ private fun WorkspaceBasicPage(
             }
         }
 
+        if (workspace != null && !workspace.isSsh()) {
+            item { WorkspaceAccessSection(workspace) }
+        }
+
         item {
             WorkspaceToolApprovalCard(
                 workspace = workspace,
@@ -577,7 +581,8 @@ private fun WorkspaceToolApprovalCard(
     val overrides = workspace?.toolApprovalOverrides().orEmpty()
     val fileWriteTools = workspace?.capabilities()?.fileWriteTools ?: true
     val tools = workspaceToolApprovalItems().filter { (toolName) ->
-        fileWriteTools || toolName !in WorkspaceFileWriteToolNames
+        (fileWriteTools || toolName !in WorkspaceFileWriteToolNames) &&
+            (toolName != "workspace_android_shell" || workspace?.isSsh() != true)
     }
 
     CardGroup(
@@ -619,6 +624,7 @@ private fun workspaceToolApprovalItems() = listOf(
     Triple("workspace_write_file", stringResource(R.string.workspace_detail_tool_write_file), HugeIcons.PencilEdit01),
     Triple("workspace_edit_file", stringResource(R.string.workspace_detail_tool_edit_file), HugeIcons.FileEdit),
     Triple("workspace_shell", stringResource(R.string.workspace_detail_tool_shell), HugeIcons.ComputerTerminal01),
+    Triple("workspace_android_shell", stringResource(R.string.workspace_access_native_approval), HugeIcons.ComputerTerminal01),
 )
 
 @Composable

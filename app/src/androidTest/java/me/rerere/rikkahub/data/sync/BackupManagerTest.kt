@@ -125,6 +125,25 @@ class BackupManagerTest {
         assertEquals(0, launchCountOf(staged))
     }
 
+    @Test fun ownedWallpaperFilesAreIncludedAndRestoreBeforeStartupWithoutPrivilegeRecords() = runBlocking {
+        val folder = File(context.filesDir, "appearance_wallpapers").apply { mkdirs() }
+        val wallpaper = File(folder, "probe.png").apply { writeBytes(byteArrayOf(1, 2, 3, 4)) }
+        val privilege = File(context.noBackupFilesDir, "workspace-access/probe.json").apply {
+            parentFile!!.mkdirs(); writeText("private authorization")
+        }
+        val archive = manager.createBackup(includeDatabase = false, includeFiles = true)
+        ZipFile(archive).use { zip ->
+            assertTrue(zip.getEntry("appearance_wallpapers/probe.png") != null)
+            assertFalse(zip.entries().asSequence().any { it.name.contains("workspace-access") })
+        }
+        wallpaper.delete()
+        manager.stageRestore(archive, includeDatabase = false, includeFiles = true)
+        val staged = File(context.noBackupFilesDir, "backup-restore/pending/payload/files/appearance_wallpapers/probe.png")
+        assertTrue(staged.isFile)
+        assertTrue(staged.readBytes().contentEquals(byteArrayOf(1, 2, 3, 4)))
+        assertTrue(privilege.exists())
+    }
+
     private fun launchCountOf(settingsJson: String): Int? =
         JsonInstant.parseToJsonElement(settingsJson).jsonObject["launchCount"]?.jsonPrimitive?.int
 

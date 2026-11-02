@@ -7,7 +7,7 @@
   <uses-permission android:name="android.permission.RECORD_AUDIO" />
   <uses-permission
     android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-    android:maxSdkVersion="28" />
+    android:maxSdkVersion="29" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <uses-permission android:name="android.permission.WAKE_LOCK" />
   <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
@@ -24,6 +24,15 @@
     tools:ignore="ProtectedPermissions" />
   <uses-permission android:name="android.permission.READ_CALENDAR" />
   <uses-permission android:name="android.permission.WRITE_CALENDAR" />
+  <!-- Workspace native access: user-triggered only, never requested automatically.
+       All-files access is granted in the system settings screen (Android 11+); on Android 10 and
+       below the legacy read permission is the equivalent. Declaring them here does not grant them. -->
+  <uses-permission
+    android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+    tools:ignore="ScopedStorage" />
+  <uses-permission
+    android:name="android.permission.READ_EXTERNAL_STORAGE"
+    android:maxSdkVersion="32" />
 
   <uses-feature
     android:name="android.hardware.camera"
@@ -155,6 +164,16 @@
         android:value="local web server for LLM chat UI" />
     </service>
 
+    <!-- Required by Shizuku: lets the Shizuku server discover this app for bindUserService().
+         The user service itself (WorkspaceShizukuService) is NOT an Android component and must
+         not be declared as a <service>. -->
+    <provider
+      android:name="rikka.shizuku.ShizukuProvider"
+      android:authorities="${applicationId}.shizuku"
+      android:enabled="true"
+      android:exported="true"
+      android:multiprocess="false"
+      android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
     <provider
       android:name="androidx.core.content.FileProvider"
       android:authorities="${applicationId}.fileprovider"

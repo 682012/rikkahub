@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="appearance_style_section">聊天介面風格</string>
+    <string name="appearance_style_classic">經典</string>
+    <string name="appearance_style_studio">工作台</string>
+    <string name="appearance_style_focus">專注</string>
+    <string name="appearance_style_classic_desc">左右氣泡，和原本一模一樣。</string>
+    <string name="appearance_style_studio_desc">卡片與會話儀表板，資訊更密集。</string>
+    <string name="appearance_style_focus_desc">低干擾，只剩對話本身。</string>
+    <string name="appearance_style_option_desc">已選 %1$s 風格</string>
+
+    <string name="appearance_wallpaper_none">未設定桌布</string>
+    <string name="appearance_wallpaper_preview_desc">桌布預覽</string>
+    <string name="appearance_wallpaper_open_preview">預覽桌布</string>
+    <string name="appearance_wallpaper_pick">選擇圖片</string>
+    <string name="appearance_wallpaper_pick_title">桌布</string>
+    <string name="appearance_wallpaper_pick_gallery">從相簿選擇</string>
+    <string name="appearance_wallpaper_pick_url">使用圖片連結</string>
+    <string name="appearance_wallpaper_url_hint">https://example.com/image.jpg</string>
+    <string name="appearance_wallpaper_saved">桌布已儲存到應用程式內</string>
+    <string name="appearance_wallpaper_save_failed">這張圖片沒能儲存（%1$s）</string>
+    <string name="appearance_wallpaper_remove">移除桌布</string>
+
+    <string name="appearance_wallpaper_immersive_title">沉浸桌布</string>
+    <string name="appearance_wallpaper_immersive_desc">桌布延伸到狀態列與導覽列後面。</string>
+
+    <string name="appearance_wallpaper_display_section">桌布顯示</string>
+    <string name="appearance_wallpaper_visibility">桌布可見度</string>
+    <string name="appearance_wallpaper_scrim">亮度遮罩</string>
+    <string name="appearance_wallpaper_scrim_desc">壓暗桌布，確保文字可讀。</string>
+    <string name="appearance_wallpaper_blur">模糊</string>
+    <string name="appearance_wallpaper_scale">適應模式</string>
+    <string name="appearance_wallpaper_scale_crop">裁切</string>
+    <string name="appearance_wallpaper_scale_fit">適應</string>
+    <string name="appearance_wallpaper_focus">焦點位置</string>
+    <string name="appearance_wallpaper_focus_desc">裁切時優先保留的位置。</string>
+    <string name="appearance_wallpaper_focus_option">焦點距左 %1$d%%、距頂 %2$d%%</string>
+
+    <string name="appearance_surface_section">面板</string>
+    <string name="appearance_surface_opacity">面板強度</string>
+    <string name="appearance_surface_opacity_desc">數值越高，訊息在桌布上越易讀。</string>
+
+    <string name="appearance_value_percent">%1$d%%</string>
+    <string name="appearance_value_blur">%1$d</string>
+    <string name="appearance_cancel">取消</string>
+    <string name="appearance_confirm">確定</string>
+    <string name="appearance_style_section_desc">同一份訊息，三種版面，只改變呈現方式。</string>
+</resources>

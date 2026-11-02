@@ -173,7 +173,7 @@ fun SettingMcpDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
     }
 
     Scaffold(
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageContainerColor,
         topBar = {
             TopAppBar(
                 navigationIcon = {

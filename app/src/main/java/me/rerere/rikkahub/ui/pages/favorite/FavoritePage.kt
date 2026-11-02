@@ -69,7 +69,7 @@ fun FavoritePage(vm: FavoriteVM = koinViewModel()) {
             SnackbarHost(hostState = snackbarHostState)
         },
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageContainerColor,
     ) { innerPadding ->
         if (favorites.isEmpty()) {
             Box(

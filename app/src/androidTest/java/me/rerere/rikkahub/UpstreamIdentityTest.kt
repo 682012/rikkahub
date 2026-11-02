@@ -29,8 +29,8 @@ class UpstreamIdentityTest {
 
     @Test
     fun releaseIdentityKeepsTheExistingApplication() {
-        assertEquals("3.1.1-r5", BuildConfig.VERSION_NAME)
-        assertEquals("3000052", BuildConfig.VERSION_CODE.toString())
+        assertEquals("3.1.1-r6", BuildConfig.VERSION_NAME)
+        assertEquals("3000053", BuildConfig.VERSION_CODE.toString())
         assertEquals(BuildConfig.APPLICATION_ID, context.packageName)
         assertTrue(context.packageName.startsWith("me.rerere.rikkahub.fork"))
         assertEquals(R.string.app_name, context.applicationInfo.labelRes)

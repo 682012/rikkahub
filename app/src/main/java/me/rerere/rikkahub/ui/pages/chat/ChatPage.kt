@@ -11,9 +11,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -24,12 +21,11 @@ import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.adaptive.currentWindowDpSize
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,9 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.ui.toast.ToastType
 import dev.chrisbanes.haze.hazeSource
@@ -56,11 +50,6 @@ import kotlinx.coroutines.launch
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessagePart
-import me.rerere.hugeicons.HugeIcons
-import me.rerere.hugeicons.stroke.Cancel01
-import me.rerere.hugeicons.stroke.LeftToRightListBullet
-import me.rerere.hugeicons.stroke.Menu03
-import me.rerere.hugeicons.stroke.MessageAdd01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findProvider
@@ -82,6 +71,9 @@ import me.rerere.rikkahub.ui.context.Navigator
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.ui.hooks.EditStateContent
 import me.rerere.rikkahub.ui.hooks.useEditState
+import me.rerere.rikkahub.ui.theme.LocalAppearance
+import me.rerere.rikkahub.ui.theme.chatPageContainerColor
+import me.rerere.rikkahub.ui.theme.rememberChatStyleSpec
 import me.rerere.rikkahub.utils.base64Decode
 import me.rerere.rikkahub.utils.navigateToChatPage
 import org.koin.androidx.compose.koinViewModel
@@ -194,74 +186,81 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
         }
     }
 
-    when {
-        isBigScreen -> {
-            PermanentNavigationDrawer(
-                drawerContent = {
-                    ChatDrawerContent(
+    // 三套风格与壁纸设置的唯一来源：header / 输入区 / 消息卡 / 抽屉都读同一个 LocalAppearance，
+    // 切换风格时不会只变一半。
+    val appearance = setting.displaySetting.appearance.normalized()
+    CompositionLocalProvider(LocalAppearance provides appearance) {
+        me.rerere.rikkahub.ui.theme.ChatAppearanceHost(setting, assistant) {
+        when {
+            isBigScreen -> {
+                PermanentNavigationDrawer(
+                    drawerContent = {
+                        ChatDrawerContent(
+                            navController = navController,
+                            current = conversation,
+                            vm = vm,
+                            settings = setting
+                        )
+                    }
+                ) {
+                    ChatPageContent(
+                        onStartVoiceMode = startVoiceMode,
+                        inputState = inputState,
+                        loadingJob = loadingJob,
+                        processingStatus = processingStatus,
+                        setting = setting,
+                        conversation = conversation,
+                        drawerState = drawerState,
                         navController = navController,
-                        current = conversation,
                         vm = vm,
-                        settings = setting
+                        chatListState = chatListState,
+                        assistant = assistant,
+                        currentChatModel = currentChatModel,
+                        bigScreen = true,
+                        errors = errors,
+                        onDismissError = { vm.dismissError(it) },
+                        onClearAllErrors = { vm.clearAllErrors() },
                     )
                 }
-            ) {
-                ChatPageContent(
-                    onStartVoiceMode = startVoiceMode,
-                    inputState = inputState,
-                    loadingJob = loadingJob,
-                    processingStatus = processingStatus,
-                    setting = setting,
-                    conversation = conversation,
-                    drawerState = drawerState,
-                    navController = navController,
-                    vm = vm,
-                    chatListState = chatListState,
-                    assistant = assistant,
-                    currentChatModel = currentChatModel,
-                    bigScreen = true,
-                    errors = errors,
-                    onDismissError = { vm.dismissError(it) },
-                    onClearAllErrors = { vm.clearAllErrors() },
-                )
             }
-        }
 
-        else -> {
-            ModalNavigationDrawer(
-                drawerState = drawerState,
-                drawerContent = {
-                    ChatDrawerContent(
+            else -> {
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
+                        ChatDrawerContent(
+                            navController = navController,
+                            current = conversation,
+                            vm = vm,
+                            settings = setting
+                        )
+                    }
+                ) {
+                    ChatPageContent(
+                        onStartVoiceMode = startVoiceMode,
+                        inputState = inputState,
+                        loadingJob = loadingJob,
+                        processingStatus = processingStatus,
+                        setting = setting,
+                        conversation = conversation,
+                        drawerState = drawerState,
                         navController = navController,
-                        current = conversation,
                         vm = vm,
-                        settings = setting
+                        chatListState = chatListState,
+                        assistant = assistant,
+                        currentChatModel = currentChatModel,
+                        bigScreen = false,
+                        errors = errors,
+                        onDismissError = { vm.dismissError(it) },
+                        onClearAllErrors = { vm.clearAllErrors() },
                     )
                 }
-            ) {
-                ChatPageContent(
-                    onStartVoiceMode = startVoiceMode,
-                    inputState = inputState,
-                    loadingJob = loadingJob,
-                    processingStatus = processingStatus,
-                    setting = setting,
-                    conversation = conversation,
-                    drawerState = drawerState,
-                    navController = navController,
-                    vm = vm,
-                    chatListState = chatListState,
-                    assistant = assistant,
-                    currentChatModel = currentChatModel,
-                    bigScreen = false,
-                    errors = errors,
-                    onDismissError = { vm.dismissError(it) },
-                    onClearAllErrors = { vm.clearAllErrors() },
-                )
-            }
-            BackHandler(drawerState.isOpen) {
-                scope.launch { drawerState.close() }
+                BackHandler(drawerState.isOpen) {
+                    scope.launch { drawerState.close() }
+                }
             }
         }
+    }
     }
 }
 
@@ -314,10 +313,11 @@ private fun ChatPageContent(
     TTSAutoPlay(vm = vm, setting = setting, conversation = conversation)
 
     Surface(
-        color = MaterialTheme.colorScheme.background,
+        // 有壁纸/沉浸时这一层必须透出去，让全局背景露出来；没壁纸时等价于原来的 background
+        color = chatPageContainerColor(),
         modifier = Modifier.fillMaxSize()
     ) {
-        AssistantBackground(setting = setting, modifier = Modifier.hazeSource(hazeState))
+        // Backdrop is owned by ChatAppearanceHost outside the drawer; do not decode it twice.
         Scaffold(
             topBar = {
                 TopBar(
@@ -576,81 +576,39 @@ private fun TopBar(
         onUpdateTitle(it)
     }
     var showUsage by remember { mutableStateOf(false) }
+    val styleSpec = rememberChatStyleSpec()
 
-    Column {
-    TopAppBar(
-        colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-        navigationIcon = {
-            if (!bigScreen) {
-                IconButton(
-                    onClick = {
-                        scope.launch { drawerState.open() }
-                    }
-                ) {
-                    Icon(HugeIcons.Menu03, "Messages")
-                }
+    val editTitleWarning = stringResource(R.string.chat_page_edit_title_warning)
+    val provider = chatModel?.findProvider(providers = settings.providers, checkOverwrite = false)
+    val metaText = if (chatModel != null && provider != null) {
+        "${assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) }} / " +
+            "${chatModel.displayName} (${provider.name})"
+    } else {
+        null
+    }
+
+    // 标题栏本身按风格换形态；抽屉、编辑标题、用量、预览、新会话这些回调三套共用
+    ChatStyleHeader(
+        spec = styleSpec,
+        settings = settings,
+        conversation = conversation,
+        title = conversation.title.ifBlank { stringResource(R.string.chat_page_new_chat) },
+        meta = metaText,
+        bigScreen = bigScreen,
+        previewMode = previewMode,
+        onOpenDrawer = { scope.launch { drawerState.open() } },
+        onEditTitle = {
+            if (conversation.messageNodes.isNotEmpty()) {
+                titleState.open(conversation.title)
+            } else {
+                toaster.show(editTitleWarning, type = ToastType.Warning)
             }
         },
-        title = {
-            val editTitleWarning = stringResource(R.string.chat_page_edit_title_warning)
-            Surface(
-                onClick = {
-                    if (conversation.messageNodes.isNotEmpty()) {
-                        titleState.open(conversation.title)
-                    } else {
-                        toaster.show(editTitleWarning, type = ToastType.Warning)
-                    }
-                },
-                color = Color.Transparent,
-            ) {
-                Column {
-                    val provider = chatModel?.findProvider(providers = settings.providers, checkOverwrite = false)
-                    Text(
-                        text = conversation.title.ifBlank { stringResource(R.string.chat_page_new_chat) },
-                        maxLines = 1,
-                        style = MaterialTheme.typography.bodyMedium,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (chatModel != null && provider != null) {
-                        Text(
-                            text = "${assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) }} / ${chatModel.displayName} (${provider.name})",
-                            overflow = TextOverflow.Ellipsis,
-                            maxLines = 1,
-                            color = LocalContentColor.current.copy(0.65f),
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = if (settings.displaySetting.useStudioDisplay) 11.sp else 8.sp,
-                            )
-                        )
-                    }
-                }
-            }
-        },
-        actions = {
-            TextButton(onClick = { showUsage = true }) {
-                Text("用量", style = MaterialTheme.typography.labelMedium)
-            }
-
-            IconButton(
-                onClick = {
-                    onClickMenu()
-                }
-            ) {
-                Icon(if (previewMode) HugeIcons.Cancel01 else HugeIcons.LeftToRightListBullet, "Chat Options")
-            }
-
-            IconButton(
-                onClick = {
-                    onNewChat()
-                }
-            ) {
-                Icon(HugeIcons.MessageAdd01, "New Message")
-            }
-        },
+        onOpenUsage = { showUsage = true },
+        onTogglePreview = onClickMenu,
+        onNewChat = onNewChat,
     )
-    if (settings.displaySetting.useStudioDisplay) {
-        ChatStudioStatus(conversation, settings) { showUsage = true }
-    }
-    }
+
     if (showUsage) {
         UsageSheet(conversation = conversation) { showUsage = false }
     }

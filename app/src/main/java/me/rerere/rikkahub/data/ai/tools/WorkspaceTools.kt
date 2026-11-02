@@ -55,6 +55,7 @@ val WorkspaceToolDefaultApprovals: Map<String, Boolean> = mapOf(
     "workspace_write_file" to false,
     "workspace_edit_file" to false,
     "workspace_shell" to true,
+    "workspace_android_shell" to true,
 )
 
 /** 直接写文件的工具, 只在支持 [WorkspaceCapabilities.fileWriteTools] 的工作区提供 */
@@ -522,6 +523,9 @@ private fun createShellTool(
             }
             WorkspaceExecutionBackend.LOCAL_ROOTFS -> {
                 append("Run a shell command in the assistant's bound workspace Rootfs. The workspace files area is mounted at ${layout.workspaceDir}. ")
+                val mounted = layout.writableRoots.filter { it !in setOf("/", "/workspace", "/tmp", "/skills") }
+                if (mounted.isNotEmpty()) append("User-authorized mounted directories: ${mounted.joinToString(", ")}. ")
+                if ("/" in layout.writableRoots) append("This Linux workspace is user-trusted for file writes; that is not Android system root. ")
             }
         }
         append("Use cwd for a path relative to the workspace files root. ")

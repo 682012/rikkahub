@@ -189,13 +189,16 @@ class ChatToolFactory(
         // 后端先定下来，再按它判断“就绪”和“这个工具在该后端下有没有意义”：
         // SSH 不再因为全局 HTTP 开关而被点亮 job 工具，也不会被整体绕过就绪检查。
         val backend = effectiveExecutionBackend(workspace.isSsh(), runtime)
+        val androidTools = if (workspaceRepository.androidShellAuthorized(workspace.id)) {
+            listOf(createWorkspaceAndroidShellTool(workspace, workspaceRepository, runtime))
+        } else emptyList()
         if (!workspaceToolsReady(backend, workspace.shellStatus)) {
             Log.d(
                 TAG,
                 "createWorkspaceToolsIfReady: skip workspace tools, workspace=${workspace.id}, " +
                     "status=${workspace.shellStatus}, backend=$backend"
             )
-            return emptyList()
+            return androidTools
         }
         return createWorkspaceTools(
             workspace.id, workspaceRepository, cwd, runtime,
@@ -203,6 +206,6 @@ class ChatToolFactory(
             backgroundShellManager = backgroundShellManager,
         ).filter {
             isToolAvailableOnBackend(it.name, backend)
-        }
+        } + androidTools
     }
 }

@@ -128,7 +128,7 @@ fun WorkspaceFileEditorPage(
                 colors = CustomColors.topBarColors,
             )
         },
-        containerColor = CustomColors.topBarColors.containerColor,
+        containerColor = CustomColors.pageContainerColor,
     ) { innerPadding ->
         when {
             loading -> Box(
