@@ -1,0 +1,123 @@
+{
+  "version": "3.1.1-r6",
+  "versionCode": 3000053,
+  "package": "me.rerere.rikkahub.fork",
+  "schema": 34,
+  "generatedAt": "2026-11-02T22:38:38.912834+00:00",
+  "productionCommit": "15aaf02067cb3cf14859033d31d45a1427effe7b",
+  "sourceFilesVerified": 1962,
+  "releaseChannel": "prerelease; v3.1.1-r3 remains latest",
+  "apk": {
+    "name": "rikkahub-3.1.1-r6.apk",
+    "bytes": 19275130,
+    "sha256": "f20db41dbeceb5f1dc2541a44ff24dc274393d73aae20267ce881c53292559bc",
+    "signingCertificateSha256": "cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89",
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ]
+  },
+  "tests": {
+    "jvm": {
+      "tests": 1996,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "files": 273
+    },
+    "android": {
+      "tests": 103,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "log": "android-main.log",
+      "logSha256": "4e20124ccfd4ff4f3edd4298d041ad2b64826fc65884df2df15d7546d35fdef9"
+    },
+    "storage": {
+      "denied": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "log": "storage-denied.log",
+        "logSha256": "d2ea30a8266c4becceae08d4ebe55602a374cd15cc1efb92d27046c21adcb6c0"
+      },
+      "granted": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "log": "storage-granted.log",
+        "logSha256": "8fa9ff3f0d05377f25e22d48b639a8ecfaef78aa15d7675701ba796b28d2dd96"
+      },
+      "revoked": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0,
+        "log": "storage-revoked.log",
+        "logSha256": "e36535fcd40d04f542e3e11428ef2266005f6efce9a68ea48640931e71f3611c"
+      }
+    },
+    "ubuntuRootfsMount": {
+      "tests": 2,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "log": "mount-ubuntu-current.log",
+      "logSha256": "c6aa26fb654b2050ea8c39d28f1f2c12436938c67c4d6589e46c442d5be24c26"
+    },
+    "shizukuPositive": {
+      "status": "not_verified"
+    },
+    "appSuRootPositive": {
+      "status": "not_verified"
+    }
+  },
+  "upgrade": {
+    "from": "3.1.1-r5",
+    "fromVersionCode": 3000052,
+    "to": "3.1.1-r6",
+    "markerPreserved": true,
+    "coldStartNoFatal": true,
+    "signatureAccepted": true
+  },
+  "screenshots": [
+    "r6-classic-light.png",
+    "r6-focus-dark.png",
+    "r6-studio-dark.png",
+    "r6-studio-light.png"
+  ],
+  "phases": {
+    "build": "success",
+    "android": "success",
+    "storage": "success",
+    "ubuntuMount": "success",
+    "signedRelease": "success",
+    "upgrade": "success",
+    "runtimeScreenshots": "success",
+    "visualReview": "success"
+  },
+  "verificationBoundary": "Isolated AOSP API34 x86_64 emulator, actual signed release ChatPage with synthetic messages and wallpaper. User phone untouched. Shizuku/App-su positive execution, live provider throughput and web-account login not certified. PRoot mapping is not Android root or a kernel mount.",
+  "visualReview": {
+    "status": "passed",
+    "reviewedAt": "2026-11-02T22:40:21.030349+00:00",
+    "viewportPixels": [
+      720,
+      1600
+    ],
+    "densityDpi": 320,
+    "checks": [
+      "Actual signed Release ChatPage, no Safe Mode",
+      "Light and dark foreground, message actions and system bars readable",
+      "Classic, Studio and Focus remain distinct, wallpaper visible",
+      "Synthetic conversation fits the reviewed 360dp-wide viewport without overlap"
+    ],
+    "sha256": {
+      "r6-classic-light.png": "b7b5119f284920e87a3816f053e7cb799c82ebcab747c86ade767cf590adc4fa",
+      "r6-focus-dark.png": "69a8616b6a5ae0e51f918974702527527f034336512f4227cccb5f248dc478fd",
+      "r6-studio-dark.png": "0c7483ba882a4ab23c5ad85d878e49c8f9de9d0aa939fce6ecf96eced0ea284b",
+      "r6-studio-light.png": "a148e4383009cd0efb61775fc09def8cb0989f67bfedd2f8eefe711ec60cff96"
+    }
+  }
+}

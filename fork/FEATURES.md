@@ -1,10 +1,10 @@
 # 相比官方 3.1.1：新增工作流、功能增强与限制
 
-当前实验代码 **3.1.1-r6 / 3000053** 合并已发布 r5 的全部统计修复与工作区访问权限分支，另增加[可切换布局与沉浸壁纸](APPEARANCE-r6.md)、[主动授权与挂载](WORKSPACE-ACCESS.md)。稳定 latest 保持 r3，r4/r5 不撤回。验收只以 r6 的发布说明与 verification/r6.json 为准，下面保留历史基线。
+当前实验代码 **3.1.1-r6 / 3000053** 合并已发布 r5 的全部统计修复与工作区访问权限分支，另增加[可切换布局与沉浸壁纸](APPEARANCE-r6.md)、[主动授权与挂载](WORKSPACE-ACCESS.md)。稳定 latest 保持 r3，r4/r5 不撤回。验收只以 [r6 发布说明](RELEASE-r6.md) 与 [verification/r6.json](verification/r6.json) 为准；r6 提供 App / 用户授权 Shizuku / 已有 su Root 入口，Shizuku 正向与 App su Root 正向本轮未完成真机验证，不声称已通过，PRoot 不是 Root。下面保留历史基线。
 
 本实验分支额外加入[Gemini/Claude网页会话](WEB-ACCOUNTS.md)与[缓存/窗口计数修复](CACHE-r4.md)，见[r4验收与限制](RELEASE-r4.md)。以下分组保留稳定版r3基线；网页工具是需确认的提示词协议，账号兼容性未实测，不能算原生function calling。
 
-对比功能增量的基线为官方 **3.1.1 / `ad2c4430`**；当前 **`3.1.1-r3 / 3000050`** 保留 fork.43 的全部能力，已跟进官方 master **`5ad19405`（2026-11-01）**，另带官方预览分支 `feat/background-shell`，数据库 schema 34。本版修复网络/VPN切换恢复，保留每模型设置。[本轮更新与说明](RELEASE-r3.md)。不沿用早期版本的“官方没有”结论。
+对比功能增量的基线为官方 **3.1.1 / `ad2c4430`**；稳定基线 **`3.1.1-r3 / 3000050`**（stable latest）保留 fork.43 的全部能力，已跟进官方 master **`5ad19405`（2026-11-01）**，另带官方预览分支 `feat/background-shell`，数据库 schema 34。本版修复网络/VPN切换恢复，保留每模型设置。[r3 更新与说明](RELEASE-r3.md)。不沿用早期版本的“官方没有”结论。
 
 ## 怎样数功能？
 
@@ -138,7 +138,7 @@ fork.38 还用真实 Android 原生窗口发现了 requery 的特殊错误文本
 
 ## 验证与取舍
 
-当前r3的完整构建、测试与覆盖升级结果见 [r3 验收](RELEASE-r3.md#验证)；下列为历史版本的已验范围。
+稳定基线 r3 的完整构建、测试与覆盖升级结果见 [r3 验收](RELEASE-r3.md#验证)；r6 的本轮结果、SHA 与边界见 [r6 发布说明](RELEASE-r6.md) 和 [verification/r6.json](verification/r6.json)。下列为历史版本的已验范围。
 
 fork.43（[GitHub Actions run 41325551257](https://github.com/682012/rikkahub/actions/runs/41325551257)）：JVM **1561 项，1560 通过，0 失败、0 错误，1 项跳过**；Android API34 x86_64 **54 项全部通过**；R8 + lintVital、签名与版本核对通过。用户真机升级与端到端模型性能未测量。
 

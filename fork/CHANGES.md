@@ -10,7 +10,8 @@
 - 三种实际聊天布局：经典、工作台、专注。主题配色与布局独立；头部、输入区、消息卡、阅读宽度和抽屉随样式切换，同一数据/工具链。
 - 全局壁纸及会话助手壁纸优先，系统栏/前景对比保护、异常图片实色回退；可设置可见度、遮罩、模糊、裁切/完整、九宫格焦点。图片私有保存、随文件备份，持久写入成功后才回收旧图。
 - 工作区支持 App / 用户授权 Shizuku / 已有 su Root、按工作区动态目录映射、用户主动共享存储授权和 Linux 信任。授权不迁移，撤销不重放工具，不把 PRoot 当 Android Root。
-- 使用真实 Ubuntu Rootfs 验证 PRoot 动态挂载。Android 自带 sh 拼接夹具和 Alpine fork 的失败单独保留，不能算产品已测通过。最终测试数字与 Root/Shizuku边界见本版本验收。
+- 使用真实 Ubuntu Rootfs 验证 PRoot 动态挂载。Android 自带 sh 拼接夹具和 Alpine fork 的失败单独保留，不能算产品已测通过。最终测试数字、包体校验与 Root/Shizuku 边界见 [r6 发布说明](RELEASE-r6.md) 与 [verification/r6.json](verification/r6.json)。
+- Shizuku 正向与 App su Root 正向本轮未完成真机验证，不声称已通过；PRoot 提供的 Linux 环境不是 Android Root，不能把 PRoot 当成已拿 Root。
 
 ## 3.1.1-r5：会话工作台与统计修正（实验，2026-11-02）
 

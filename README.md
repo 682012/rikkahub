@@ -4,11 +4,11 @@
 
 **本轮代码：`3.1.1-r6 / 3000053`。** 以已发布 r5 为底合入工作区主动授权、Android 宿主命令、Shizuku/Root 及目录挂载。新增独立可切换的聊天布局和全局壁纸外观，主题、壁纸与统计共用原有设置/数据，不内置额外 UI 引擎。本版的安装包、测试范围与限制见 r6 发布说明，下面 r5 的通过数字不代表 r6。
 
-[外观与壁纸](fork/APPEARANCE-r6.md) · [权限与挂载说明](fork/WORKSPACE-ACCESS.md) · [旧版本发布](https://github.com/682012/rikkahub/releases)
+[下载 r6 APK](https://github.com/682012/rikkahub/releases/download/v3.1.1-r6/rikkahub-3.1.1-r6.apk) · [r6 验收与限制](fork/RELEASE-r6.md) · [校验记录](fork/verification/r6.json) · [外观与壁纸](fork/APPEARANCE-r6.md) · [权限与挂载](fork/WORKSPACE-ACCESS.md)
 
 ## r5 会话工作台与统计修正（实验）
 
-**当前实验代码：`3.1.1-r5 / 3000052`。** 新增可切换的工作台界面、实时单对话统计与来源筛选，分清累计消耗/上次上下文，重做TPS与延迟口径。保留r4全部功能；稳定latest仍r3。
+**前一实验版：`3.1.1-r5 / 3000052`。** 新增可切换的工作台界面、实时单对话统计与来源筛选，分清累计消耗/上次上下文，重做TPS与延迟口径。保留r4全部功能；稳定latest仍r3。
 
 [下载r5 APK](https://github.com/682012/rikkahub/releases/download/v3.1.1-r5/rikkahub-3.1.1-r5.apk) · [变化与验收](fork/RELEASE-r5.md) · [完整记录](fork/verification/r5.json)
 
