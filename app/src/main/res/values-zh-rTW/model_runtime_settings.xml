@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="model_runtime_auto_compress_title">自動壓縮</string>
-    <string name="model_runtime_auto_compress_follow_on">跟隨全域（開）</string>
-    <string name="model_runtime_auto_compress_follow_off">跟隨全域（關）</string>
+    <string name="model_runtime_auto_compress_follow_on">跟隨全域</string>
+    <string name="model_runtime_auto_compress_follow_off">跟隨全域</string>
     <string name="model_runtime_auto_compress_on">開啟</string>
     <string name="model_runtime_auto_compress_off">關閉</string>
     <string name="model_runtime_auto_compress_threshold">觸發閾值（%）</string>
@@ -13,6 +13,6 @@
     <string name="model_runtime_invalid_range">請填 %1$d 到 %2$d 的整數，或留空。</string>
     <string name="model_runtime_concurrency_title">同時請求數</string>
     <string name="model_runtime_concurrency_placeholder">無額外上限</string>
-    <string name="model_runtime_concurrency_desc">同一模型的主聊天與子代理共用這個上限，其他模型各自獨立；不改變全域子代理總數。留空表示不加額外上限（1 到 64）。</string>
+    <string name="model_runtime_concurrency_desc">同一模型的聊天與子代理共用。可填 1–64，留空不限；全域子代理上限仍生效。</string>
     <string name="model_runtime_auto_compress_disabled">此模型目前已關閉自動壓縮。</string>
 </resources>
