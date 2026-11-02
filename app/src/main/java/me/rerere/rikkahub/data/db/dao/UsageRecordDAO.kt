@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 import me.rerere.rikkahub.data.db.entity.UsageRecordEntity
 
 /** Session-level view used by the fork chat usage sheet. */
@@ -28,6 +29,16 @@ data class UsageByModel(
 interface UsageRecordDAO {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(record: UsageRecordEntity)
+
+    @Query("""
+        SELECT UPPER(source) AS source, model_id AS modelId, MAX(model_name) AS modelName,
+               COUNT(*) AS requests, SUM(prompt_tokens) AS promptTokens,
+               SUM(completion_tokens) AS completionTokens, SUM(cached_tokens) AS cachedTokens
+        FROM usage_record WHERE conversation_id = :conversationId
+        GROUP BY UPPER(source), provider_id, COALESCE(NULLIF(model_id, ''), model_name, '')
+        ORDER BY SUM(prompt_tokens + completion_tokens) DESC
+    """)
+    fun observeConversationGroups(conversationId: String): Flow<List<ConversationUsageGroup>>
 
     @Query("SELECT * FROM usage_record WHERE conversation_id = :conversationId ORDER BY created_at ASC")
     suspend fun listByConversation(conversationId: String): List<UsageRecordEntity>
@@ -63,6 +74,9 @@ interface UsageRecordDAO {
 
     @Query("DELETE FROM usage_record WHERE conversation_id = :conversationId")
     suspend fun deleteByConversation(conversationId: String)
+
+    @Query("SELECT COUNT(*) FROM usage_record")
+    fun observeRecordCount(): Flow<Long>
 
     @Query("DELETE FROM usage_record WHERE created_at < :before")
     suspend fun deleteOlderThan(before: Long)
@@ -112,6 +126,16 @@ interface UsageRecordDAO {
     )
     suspend fun getTotalsBySource(since: Long): List<SourceUsage>
 }
+
+data class ConversationUsageGroup(
+    val source: String,
+    val modelId: String?,
+    val modelName: String?,
+    val requests: Long,
+    val promptTokens: Long,
+    val completionTokens: Long,
+    val cachedTokens: Long,
+)
 
 data class DayCount(val day: String, val count: Int)
 

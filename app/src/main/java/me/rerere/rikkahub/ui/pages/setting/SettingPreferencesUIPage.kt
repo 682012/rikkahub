@@ -134,6 +134,12 @@ fun SettingPreferencesUIPage(vm: SettingVM = koinViewModel()) {
                     title = { Text(stringResource(R.string.setting_page_message_display_settings)) },
                 ) {
                     switchItem(
+                        checked = displaySetting.useStudioDisplay,
+                        onCheckedChange = { updateDisplaySetting(displaySetting.copy(useStudioDisplay = it)) },
+                        supportingContent = { Text("清晰的上下文状态与会话仪表板；关闭后使用经典布局") },
+                        headlineContent = { Text("工作台界面") },
+                    )
+                    switchItem(
                         checked = displaySetting.showUserAvatar,
                         onCheckedChange = { updateDisplaySetting(displaySetting.copy(showUserAvatar = it)) },
                         supportingContent = { Text(stringResource(R.string.setting_display_page_show_user_avatar_desc)) },

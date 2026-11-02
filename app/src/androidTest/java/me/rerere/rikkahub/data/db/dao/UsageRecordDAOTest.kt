@@ -5,6 +5,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.requery.android.database.sqlite.RequerySQLiteOpenHelperFactory
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import me.rerere.rikkahub.data.db.AppDatabase
 import me.rerere.rikkahub.data.db.entity.UsageRecordEntity
 import org.junit.After
@@ -45,6 +47,24 @@ class UsageRecordDAOTest {
         val counts = dao.getRequestCountPerDay("CHAT", epochMillis("2026-08-12T00:00:00"))
 
         assertEquals(mapOf("2026-08-12" to 2, "2026-08-13" to 1), counts.associate { it.day to it.count })
+    }
+
+    @Test
+    fun conversationFlowEmitsInsertedUsageAndIsolatesOtherConversations() = runBlocking {
+        val emissions = kotlinx.coroutines.channels.Channel<List<ConversationUsageGroup>>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        val job = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default).launch {
+            dao.observeConversationGroups("one").collect { emissions.send(it) }
+        }
+        try {
+            org.junit.Assert.assertTrue(kotlinx.coroutines.withTimeout(5000) { emissions.receive() }.isEmpty())
+            dao.insert(UsageRecordEntity(createdAt = 1, source = "CHAT", conversationId = "one", modelId = "id", modelName = "Display", promptTokens = 100, completionTokens = 20, cachedTokens = 80))
+            val rows = kotlinx.coroutines.withTimeout(5000) { emissions.receive() }
+            assertEquals(120L, rows.single().promptTokens + rows.single().completionTokens)
+            assertEquals("Display", rows.single().modelName)
+            dao.insert(UsageRecordEntity(createdAt = 2, source = "SUBAGENT", conversationId = "two", promptTokens = 999))
+            assertEquals(120L, dao.totals("one").totalTokens)
+            assertEquals(999L, dao.totals("two").totalTokens)
+        } finally { job.cancel(); job.join(); emissions.close() }
     }
 
     private suspend fun insert(localDateTime: String, source: String) {

@@ -7,6 +7,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.data.ai.UsageSource
 import me.rerere.rikkahub.data.datastore.SettingsStore
@@ -88,6 +90,13 @@ class StatsVM(
     init {
         viewModelScope.launch { loadStats() }
         loadUsage(_range.value)
+        viewModelScope.launch {
+            usageRecordDAO.observeRecordCount().drop(1).collectLatest {
+                delay(200)
+                loadUsage(_range.value)
+                loadStats()
+            }
+        }
     }
 
     fun setRange(range: UsageRange) {

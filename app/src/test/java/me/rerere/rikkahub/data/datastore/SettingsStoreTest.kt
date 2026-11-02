@@ -55,6 +55,19 @@ class SettingsStoreTest {
     private suspend fun reopened(): Settings = open().store.awaitLoaded()
 
     @Test
+    fun `studio choice persists and changing it preserves other display settings`() = runBlocking {
+        val store = open().store
+        store.update { it.copy(displaySetting = it.displaySetting.copy(useStudioDisplay = false, fontSizeRatio = 1.2f)) }
+        val classic = reopened()
+        assertFalse(classic.displaySetting.useStudioDisplay)
+        assertEquals(1.2f, classic.displaySetting.fontSizeRatio, 0f)
+        opened!!.store.update { it.copy(displaySetting = it.displaySetting.copy(useStudioDisplay = true)) }
+        val studio = reopened()
+        assertEquals(true, studio.displaySetting.useStudioDisplay)
+        assertEquals(1.2f, studio.displaySetting.fontSizeRatio, 0f)
+    }
+
+    @Test
     fun `typing faster than the disk can write loses no keystroke`() = runBlocking {
         val opened = open()
         val store = opened.store
