@@ -102,12 +102,16 @@ object AppearanceTestSupport {
         assertTrue("$message（实际 $actual，期望 $expected）", delta <= tolerance)
     }
 
-    fun capture(rule: ComposeTestRule, name: String): File =
-        export(rule.onRoot().captureToImage().asAndroidBitmap(), name)
+    fun capture(rule: ComposeTestRule, name: String): File {
+        rule.waitForIdle()
+        return export(checkNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()), name)
+    }
 
     /** 对话框是独立窗口，root 会有多个，只能按对话框节点截。 */
-    fun capture(rule: ComposeTestRule, node: SemanticsNodeInteraction, name: String): File =
-        export(node.captureToImage().asAndroidBitmap(), name)
+    fun capture(rule: ComposeTestRule, node: SemanticsNodeInteraction, name: String): File {
+        node.assertExists()
+        return capture(rule, name)
+    }
 
     private fun export(bitmap: Bitmap, name: String): File {
         val dir = File(context.cacheDir, SHOT_DIR).apply { mkdirs() }
