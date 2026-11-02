@@ -18,3 +18,7 @@
 SSH 工作区、MCP、Skills、会话历史检索、全局用量统计、语音、媒体生成、Web UI 等原有能力仍归上游贡献，不计作本分支独创。具体对比与限制见 [fork/FEATURES.md](fork/FEATURES.md)，逐版记录见 [fork/CHANGES.md](fork/CHANGES.md)。
 
 This is an unofficial personal fork of RikkaHub, based on upstream 3.1.1. Five added workflows, two major enhancements, and separate hardening changes are documented above; existing upstream functionality is not claimed as original work. Upstream copyright and AGPL-3.0 licensing remain intact. See [DISCLAIMER.md](DISCLAIMER.md).
+
+## 3.1.1-r4 实验版
+
+新增个人网页会话本地AES-GCM存储、Gemini/Claude实验提供商、提示词工具适配与缓存/窗口用量修复。协议参考与许可见[WEB-ACCOUNTS.md](fork/WEB-ACCOUNTS.md)。真实账号兼容性未经实测，不代表官方授权。本源码仍按AGPL-3.0分发。
