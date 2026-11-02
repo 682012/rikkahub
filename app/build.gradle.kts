@@ -111,6 +111,8 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        // Shizuku user service contract (app/src/main/aidl/.../IWorkspaceShellService.aidl)
+        aidl = true
     }
     sourceSets {
         getByName("androidTest").assets.srcDirs("$projectDir/schemas")
@@ -229,6 +231,12 @@ dependencies {
 
     // DataStore
     implementation(libs.androidx.datastore.preferences)
+
+    // Shizuku (user service + provider). The provider AAR ships its own R8 rules; our user service
+    // keeps itself alive through @Keep. Not available on the Play flavor build? It is: Shizuku is a
+    // regular library and needs no privileged install-time permission.
+    implementation(libs.shizuku.api)
+    implementation(libs.shizuku.provider)
 
     // EXIF orientation for picked images
     implementation(libs.androidx.exifinterface)

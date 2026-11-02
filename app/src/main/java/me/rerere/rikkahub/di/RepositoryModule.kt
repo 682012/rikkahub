@@ -55,14 +55,19 @@ val repositoryModule = module {
         FavoriteRepository(get())
     }
 
+    single { me.rerere.rikkahub.data.workspace.WorkspacePrivilegeManager(get()) }
+    single { me.rerere.rikkahub.data.workspace.WorkspaceAccessManager(get(), get()) }
+
     single {
         val context: Context = get()
+        val access: me.rerere.rikkahub.data.workspace.WorkspaceAccessManager = get()
         WorkspaceManager(
             baseDir = File(context.filesDir, "workspaces"),
             shellRunner = ProotShellRunner(
                 nativeLibraryDir = File(context.applicationInfo.nativeLibraryDir),
             ),
             // 同一份挂载表同时用于 PRoot 的 -b 参数 (命令执行与终端)、文件工具的路径解析和写入审批, 避免多处漂移
+            localAccess = access::localAccess,
             bindMounts = listOf(
                 WorkspaceBindMount(
                     source = File(context.filesDir, FileFolders.SKILLS).apply { mkdirs() },
@@ -95,7 +100,7 @@ val repositoryModule = module {
 
     single {
         // dao, manager, rootfsInstaller, settingsStore, context(fork: job 前台服务/远程执行), sshPool
-        WorkspaceRepository(get(), get(), get(), get(), get(), get())
+        WorkspaceRepository(get(), get(), get(), get(), get(), get(), get())
     }
 
     single {

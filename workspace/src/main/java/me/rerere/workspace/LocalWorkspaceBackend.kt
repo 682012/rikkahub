@@ -11,7 +11,7 @@ class LocalWorkspaceBackend(
     private val shellCompatibilityMode: Boolean = false,
 ) : WorkspaceBackend {
     override val layout: WorkspaceLayout
-        get() = manager.layout
+        get() = manager.layout(root)
 
     override fun shell(): String = manager.rootfsShell(root)
 

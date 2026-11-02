@@ -12,22 +12,54 @@ class WorkspaceManager(
     private val config: WorkspaceConfig = WorkspaceConfig(),
     private val shellRunner: WorkspaceShellRunner = HostShellRunner(),
     private val bindMounts: List<WorkspaceBindMount> = emptyList(),
+    /**
+     * 按 root (不是 id) 取该工作区的动态挂载与信任开关。
+     *
+     * 每次调用现取, 不做缓存: 调用方改完挂载再进来就能立刻看到, 不需要额外的失效通知。
+     */
+    private val localAccess: (String) -> WorkspaceLocalAccess = { WorkspaceLocalAccess() },
 ) {
     private val fileSystem = WorkspaceFileSystem(config)
     private val search = WorkspaceSearch()
 
-    // 按 target 长度降序, 保证 /a/b 优先于 /a 匹配
-    private val sortedBindMounts = bindMounts.sortedByDescending { it.target.trimEnd('/').length }
+    /** 静态挂载组成的挂载表, 只用于不需要区分 root 的旧调用 */
+    private val staticMounts = WorkspaceMountTable.merge(bindMounts, emptyList())
 
-    val layout = WorkspaceLayout(
-        workspaceDir = ROOTFS_WORKSPACE_DIR,
-        writableRoots = listOf(ROOTFS_WORKSPACE_DIR, "/tmp") +
-            bindMounts.filter { it.writable }.map { it.target.trimEnd('/') },
-    )
+    /** 不含任何动态挂载的目录约定, 保持旧 API 行为 */
+    val layout: WorkspaceLayout = layoutOf(staticMounts, trustedRootfs = false)
 
     init {
         baseDir.mkdirs()
     }
+
+    /**
+     * 该 root 的目录约定: 静态挂载 + 这个 root 的动态挂载。
+     *
+     * 信任模式只在这个 root 的 [WorkspaceLayout.writableRoots] 里加 `"/"`, 不影响其它 root,
+     * 也不代表拿到了系统 root (仍然在 PRoot Rootfs 里)。
+     */
+    fun layout(root: String): WorkspaceLayout {
+        val access = localAccess(root)
+        return layoutOf(mountTableOf(access), access.trustedRootfs)
+    }
+
+    private fun layoutOf(table: WorkspaceMountTable, trustedRootfs: Boolean): WorkspaceLayout {
+        val roots = listOf(ROOTFS_WORKSPACE_DIR, "/tmp") + table.writableTargets
+        return WorkspaceLayout(
+            workspaceDir = ROOTFS_WORKSPACE_DIR,
+            writableRoots = if (trustedRootfs) listOf("/") + roots else roots,
+        )
+    }
+
+    /**
+     * 一个 root 的完整挂载表: 静态 + 该 root 动态。
+     *
+     * 路径解析、shell、后台命令、job、终端全部取这一份, 不在各处另拼, 避免两边漂移。
+     */
+    private fun mountTable(root: String): WorkspaceMountTable = mountTableOf(localAccess(root))
+
+    private fun mountTableOf(access: WorkspaceLocalAccess): WorkspaceMountTable =
+        WorkspaceMountTable.merge(staticMounts.mounts, access.bindMounts)
 
     fun backend(root: String, shellCompatibilityMode: Boolean = false): WorkspaceBackend =
         LocalWorkspaceBackend(this, root, shellCompatibilityMode)
@@ -135,13 +167,8 @@ class WorkspaceManager(
         val trimmed = path.trim().trimEnd('/').ifBlank { "/" }
         require(trimmed.startsWith("/")) { "Rootfs path must be absolute: $path" }
 
-        sortedBindMounts.forEach { mount ->
-            val target = mount.target.trimEnd('/')
-            if (trimmed == target) return RootfsLocation(mount.source, "")
-            if (trimmed.startsWith("$target/")) {
-                return RootfsLocation(mount.source, trimmed.removePrefix("$target/"))
-            }
-        }
+        // 静态挂载与该 root 的动态挂载在同一张表里, 按 target 长度降序匹配
+        mountTable(root).resolve(trimmed)?.let { return it }
 
         if (trimmed == ROOTFS_WORKSPACE_DIR || trimmed.startsWith("$ROOTFS_WORKSPACE_DIR/")) {
             return RootfsLocation(
@@ -317,7 +344,7 @@ class WorkspaceManager(
             workingDir = workingDir,
             timeoutMillis = timeoutMillis,
             stdin = stdin,
-            bindMounts = bindMounts,
+            bindMounts = mountTable(root).mounts,
             shellCompatibilityMode = shellCompatibilityMode,
         )
     }
@@ -331,14 +358,16 @@ class WorkspaceManager(
         return shellRunner.start(WorkspaceShellContext(
             root = root, command = command, cwd = cwd, filesDir = filesDir(root),
             linuxDir = linuxDir(root), tempDir = tempDir(root), workingDir = workingDir,
-            timeoutMillis = 0, bindMounts = bindMounts, shellCompatibilityMode = shellCompatibilityMode,
+            timeoutMillis = 0, bindMounts = mountTable(root).mounts,
+            shellCompatibilityMode = shellCompatibilityMode,
         ), logFile)
     }
 
     /** 交互式终端启动前的准备: 补齐目录, 并按当前网络刷新 Rootfs 的 DNS 等配置 */
     fun prepareTerminal(root: String, nameservers: List<String>) {
         ensureWorkspace(root)
-        bindMounts.forEach { it.source.mkdirs() }
+        // 只补静态挂载的 source (应用自己的目录); 动态挂载的宿主目录由用户负责, 不替它创建
+        staticMounts.mounts.forEach { it.source.mkdirs() }
         RootfsPatcher().patch(linuxDir(root), RootfsPatchOptions(nameservers = nameservers))
     }
 
@@ -348,7 +377,7 @@ class WorkspaceManager(
                 filesDir = filesDir(root),
                 linuxDir = linuxDir(root),
                 tempDir = tempDir(root),
-                bindMounts = bindMounts,
+                bindMounts = mountTable(root).mounts,
                 shellCompatibilityMode = shellCompatibilityMode,
             )
         )

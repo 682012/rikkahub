@@ -367,8 +367,13 @@ class WorkspaceDetailVM(
     private fun loadWorkspace() {
         viewModelScope.launch {
             val workspace = repository.getById(id)
-            val layout = repository.layout(id)
-            _state.update { it.copy(workspace = workspace, layout = layout) }
+            try {
+                val layout = repository.layout(id)
+                _state.update { it.copy(workspace = workspace, layout = layout) }
+            } catch (error: CancellationException) { throw error }
+            catch (error: Exception) {
+                _state.update { it.copy(workspace = workspace, layout = null, error = error.message) }
+            }
         }
     }
 }

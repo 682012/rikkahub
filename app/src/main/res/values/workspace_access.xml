@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="workspace_access_title">Workspace access</string>
+
+    <string name="workspace_access_trusted_title">Trust Linux workspace</string>
+    <string name="workspace_access_trusted_desc">Only skips repeated confirmations for Rootfs file operations. This is not Android root.</string>
+    <string name="workspace_access_trusted_confirm_title">Trust this workspace?</string>
+    <string name="workspace_access_trusted_confirm_body">File operations inside the Linux Rootfs stop asking every time. Android permissions, command identity and mounted directories are unchanged. You can turn this off at any time.</string>
+
+    <string name="workspace_access_android_title">Android execution</string>
+    <string name="workspace_access_android_unauthorized">Not authorized</string>
+    <string name="workspace_access_android_authorized">Authorized · %1$s</string>
+    <string name="workspace_access_android_desc">Applies to commands started from this workspace only. The status line shows what actually runs; Shizuku may report UID 0.</string>
+    <string name="workspace_access_android_probe">Check status</string>
+    <string name="workspace_access_android_revoke">Revoke</string>
+    <string name="workspace_access_android_confirm_shizuku_title">Switch to Shizuku?</string>
+    <string name="workspace_access_android_confirm_shizuku_body">Commands from this workspace run with the identity Shizuku grants, which can be UID 0 and reach more files. Shizuku must be running. You can revoke this later.</string>
+    <string name="workspace_access_android_confirm_root_title">Switch to Root?</string>
+    <string name="workspace_access_android_confirm_root_body">Commands from this workspace run as the device root user with read-write access to system and app data. Grant this only if you accept the risk; you can revoke it later.</string>
+
+    <string name="workspace_access_storage_title">Shared storage</string>
+    <string name="workspace_access_storage_granted">All files access granted</string>
+    <string name="workspace_access_storage_denied">All files access not granted</string>
+    <string name="workspace_access_storage_desc">Android system permission for phone directories. Separate from Linux trust and mounts.</string>
+    <string name="workspace_access_storage_open">Open system settings</string>
+
+    <string name="workspace_access_mounts_title">Mounted directories</string>
+    <string name="workspace_access_mounts_desc">Read-write path mapping into the PRoot Rootfs. Not a kernel mount.</string>
+    <string name="workspace_access_mounts_empty">No directory mapped yet.</string>
+    <string name="workspace_access_mount_pick">Choose phone directory</string>
+    <string name="workspace_access_mount_pick_desc">Uses the system directory picker so access survives restarts.</string>
+    <string name="workspace_access_mount_add_path">Enter a path</string>
+    <string name="workspace_access_mount_add_path_desc">Type an absolute phone path and the Rootfs mount point yourself.</string>
+    <string name="workspace_access_mount_remove">Remove mount</string>
+    <string name="workspace_access_mount_remove_confirm_title">Remove this mount?</string>
+    <string name="workspace_access_mount_remove_confirm_body">%1$s is removed from this workspace. Files on the phone are not deleted, and you can map the directory again later.</string>
+
+    <string name="workspace_access_path_dialog_title">Map a path</string>
+    <string name="workspace_access_path_source">Phone path</string>
+    <string name="workspace_access_path_source_hint">/storage/emulated/0/Documents</string>
+    <string name="workspace_access_path_target">Rootfs path</string>
+    <string name="workspace_access_path_target_hint">/mnt/shared</string>
+    <string name="workspace_access_path_confirm">Add</string>
+    <string name="workspace_access_path_err_source_empty">Phone path is required.</string>
+    <string name="workspace_access_path_err_source_not_path">Use the directory picker for content:// grants.</string>
+    <string name="workspace_access_path_err_source_relative">Phone path must start with /.</string>
+    <string name="workspace_access_path_err_source_broad">Pick a subdirectory instead of /.</string>
+    <string name="workspace_access_path_err_target_relative">Rootfs path must start with /.</string>
+    <string name="workspace_access_path_err_target_broad">Choose a directory below /mnt, not / or /mnt.</string>
+    <string name="workspace_access_path_err_target_duplicate">This Rootfs path is already mapped.</string>
+</resources>

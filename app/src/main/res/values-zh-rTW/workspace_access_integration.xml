@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="workspace_access_status_disabled">尚未授權 Android 執行</string>
+    <string name="workspace_access_status_selected">已選擇，點選「檢測」確認真實身分：</string>
+    <string name="workspace_access_status_verified">上次確認</string>
+    <string name="workspace_access_mount_applied">掛載設定已儲存。現有 Linux 終端與受管背景工作已關閉，新命令使用更新後的映射。</string>
+    <string name="workspace_access_native_console">Android 宿主命令</string>
+    <string name="workspace_access_native_command">命令（非互動執行）</string>
+    <string name="workspace_access_native_cwd">Android 目錄</string>
+    <string name="workspace_access_native_run">執行</string>
+    <string name="workspace_access_native_cancel">停止</string>
+    <string name="workspace_access_native_approval">Android 命令確認</string>
+</resources>

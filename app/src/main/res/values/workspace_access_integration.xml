@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="workspace_access_status_disabled">Android execution is not authorized</string>
+    <string name="workspace_access_status_selected">Selected; use Check identity to verify:</string>
+    <string name="workspace_access_status_verified">Last verified</string>
+    <string name="workspace_access_mount_applied">Mount settings saved. Existing Linux terminals and managed jobs have been closed; new commands use the updated mapping.</string>
+    <string name="workspace_access_native_console">Android host commands</string>
+    <string name="workspace_access_native_command">Command (non-interactive)</string>
+    <string name="workspace_access_native_cwd">Android directory</string>
+    <string name="workspace_access_native_run">Run</string>
+    <string name="workspace_access_native_cancel">Stop</string>
+    <string name="workspace_access_native_approval">Android command confirmation</string>
+</resources>
