@@ -200,27 +200,37 @@ class ChatRequestFactory(
         // Native OpenAI/Claude can retain declarations but force tool_choice=none. Other protocols
         // still drop definitions. Never trade summary correctness for cache hits.
         val preserveDefinitions = turn.providerSetting.canDisableToolCallsWithDefinitions
-        val (requestMessages, params) = buildStep(turn, messages, includeTools = preserveDefinitions)
-        // 压缩指令不经过输入转换器，模板转换器会把其中的花括号当成模板语法
-        val result = withRetry(
-            policy = turn.settings.retryPolicy().copy(networkHandover = providerManager.networkHandover),
-            onRetry = { Log.w(TAG, "Compression request failed, retrying in ${it.delay}", it.cause) },
-        ) {
-            usageRecorder.wrap(
-                providerManager.getProviderByType(turn.providerSetting),
-                UsageTag(UsageSource.COMPRESSION, turn.assistant.id, turn.conversationId),
-            ).generateText(
-                providerSetting = turn.providerSetting,
-                messages = requestMessages + UIMessage.user(compressPrompt),
-                // 助手的输出上限是给聊天回复定的，结构化摘要写不完会被截断；max_tokens 不属于请求前缀，改了不影响缓存
-                params = params.copy(
-                    maxTokens = null,
-                    disableToolCalls = preserveDefinitions,
-                    model = if (preserveDefinitions) params.model else params.model.copy(tools = emptySet()),
-                ),
-            )
+        suspend fun generate(keepDefinitions: Boolean): UIMessage {
+            val (requestMessages, params) = buildStep(turn, messages, includeTools = keepDefinitions)
+            return withRetry(
+                policy = turn.settings.retryPolicy().copy(networkHandover = providerManager.networkHandover),
+                onRetry = { Log.w(TAG, "Compression request failed, retrying in ${it.delay}", it.cause) },
+            ) {
+                usageRecorder.wrap(
+                    providerManager.getProviderByType(turn.providerSetting),
+                    UsageTag(UsageSource.COMPRESSION, turn.assistant.id, turn.conversationId),
+                ).generateText(
+                    providerSetting = turn.providerSetting,
+                    messages = requestMessages + UIMessage.user(compressPrompt),
+                    params = params.copy(
+                        maxTokens = null,
+                        disableToolCalls = keepDefinitions,
+                        model = if (keepDefinitions) params.model else params.model.copy(tools = emptySet()),
+                    ),
+                ).message
+            }
         }
-        val summary = result.message.compressionSummaryOrNull()
+        var fallbackUsed = false
+        val response = try { generate(preserveDefinitions) }
+        catch (error: Exception) {
+            if (!preserveDefinitions || !compressionToolChoiceUnsupported(error)) throw error
+            fallbackUsed = true
+            generate(false)
+        }
+        // Some compatible relays ignore tool_choice. Preserve the previous working text-only route
+        // rather than accept a tool response as a summary or disable automatic compression.
+        val summary = response.compressionSummaryOrNull()
+            ?: (if (preserveDefinitions && !fallbackUsed) generate(false).compressionSummaryOrNull() else null)
             ?: error(context.getString(R.string.chat_page_compress_tool_call_response))
         return summary.ifBlank { error("Failed to generate compressed summary") }
     }
@@ -253,7 +263,7 @@ class ChatRequestFactory(
                     append(buildMemoryPrompt(turn.memories))
                 }
                 // 工具prompt
-                turn.tools.forEach { tool ->
+                tools.forEach { tool ->
                     appendLine()
                     append(tool.systemPrompt(turn.model, messages))
                 }
@@ -359,4 +369,12 @@ internal fun NetworkSetting.toRetryPolicy(): RetryPolicy {
             )
         },
     )
+}
+
+/** Only an explicit tool-choice compatibility error enables the single text-only fallback. */
+internal fun compressionToolChoiceUnsupported(error: Throwable): Boolean {
+    if (error !is me.rerere.ai.util.HttpException) return false
+    val text = error.message.orEmpty().lowercase()
+    if (listOf("api key", "unauthorized", "permission", "rate limit").any { it in text }) return false
+    return "tool_choice" in text && listOf("unsupported", "not supported", "unknown", "invalid", "unrecognized").any { it in text }
 }

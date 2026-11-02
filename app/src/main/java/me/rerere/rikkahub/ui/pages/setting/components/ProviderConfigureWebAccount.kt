@@ -1,6 +1,8 @@
 package me.rerere.rikkahub.ui.pages.setting.components
 
 import android.view.WindowManager
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -25,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -139,6 +142,7 @@ fun ProviderConfigureWebAccount(
             supportingContent = { Text(stringResource(R.string.setting_provider_web_open_login_desc)) },
         )
         item(
+            modifier = Modifier.testTag("web-session-import"),
             onClick = { showImport = true },
             leadingContent = { CardGroupIcon(HugeIcons.Copy01) },
             headlineContent = { Text(stringResource(R.string.setting_provider_web_import)) },
@@ -195,6 +199,7 @@ fun ProviderConfigureWebAccount(
                 supportingContent = { Text(stringResource(R.string.setting_provider_web_verify_desc)) },
             )
             item(
+                modifier = Modifier.testTag("web-session-clear"),
                 onClick = { showClearConfirm = true },
                 leadingContent = {
                     CardGroupIcon(
@@ -210,6 +215,7 @@ fun ProviderConfigureWebAccount(
 
     CardGroup(title = { Text(stringResource(R.string.setting_provider_web_tool_bridge)) }) {
         switchItem(
+            modifier = Modifier.testTag("web-session-bridge-switch"),
             checked = provider.toolBridgeEnabled,
             onCheckedChange = { enabled ->
                 if (enabled) {
@@ -327,7 +333,7 @@ fun ProviderConfigureWebAccount(
     if (showToolConfirm) {
         AlertDialog(
             onDismissRequest = { showToolConfirm = false },
-            title = { Text(stringResource(R.string.setting_provider_web_tool_confirm_title)) },
+            title = { Text(stringResource(R.string.setting_provider_web_tool_confirm_title), Modifier.testTag("web-session-bridge-confirm-title")) },
             text = { Text(stringResource(R.string.setting_provider_web_tool_confirm_desc)) },
             dismissButton = {
                 TextButton(onClick = { showToolConfirm = false }) {
@@ -393,7 +399,7 @@ private fun WebSessionImportDialog(
         onDismissRequest = { if (!busy) { raw = ""; onDismiss() } },
         title = { Text(stringResource(R.string.setting_provider_web_import_title)) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 // 必须在这个对话框窗口内取 LocalView, 才会把 FLAG_SECURE 加在对话框窗口上
                 SecureDialogWindow()
                 Text(
@@ -410,6 +416,7 @@ private fun WebSessionImportDialog(
                         } else error = fallbackError
                     },
                     modifier = Modifier
+                        .testTag("web-session-cookie-input")
                         .fillMaxWidth()
                         .heightIn(min = 96.dp, max = 200.dp),
                     label = { Text(stringResource(R.string.setting_provider_web_import_label)) },
@@ -447,6 +454,7 @@ private fun WebSessionImportDialog(
         },
         confirmButton = {
             TextButton(
+                modifier = Modifier.testTag("web-session-save"),
                 onClick = {
                     val text = raw
                     if (text.isBlank()) {

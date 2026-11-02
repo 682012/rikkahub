@@ -43,6 +43,7 @@ class WebSessionVaultAndroidTest {
         for (id in createdIds) vault.clearSession(id)
         createdIds.clear()
         context.noBackupFilesDir.deleteRecursively()
+        Unit
     }
 
     @Test

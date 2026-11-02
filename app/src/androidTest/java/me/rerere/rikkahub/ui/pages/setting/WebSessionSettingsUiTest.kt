@@ -12,6 +12,8 @@ import me.rerere.ui.toast.rememberToasterState
 import androidx.compose.ui.test.onLast
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -85,9 +87,12 @@ class WebSessionSettingsUiTest {
         launch()
         rule.onNodeWithText(text(R.string.setting_provider_web_session_unconfigured)).assertIsDisplayed()
         capture("claude-web-unconfigured-zh")
-        rule.onNodeWithText(text(R.string.setting_provider_web_import)).performScrollTo().performClick()
-        rule.onAllNodes(hasSetTextAction()).onLast().performTextInput("sessionKey=LOCAL_TEST_ONLY_NOT_A_REAL_CREDENTIAL")
-        rule.onNodeWithText(text(R.string.setting_provider_web_import_confirm)).performClick()
+        rule.onNodeWithTag("web-session-import").performScrollTo().performClick()
+        rule.waitUntil(5000) { rule.onNodeWithTag("web-session-cookie-input").isDisplayed() }
+        rule.onNodeWithTag("web-session-cookie-input").performTextInput("sessionKey=LOCAL_TEST_ONLY_NOT_A_REAL_CREDENTIAL")
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        rule.waitForIdle()
+        rule.onNodeWithTag("web-session-save").assertIsDisplayed().performClick()
         rule.waitUntil(5000) { runBlocking { vault.hasSession(setting.id, setting.webService) } }
         rule.onNodeWithText(text(R.string.setting_provider_web_session_saved)).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText(text(R.string.setting_provider_web_clear)).performScrollTo().performClick()
@@ -99,8 +104,9 @@ class WebSessionSettingsUiTest {
     @Test fun bridgeStartsOffAndRequiresExplicitConfirmation() {
         launch()
         assertFalse(state.value.toolBridgeEnabled)
-        rule.onAllNodes(androidx.compose.ui.test.hasText(text(R.string.setting_provider_web_tool_bridge))).onLast().performScrollTo().performClick()
-        rule.onNodeWithText(text(R.string.setting_provider_web_tool_confirm_title)).assertIsDisplayed()
+        rule.onNodeWithTag("web-session-bridge-switch").performScrollTo().performClick()
+        rule.waitUntil(5000) { rule.onNodeWithTag("web-session-bridge-confirm-title").isDisplayed() }
+        rule.onNodeWithTag("web-session-bridge-confirm-title").assertIsDisplayed()
         assertFalse(state.value.toolBridgeEnabled)
         rule.onNodeWithText(text(R.string.cancel)).performClick()
         assertFalse(state.value.toolBridgeEnabled)
