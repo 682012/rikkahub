@@ -6,7 +6,7 @@ result=$?
 mkdir -p model-ui-screenshots
 adb root >/dev/null
 adb wait-for-device
-adb exec-out 'cd /data/user/0/me.rerere.rikkahub.fork.debug/files && tar cf - model-runtime-*.png' > model-ui-screenshots/screenshots.tar
+adb exec-out 'cd /data/local/tmp/rk-r2-model-ui && tar cf - model-runtime-*.png' > model-ui-screenshots/screenshots.tar
 if tar -tf model-ui-screenshots/screenshots.tar >/dev/null 2>&1; then
   tar -xf model-ui-screenshots/screenshots.tar -C model-ui-screenshots
   rm model-ui-screenshots/screenshots.tar

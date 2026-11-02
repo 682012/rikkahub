@@ -126,6 +126,16 @@ class ModelRuntimeSettingsUiTest {
         file.outputStream().use { out ->
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
         }
+        // UTP uninstalls the debug app after the suite, including filesDir.
+        // Export only this synthetic test screenshot before that cleanup happens.
+        val shell = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommandRw("sh")
+        android.os.ParcelFileDescriptor.AutoCloseOutputStream(shell[1]).bufferedWriter().use { writer ->
+            writer.write("mkdir -p /data/local/tmp/rk-r2-model-ui\n")
+            writer.write("run-as ${context.packageName} cat files/${file.name} > /data/local/tmp/rk-r2-model-ui/${file.name}\n")
+            writer.write("test -s /data/local/tmp/rk-r2-model-ui/${file.name} && echo CAPTURED\nexit\n")
+        }
+        val receipt = android.os.ParcelFileDescriptor.AutoCloseInputStream(shell[0]).bufferedReader().use { it.readText() }
+        assertTrue("Screenshot export failed: $receipt", receipt.contains("CAPTURED"))
         return file
     }
 
