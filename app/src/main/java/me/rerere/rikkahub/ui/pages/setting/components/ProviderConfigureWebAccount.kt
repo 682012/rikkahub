@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -92,6 +93,13 @@ fun ProviderConfigureWebAccount(
     val importFailedText = stringResource(R.string.setting_provider_web_import_failed)
     val savedText = stringResource(R.string.setting_provider_web_import_success)
     val emptyImportText = stringResource(R.string.setting_provider_web_import_empty)
+    val cancelLabel = stringResource(R.string.cancel)
+    val deleteLabel = stringResource(R.string.delete)
+    val enableLabel = stringResource(R.string.setting_provider_page_enable)
+    val clearTitle = stringResource(R.string.setting_provider_web_clear_title)
+    val clearDescription = stringResource(R.string.setting_provider_web_clear_desc)
+    val bridgeTitle = stringResource(R.string.setting_provider_web_tool_confirm_title)
+    val bridgeDescription = stringResource(R.string.setting_provider_web_tool_confirm_desc)
 
     // 本地是否有可解密的会话: 有也不冒充已登录, 只显示"已保存, 待验证"
     var hasSession by remember(providerId, service) { mutableStateOf(false) }
@@ -297,15 +305,16 @@ fun ProviderConfigureWebAccount(
     if (showClearConfirm) {
         AlertDialog(
             onDismissRequest = { showClearConfirm = false },
-            title = { Text(stringResource(R.string.setting_provider_web_clear_title)) },
-            text = { Text(stringResource(R.string.setting_provider_web_clear_desc)) },
+            title = { Text(clearTitle) },
+            text = { Text(clearDescription) },
             dismissButton = {
                 TextButton(onClick = { showClearConfirm = false }) {
-                    Text(stringResource(R.string.cancel))
+                    Text(cancelLabel)
                 }
             },
             confirmButton = {
                 TextButton(
+                    modifier = Modifier.testTag("web-session-clear-confirm"),
                     onClick = {
                         showClearConfirm = false
                         // 先取消在途验证, 否则旧任务回来会改写状态
@@ -324,7 +333,7 @@ fun ProviderConfigureWebAccount(
                         }
                     }
                 ) {
-                    Text(stringResource(R.string.delete))
+                    Text(deleteLabel)
                 }
             },
         )
@@ -333,11 +342,11 @@ fun ProviderConfigureWebAccount(
     if (showToolConfirm) {
         AlertDialog(
             onDismissRequest = { showToolConfirm = false },
-            title = { Text(stringResource(R.string.setting_provider_web_tool_confirm_title), Modifier.testTag("web-session-bridge-confirm-title")) },
-            text = { Text(stringResource(R.string.setting_provider_web_tool_confirm_desc)) },
+            title = { Text(bridgeTitle, Modifier.testTag("web-session-bridge-confirm-title")) },
+            text = { Text(bridgeDescription) },
             dismissButton = {
-                TextButton(onClick = { showToolConfirm = false }) {
-                    Text(stringResource(R.string.cancel))
+                TextButton(modifier = Modifier.testTag("web-session-bridge-cancel"), onClick = { showToolConfirm = false }) {
+                    Text(cancelLabel)
                 }
             },
             confirmButton = {
@@ -347,7 +356,7 @@ fun ProviderConfigureWebAccount(
                         updateModelsWithToolBridge(true)
                     }
                 ) {
-                    Text(stringResource(R.string.setting_provider_page_enable))
+                    Text(enableLabel)
                 }
             },
         )
@@ -394,16 +403,23 @@ private fun WebSessionImportDialog(
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val titleLabel = stringResource(R.string.setting_provider_web_import_title)
+    val descriptionLabel = stringResource(R.string.setting_provider_web_import_desc)
+    val inputLabel = stringResource(R.string.setting_provider_web_import_label)
+    val hintLabel = stringResource(R.string.setting_provider_web_import_hint)
+    val privacyLabel = stringResource(R.string.setting_provider_web_import_privacy)
+    val saveLabel = stringResource(R.string.setting_provider_web_import_confirm)
+    val cancelLabel = stringResource(R.string.cancel)
 
     AlertDialog(
         onDismissRequest = { if (!busy) { raw = ""; onDismiss() } },
-        title = { Text(stringResource(R.string.setting_provider_web_import_title)) },
+        title = { Text(titleLabel) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 // 必须在这个对话框窗口内取 LocalView, 才会把 FLAG_SECURE 加在对话框窗口上
                 SecureDialogWindow()
                 Text(
-                    text = stringResource(R.string.setting_provider_web_import_desc),
+                    text = descriptionLabel,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -419,18 +435,18 @@ private fun WebSessionImportDialog(
                         .testTag("web-session-cookie-input")
                         .fillMaxWidth()
                         .heightIn(min = 96.dp, max = 200.dp),
-                    label = { Text(stringResource(R.string.setting_provider_web_import_label)) },
-                    placeholder = { Text(stringResource(R.string.setting_provider_web_import_hint)) },
+                    label = { Text(inputLabel) },
+                    placeholder = { Text(hintLabel) },
                     enabled = !busy,
                     isError = error != null,
                     minLines = 3,
                     maxLines = 8,
                     visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
                     supportingText = {
                         Text(
                             text = error
-                                ?: stringResource(R.string.setting_provider_web_import_privacy),
+                                ?: privacyLabel,
                             color = if (error != null) {
                                 MaterialTheme.colorScheme.error
                             } else {
@@ -449,7 +465,7 @@ private fun WebSessionImportDialog(
                 },
                 enabled = !busy,
             ) {
-                Text(stringResource(R.string.cancel))
+                Text(cancelLabel)
             }
         },
         confirmButton = {
@@ -485,7 +501,7 @@ private fun WebSessionImportDialog(
                 },
                 enabled = !busy,
             ) {
-                Text(stringResource(R.string.setting_provider_web_import_confirm))
+                Text(saveLabel)
             }
         },
     )

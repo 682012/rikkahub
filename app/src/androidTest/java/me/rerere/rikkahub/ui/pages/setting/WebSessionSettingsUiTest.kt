@@ -21,6 +21,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
@@ -90,13 +91,13 @@ class WebSessionSettingsUiTest {
         rule.onNodeWithTag("web-session-import").performScrollTo().performClick()
         rule.waitUntil(5000) { rule.onNodeWithTag("web-session-cookie-input").isDisplayed() }
         rule.onNodeWithTag("web-session-cookie-input").performTextInput("sessionKey=LOCAL_TEST_ONLY_NOT_A_REAL_CREDENTIAL")
-        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        rule.onNodeWithTag("web-session-cookie-input").performImeAction()
         rule.waitForIdle()
         rule.onNodeWithTag("web-session-save").assertIsDisplayed().performClick()
         rule.waitUntil(5000) { runBlocking { vault.hasSession(setting.id, setting.webService) } }
         rule.onNodeWithText(text(R.string.setting_provider_web_session_saved)).performScrollTo().assertIsDisplayed()
         rule.onNodeWithText(text(R.string.setting_provider_web_clear)).performScrollTo().performClick()
-        rule.onNodeWithText(text(R.string.delete)).performClick()
+        rule.onNodeWithTag("web-session-clear-confirm").performClick()
         rule.waitUntil(5000) { !runBlocking { vault.hasSession(setting.id, setting.webService) } }
         rule.onNodeWithText(text(R.string.setting_provider_web_session_unconfigured)).performScrollTo().assertIsDisplayed()
         assertTrue(state.value.models.isEmpty())
@@ -108,7 +109,7 @@ class WebSessionSettingsUiTest {
         rule.waitUntil(5000) { rule.onNodeWithTag("web-session-bridge-confirm-title").isDisplayed() }
         rule.onNodeWithTag("web-session-bridge-confirm-title").assertIsDisplayed()
         assertFalse(state.value.toolBridgeEnabled)
-        rule.onNodeWithText(text(R.string.cancel)).performClick()
+        rule.onNodeWithTag("web-session-bridge-cancel").performClick()
         assertFalse(state.value.toolBridgeEnabled)
     }
 }
