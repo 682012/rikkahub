@@ -70,7 +70,7 @@ class UsageDashboardUiTest {
         launch(dark = true, fontScale = 1.3f)
         rule.onNodeWithTag("usage-total").assertIsDisplayed()
         capture("dark-large")
-        rule.onNodeWithText("模型分布").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("Gemini · Flash").performScrollTo().assertIsDisplayed()
         capture("models-large")
     }
     private fun capture(name: String) {
