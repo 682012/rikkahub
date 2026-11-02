@@ -1,6 +1,5 @@
 package me.rerere.rikkahub
 
-import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -19,7 +18,7 @@ import org.junit.runner.RunWith
 class NetworkHandoverAndroidTest {
     @Test
     fun realAndroidDefaultNetworkLossAndRecoveryAdvancesEpoch() = runBlocking {
-        assumeTrue(Build.FINGERPRINT.contains("generic") || Build.MODEL.contains("sdk_gphone"))
+        assumeTrue("This test may change radios only in a QEMU emulator", shell("getprop ro.kernel.qemu").trim() == "1")
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val monitor = DefaultNetworkMonitor(context)
         try {
@@ -41,8 +40,8 @@ class NetworkHandoverAndroidTest {
         }
     }
 
-    private fun shell(command: String) {
+    private fun shell(command: String): String {
         val descriptor = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(command)
-        ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { it.readBytes() }
+        return ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { it.readBytes().toString(Charsets.UTF_8) }
     }
 }
