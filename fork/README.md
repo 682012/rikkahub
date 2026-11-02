@@ -1,6 +1,6 @@
 # 个人分支：构建与维护
 
-用户可见功能统一维护在 [仓库首页](../README.md) 与 [官方差异表](FEATURES.md)。本页记录构建、签名与回退；本版说明见 [r1 更新说明](RELEASE-r1.md)。
+用户可见功能统一维护在 [仓库首页](../README.md) 与 [官方差异表](FEATURES.md)。本页记录构建、签名与回退；本版说明见 [r2 更新说明](RELEASE-r2.md)。
 
 ## 当前维护对象
 
@@ -8,13 +8,13 @@
 |---|---|
 | 官方基线 | `3.1.1` / `ad2c4430`；跟随到 master `5ad19405` |
 | 维护分支 | `fork/3.1.1` |
-| 当前版本 | `3.1.1-r1` / `3000048` |
+| 当前版本 | `3.1.1-r2` / `3000049` |
 | 包名 | `me.rerere.rikkahub.fork` |
 | 数据库 | schema 34；与 fork.37 相同，不与官方编号混用 |
-| 已验发布构建 | R8 release，arm64-v8a + x86_64 通用包，19,000,594 字节，run 41357679364 |
-| 构建 SHA-256 | `49dd57d2610cf1ee4067972dba4f554c4a42d0c4f0c7d509d6002b5420dfeece` |
+| 已验发布构建 | R8 release，arm64-v8a + x86_64 通用包，19,015,546 字节，HB验证 r2-hb-20261102 |
+| 构建 SHA-256 | `3fde9f4074a008f7a34f526108255283709f048d7072ca396327e54999af46e8` |
 
-`master` 是上游镜像，旧 fork 分支是历史版本。每个正式版的已验原包保存在对应 Release（当前 [最新正式版](https://github.com/682012/rikkahub/releases/latest) 为 3.1.1-r1），附 APK 与 SHA256SUMS；旧 nightly 不代表当前已验安装包。fork.40 起由 GitHub Actions `Fork Verify` 构建签名；旧包保留，不触发旧 nightly，也不替换其资产。r1 的包与校验值由本次验收产物生成；名称和图标与上游最新版一致。
+`master` 是上游镜像，旧 fork 分支是历史版本。每个正式版的已验原包保存在对应 Release（当前 [最新正式版](https://github.com/682012/rikkahub/releases/latest) 为 3.1.1-r2），附 APK 与 SHA256SUMS；旧 nightly 不代表当前已验安装包。fork.40 起由 GitHub Actions `Fork Verify` 构建签名；旧包保留，不触发旧 nightly，也不替换其资产。r2 的包与校验值由本次验收产物生成；名称和图标与上游最新版一致。
 
 ## 重复下载、复用与后续维护
 
@@ -50,7 +50,7 @@ APK 目录为 `app/build/outputs/apk/github/release/`。3.1.1 有 github/play fl
 
 `app/google-services.json` 需要匹配包名 `me.rerere.rikkahub.fork`；运行 debug/仪器测试时，另在 `app/src/debug/google-services.json` 配置 `me.rerere.rikkahub.fork.debug`。源码未附真实 Google 服务配置，不能把干净克隆等同于免配置构建。维护者同签名升级所用 keystore 也不公开；自行签名的包不能直接覆盖维护者签名的安装包。
 
-手动 CI 使用 `KEY_BASE64`、`SIGNING_CONFIG`、`GOOGLE_SERVICES_JSON` 三项仓库 Secrets；只在自行构建时需要，下载本次 APK 不需要这些配置。本次 r1 已重新运行 Fork Verify，发布的是此次正式签名构建产物。
+手动 CI 使用 `KEY_BASE64`、`SIGNING_CONFIG`、`GOOGLE_SERVICES_JSON` 三项仓库 Secrets；只在自行构建时需要，下载本次 APK 不需要这些配置。本次 r2 的 GitHub 构建被平台以 `repository invocation blocked` 取消；最终包在 HB 完成全部构建、JVM、API34 界面测试、签名及覆盖升级验收，未把取消的 CI 记为通过。
 
 `local.properties`（不入库）：
 

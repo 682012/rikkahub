@@ -1,0 +1,177 @@
+{
+  "versionName": "3.1.1-r2",
+  "versionCode": 3000049,
+  "applicationId": "me.rerere.rikkahub.fork",
+  "databaseSchema": 34,
+  "productionCommit": "6e85b7ad2f775491482b10a2b64c312a0f4243b2",
+  "testCommit": "6e85b7ad2f775491482b10a2b64c312a0f4243b2",
+  "verification": {
+    "id": "r2-hb-20261102",
+    "method": "HB local Gradle/JVM/API34 emulator",
+    "url": "https://github.com/682012/rikkahub/blob/v3.1.1-r2/fork/verification/r2.json",
+    "phases": {
+      "buildAndR8": "success",
+      "jvm": "success",
+      "instrumented": "success",
+      "signedUpgrade": "success"
+    },
+    "sourceFilesVerified": 1836
+  },
+  "githubCi": {
+    "run": 41365504428,
+    "conclusion": "cancelled",
+    "reason": "repository invocation blocked"
+  },
+  "tests": {
+    "jvm": {
+      "files": 223,
+      "suites": 223,
+      "tests": 1609,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "skippedTests": [
+        "me.rerere.document.pdf.PdfCorpusTest.extractCorpus"
+      ]
+    },
+    "instrumented": {
+      "files": 1,
+      "suites": 16,
+      "tests": 65,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "skippedTests": []
+    }
+  },
+  "toolRegressions": {
+    "me.rerere.ai.agent.AgentNonStreamToolIdsTest": {
+      "tests": 6,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.ai.agent.AgentToolSchedulingTest": {
+      "tests": 15,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.ai.agent.ModelRequestConcurrencyIntegrationTest": {
+      "tests": 3,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.ai.agent.ToolBatchTest": {
+      "tests": 19,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.ai.agent.ToolLoopGuardTest": {
+      "tests": 4,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.ai.agent.ToolRepetitionTest": {
+      "tests": 10,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.ai.ui.StreamChunkHandlerToolCallIdTest": {
+      "tests": 12,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.subagent.SubagentConcurrencyTest": {
+      "tests": 3,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.subagent.SubagentDefaultsTest": {
+      "tests": 2,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.subagent.SubagentDeliveryClaimTest": {
+      "tests": 5,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.subagent.SubagentPagingBoundaryTest": {
+      "tests": 7,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.subagent.SubagentPermitPoolTest": {
+      "tests": 1,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.subagent.SubagentRequestWiringTest": {
+      "tests": 11,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.subagent.SubagentResultPagingTest": {
+      "tests": 11,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.subagent.SubagentTaskPersistenceTest": {
+      "tests": 8,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.tools.CompactMcpToolsTest": {
+      "tests": 21,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.tools.ToolOutputStoreTest": {
+      "tests": 26,
+      "failures": 0,
+      "skipped": 0
+    },
+    "me.rerere.rikkahub.data.ai.tools.local.ScriptToolTest": {
+      "tests": 15,
+      "failures": 0,
+      "skipped": 0
+    }
+  },
+  "apk": {
+    "name": "rikkahub-3.1.1-r2.apk",
+    "bytes": 19015546,
+    "sha256": "3fde9f4074a008f7a34f526108255283709f048d7072ca396327e54999af46e8",
+    "signingCertificateSha256": "cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89",
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ]
+  },
+  "r8MappingBytes": 202105054,
+  "upgrade": {
+    "from": "3.1.1-r1 / 3000048",
+    "api": 34,
+    "abi": "x86_64",
+    "signedInPlaceInstall": true,
+    "sandboxMarkerRetained": true,
+    "coldLaunch": true,
+    "scope": "Isolated emulator, no real user data"
+  },
+  "uiScreenshots": [
+    "model-runtime-compression-follow-global.png",
+    "model-runtime-concurrency-blank.png",
+    "model-runtime-concurrency-invalid.png",
+    "model-runtime-context-invalid.png",
+    "model-runtime-model-a-restored.png",
+    "model-runtime-model-b.png",
+    "model-runtime-threshold-40.png",
+    "model-runtime-threshold-follow-global.png",
+    "model-runtime-threshold-invalid.png",
+    "model-runtime-zh-concurrency.png",
+    "model-runtime-zh-overview.png"
+  ],
+  "notVerified": [
+    "User phone upgrade/run",
+    "OEM background behavior",
+    "Real model tool-choice accuracy or latency/cost improvements"
+  ]
+}

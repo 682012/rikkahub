@@ -2,21 +2,21 @@
 
 基于 [RikkaHub 官方 3.1.1](https://github.com/rikkahub/rikkahub/tree/3.1.1) 的非官方分支。保留官方聊天客户端，重点补上**多代理协作、后台长任务、自动压缩、工作区文件迁移，以及工具调用层的调用效率与可读性**。
 
-**当前版本：`3.1.1-r1` / `3000048` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
+**当前版本：`3.1.1-r2` / `3000049` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
 
-名字和图标使用上游最新版 RikkaHub，版本主体与官方 3.1.1 对齐，分支只加短后缀 `r1`。完整继承 fork.43 的功能与官方 master `5ad19405` 基线，没有回退增强功能；独立品牌草稿不混入本版。
+名字和图标使用上游最新版 RikkaHub，版本主体与官方 3.1.1 对齐，本版后缀为 `r2`。新增每模型的自动压缩开关/阈值、共享API请求并发上限，与原有上下文窗口设置集中在模型基本页。完整继承 r1 / fork.43 的功能与官方 master `5ad19405` 基线；独立品牌草稿不混入本版。
 
 > 与官方团队没有隶属关系。本仓库记录个人修改，并在 GitHub Releases 保存已验安装包，方便重复下载；不提供官方或面向终端用户的技术支持。官方渠道下载的是官方版，不是此分支。上游版权与 AGPL-3.0 许可证保持不变。
 
-[完整功能对比](fork/FEATURES.md) · [r1 更新与说明](fork/RELEASE-r1.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
+[完整功能对比](fork/FEATURES.md) · [r2 更新与说明](fork/RELEASE-r2.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
 
 ## 下载与重复使用
 
-**[下载 3.1.1-r1 通用 APK（18.1 MiB）](https://github.com/682012/rikkahub/releases/download/v3.1.1-r1/rikkahub-3.1.1-r1.apk)** · [版本说明与 SHA-256](https://github.com/682012/rikkahub/releases/tag/v3.1.1-r1) · [最新正式版](https://github.com/682012/rikkahub/releases/latest)
+**[下载 3.1.1-r2 通用 APK（18.1 MiB）](https://github.com/682012/rikkahub/releases/download/v3.1.1-r2/rikkahub-3.1.1-r2.apk)** · [版本说明与 SHA-256](https://github.com/682012/rikkahub/releases/tag/v3.1.1-r2) · [最新正式版](https://github.com/682012/rikkahub/releases/latest)
 
 固定版本链接不会随 nightly 被覆盖；每个正式版本保留对应源码 tag、APK 与校验文件。直接安装不需要编译环境，也不会附带维护者的聊天、账号或服务凭据。
 
-同包名、同签名的 fork.36–43 可按常规覆盖升级，先备份聊天和设置；不要为升级先卸载。旧版更新器只认 `-fork.`，首次升级 r1 请直接从上面的链接下载安装，r1 之后识别新的短编号。官方包与本分支不同，不能直接覆盖官方版。需要重新编译时见 [构建与维护](fork/README.md)，签名密钥和本机配置自行准备。
+同包名、同签名的 r1 与 fork.36–43 可按常规覆盖升级，先备份聊天和设置；不要为升级先卸载。旧版更新器只认 `-fork.`，首次进入 r 系列请直接从上面的链接下载安装；已安装 r1 的用户可检查更新。官方包与本分支不同，不能直接覆盖官方版。需要重新编译时见 [构建与维护](fork/README.md)，签名密钥和本机配置自行准备。
 
 ## 相比官方，到底增加了什么？
 
@@ -27,7 +27,7 @@
 | 新增 ① | 子代理协作 | 没有内置子代理任务管理 | 独立上下文/模型的任务；排队、等待、取结果、取消；默认并发 4，可设 1–8，按设备内存自动降 |
 | 新增 ② | 工作区后台任务 | shell 与终端 | `workspace_job_start/status/kill`；独立任务、状态和日志；超时可配，0 表示不限 |
 | 新增 ③ | HTTP 远程执行 | SSH/SFTP 工作区 | 可选自托管 HTTP shell/job 后端；与 SSH 分开路由，不把命令误送到另一台机器 |
-| 新增 ④ | 自动上下文压缩 | 手动压缩与检查点 | 达到模型窗口阈值时自动摘要，可指定压缩模型；保留原始历史 |
+| 新增 ④ | 自动上下文压缩 | 手动压缩与检查点 | 按模型独立设置开关及阈值，到达窗口阈值时自动摘要，可指定压缩模型；保留原始历史 |
 | 新增 ⑤ | ZIP 工作区迁移 | 文件操作、单文件/目录批量导出 | 整个文件区 ZIP 导出与导入新工作区；校验后发布，不覆盖已有工作区或聊天 |
 | 增强 ① | 重试策略设置 | 自动重试开关，指数退避 | 次数 0–100；固定 30/60 秒、30–60 秒随机或自定义 1–600 秒，主/子代理共用 |
 | 增强 ② | 单会话用量面板 | 请求用量记录、全局统计 | 聊天页按会话查看输入/输出/缓存与模型明细，包含关联子代理用量 |
@@ -106,17 +106,17 @@ SSH入口：**设置 → 扩展 → 工作区 → 加号 → SSH远程工作区*
 
 | 检查 | 真实结果 |
 |---|---|
-| 正式构建 | [Fork Verify run 41325551257](https://github.com/682012/rikkahub/actions/runs/41325551257)；R8 + lintVital 通过 |
-| JVM | 216 suites、1561 项，1560 通过，0 失败、0 错误，1 项跳过 |
-| Android | API 34 x86_64，54 项，0 失败、0 错误、0 跳过 |
-| 审批预览 | 4 项：完整参数、真实滚动、320dp 窄屏、待审批聊天集成 |
-| 签名与版本 | 证书与前版一致；3.1.1-fork.43 / 3000047；schema 34 无新迁移 |
-| 未验证 | 用户真机升级、厂商后台行为、端到端模型 token/费用/耗时对比 |
+| 正式构建 | [HB 本地构建与验收](https://github.com/682012/rikkahub/blob/v3.1.1-r2/fork/verification/r2.json)；R8 + lintVital 通过 |
+| JVM | 223 suites、1609 项，0 失败/错误，1 项跳过 |
+| Android | API 34 x86_64，65 项全过；含模型设置交互及截图 |
+| 签名覆盖升级 | r1 覆盖 r2、沙盒标记保留、冷启动通过；同签名/schema34无新迁移 |
+| 未验证 | 用户真机升级、厂商后台行为、真实模型 token/费用/耗时收益 |
 
-[完整验收与边界](fork/RELEASE-fork43.md) · [机器可读摘要](fork/verification/fork43.json)
+[完整验收与边界](fork/RELEASE-r2.md) · [机器可读摘要](fork/verification/r2.json)
 
 ## 使用前知道这些限制
 
+- 每模型设置入口：设置 → 提供商 → 编辑模型 → 基本。请求上限1–64，留空不额外限制；与全局子代理总数分别生效。上下文窗口不改变服务端模型容量。
 - 子代理默认关闭；不支持嵌套、独立费用预算或子代理内审批/续跑。需要审批的操作交给父对话。并发是本机资源的取舍：每个子代理都有独立上下文与工具集，设高不保证更快。
 - `run_script` 只能调用只读白名单里的工具，不能执行 shell、访问 MCP、写文件或派生子代理；脚本没有审批挂起点，因此这些能力刻意不可见。它也不是省 token 的保证。
 - MCP 工具超过阈值后不再是“全部直接可见”，模型必须先 `tool_search` 才能拿到名字；搜索按页返回；知道准确工具名时可直接调用。工具很多的 MCP 服务器会因此多一轮调用。
@@ -136,4 +136,4 @@ SSH入口：**设置 → 扩展 → 工作区 → 加号 → SSH远程工作区*
 
 ### English summary
 
-Unofficial personal fork of RikkaHub **3.1.1**, based on upstream master **5ad19405 (2026-11-01)**. Preserves subagents, background jobs, HTTP execution, automatic compression, ZIP migration, configurable retries and per-chat usage. **fork.43 reworks the tool-calling layer**: concurrent independent read calls with same-batch dedup and serial barriers, a compact MCP catalog with `tool_search`/`tool_call`, offloaded large outputs with paged read-back, paged subagent results with memory-aware concurrency, collapse of repeated tool results, `workspace_grep`/`workspace_glob` and paged file reads, and `run_script` for read-only tool chains. `run_script` cannot reach shell, MCP, writes or subagents, and none of this is a measured speed or token guarantee. GitHub Actions run 41325551257: 1561 JVM tests (1 skipped), 54 Android emulator tests, and signed R8/lintVital release build; no failures. Signed packages and checksums live in [GitHub Releases](https://github.com/682012/rikkahub/releases); no end-user support is offered. See the [release notes](fork/RELEASE-fork43.md) for boundaries.
+Unofficial personal fork of RikkaHub **3.1.1**, based on upstream master **5ad19405 (2026-11-01)**. Preserves subagents, background jobs, HTTP execution, automatic compression, ZIP migration, configurable retries and per-chat usage. **fork.43 reworks the tool-calling layer**: concurrent independent read calls with same-batch dedup and serial barriers, a compact MCP catalog with `tool_search`/`tool_call`, offloaded large outputs with paged read-back, paged subagent results with memory-aware concurrency, collapse of repeated tool results, `workspace_grep`/`workspace_glob` and paged file reads, and `run_script` for read-only tool chains. `run_script` cannot reach shell, MCP, writes or subagents, and none of this is a measured speed or token guarantee. **r2 adds per-model compression overrides and a cancellable, live-updating API concurrency cap**, independent for each configured model. HB local verification r2-hb-20261102: 1609 JVM tests (1 skipped), 65 Android tests, signed R8/lintVital build and r1-to-r2 emulator upgrade succeeded. No real-user upgrade or model latency/cost benefit is claimed. [Release notes](fork/RELEASE-r2.md).
