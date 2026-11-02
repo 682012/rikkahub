@@ -17,8 +17,14 @@ data class Model(
     val abilities: List<ModelAbility> = emptyList(),
     val tools: Set<BuiltInTools> = emptySet(),
     val providerOverwrite: ProviderSetting? = null,
-    // 上下文窗口大小(token)
+    // 上下文窗口大小(token)，仅为客户端容量/压缩依据，不修改服务端模型上限。
     val contextLength: Int = 1_000_000,
+    /** null follows the global automatic-compression setting. */
+    val autoCompressEnabled: Boolean? = null,
+    /** null follows the global threshold; valid custom values are 10..100. */
+    val autoCompressThresholdPercent: Int? = null,
+    /** null adds no per-model cap; otherwise 1..64 simultaneous API requests. */
+    val maxConcurrentRequests: Int? = null,
 )
 
 /**

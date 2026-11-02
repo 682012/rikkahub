@@ -7,6 +7,8 @@ import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.http.HttpHeaders
 import io.pebbletemplates.pebble.PebbleEngine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import me.rerere.ai.provider.ProviderManager
@@ -258,7 +260,33 @@ val dataSourceModule = module {
     }
 
     single {
-        ProviderManager(client = get(), context = get(), accountCredentials = get<ProviderAccountManager>())
+        val settingsStore: SettingsStore = get()
+        val providerManager = ProviderManager(
+            client = get(),
+            context = get(),
+            accountCredentials = get<ProviderAccountManager>(),
+            requestLimit = { snapshot ->
+                // Read the current value even before the asynchronous notification collector runs.
+                val current = settingsStore.settingsFlow.value.providers.asSequence()
+                    .flatMap { it.models.asSequence() }.firstOrNull { it.id == snapshot.id }
+                (current ?: snapshot).maxConcurrentRequests
+            },
+        )
+        // Settings 是并发上限的真源：变化后刷新模型快照再唤醒排队请求，
+        // 旧 Model 快照也按同 id 的最新上限算。
+        get<AppScope>().launch {
+            settingsStore.settingsFlow
+                .map { settings -> settings.providers.flatMap { provider -> provider.models } }
+                .distinctUntilChanged { old, new ->
+                    old.map { it.id to it.maxConcurrentRequests } ==
+                        new.map { it.id to it.maxConcurrentRequests }
+                }
+                .collect { models ->
+                    providerManager.updateModelLimits(models)
+                    providerManager.notifyLimitsChanged()
+                }
+        }
+        providerManager
     }
 
     single { BackupManager(context = get(), database = get(), settingsStore = get(), json = get()) }

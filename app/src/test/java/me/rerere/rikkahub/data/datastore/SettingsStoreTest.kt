@@ -172,6 +172,27 @@ class SettingsStoreTest {
     }
 
     @Test
+    fun `per model runtime settings survive disk reopen and resetting one never touches another`() = runBlocking {
+        val a = me.rerere.ai.provider.Model(modelId = "shared-name", contextLength = 128_000,
+            autoCompressEnabled = false, autoCompressThresholdPercent = 60, maxConcurrentRequests = 1)
+        val b = me.rerere.ai.provider.Model(modelId = "shared-name", contextLength = 200_000,
+            autoCompressEnabled = true, autoCompressThresholdPercent = 90, maxConcurrentRequests = 4)
+        val provider = me.rerere.ai.provider.ProviderSetting.OpenAI(models = listOf(a, b))
+        val store = open().store
+        store.update { it.copy(providers = listOf(provider)) }
+        val restored = reopened().providers.single { it.id == provider.id }
+        assertEquals(a, restored.models.single { it.id == a.id })
+        assertEquals(b, restored.models.single { it.id == b.id })
+        val resetA = a.copy(autoCompressEnabled = null, autoCompressThresholdPercent = null, maxConcurrentRequests = null)
+        opened!!.store.update { settings -> settings.copy(providers = settings.providers.map {
+            if (it.id == provider.id) it.editModel(resetA) else it
+        }) }
+        val second = reopened().providers.single { it.id == provider.id }
+        assertEquals(resetA, second.models.single { it.id == a.id })
+        assertEquals(b, second.models.single { it.id == b.id })
+    }
+
+    @Test
     fun `first launch offers the built-in mode injection until the user removes it`() = runBlocking {
         val store = open().store
         assertEquals(DEFAULT_MODE_INJECTIONS, store.awaitLoaded().modeInjections)

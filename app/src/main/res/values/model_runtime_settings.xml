@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="model_runtime_auto_compress_title">Automatic compression</string>
+    <string name="model_runtime_auto_compress_follow_on">Follow global (on)</string>
+    <string name="model_runtime_auto_compress_follow_off">Follow global (off)</string>
+    <string name="model_runtime_auto_compress_on">On</string>
+    <string name="model_runtime_auto_compress_off">Off</string>
+    <string name="model_runtime_auto_compress_threshold">Trigger threshold (%)</string>
+    <string name="model_runtime_auto_compress_threshold_placeholder">Follow global (%1$d%%)</string>
+    <string name="model_runtime_auto_compress_trigger">Compresses at about %1$s tokens for this window.</string>
+    <string name="model_runtime_invalid_percent">Enter a whole number from 10 to 100, or leave it blank to follow the global value.</string>
+    <string name="model_runtime_invalid_positive">Enter a positive whole number.</string>
+    <string name="model_runtime_invalid_range">Enter a whole number from %1$d to %2$d, or leave it blank.</string>
+    <string name="model_runtime_concurrency_title">Simultaneous requests</string>
+    <string name="model_runtime_concurrency_placeholder">No per-model cap</string>
+    <string name="model_runtime_concurrency_desc">The main chat and subagents using this model share this limit; other models keep their own. The global subagent limit is unchanged. Leave blank for no extra cap (1 to 64).</string>
+    <string name="model_runtime_auto_compress_disabled">Automatic compression is off for this model.</string>
+</resources>

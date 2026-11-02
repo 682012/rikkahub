@@ -32,7 +32,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
@@ -72,7 +71,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastForEach
@@ -107,6 +105,7 @@ import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.Tools
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.account.preserveCredential
+import me.rerere.rikkahub.data.datastore.AutoCompressSettings
 import me.rerere.rikkahub.ui.components.ai.ExtensionEmptyState
 import me.rerere.rikkahub.ui.components.ai.ModelAbilityTag
 import me.rerere.rikkahub.ui.components.ai.ModelModalityTag
@@ -141,7 +140,6 @@ import me.rerere.rikkahub.ui.pages.setting.components.SettingProviderQuotaQuery
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.ui.theme.extendColors
 import me.rerere.rikkahub.utils.UiState
-import me.rerere.rikkahub.utils.formatNumber
 import me.rerere.rikkahub.utils.plus
 import me.rerere.ui.components.RikkaConfirmDialog
 import org.koin.androidx.compose.koinViewModel
@@ -275,7 +273,8 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                     ProviderDetailTab.MODELS -> {
                         SettingProviderModelPage(
                             provider = provider,
-                            onEdit = onEdit
+                            onEdit = onEdit,
+                            globalAutoCompress = settings.autoCompress
                         )
                     }
 
@@ -434,11 +433,13 @@ private fun SettingProviderConfigPage(
 @Composable
 private fun SettingProviderModelPage(
     provider: ProviderSetting,
-    onEdit: (ProviderSetting) -> Unit
+    onEdit: (ProviderSetting) -> Unit,
+    globalAutoCompress: AutoCompressSettings = AutoCompressSettings()
 ) {
     ModelList(
         providerSetting = provider,
-        onUpdateProvider = onEdit
+        onUpdateProvider = onEdit,
+        globalAutoCompress = globalAutoCompress
     )
 }
 
@@ -467,7 +468,8 @@ private fun SettingProviderAdvancedPage(
 @Composable
 private fun ModelList(
     providerSetting: ProviderSetting,
-    onUpdateProvider: (ProviderSetting) -> Unit
+    onUpdateProvider: (ProviderSetting) -> Unit,
+    globalAutoCompress: AutoCompressSettings = AutoCompressSettings()
 ) {
     val providerManager = koinInject<ProviderManager>()
     val modelList by produceState(emptyList(), providerSetting) {
@@ -522,6 +524,7 @@ private fun ModelList(
                                 onUpdateProvider(providerSetting.editModel(editedModel))
                             },
                             parentProvider = providerSetting,
+                            globalAutoCompress = globalAutoCompress,
                             modifier = longPressReorder(isDragging),
                         )
                     }
@@ -546,7 +549,8 @@ private fun ModelList(
                 },
                 expanded = expanded,
                 parentProvider = providerSetting,
-                onUpdateProvider = onUpdateProvider
+                onUpdateProvider = onUpdateProvider,
+                globalAutoCompress = globalAutoCompress
             )
         }
     }
@@ -557,7 +561,9 @@ private fun ModelSettingsForm(
     model: Model,
     onModelChange: (Model) -> Unit,
     isEdit: Boolean,
-    parentProvider: ProviderSetting? = null
+    parentProvider: ProviderSetting? = null,
+    globalAutoCompress: AutoCompressSettings = AutoCompressSettings(),
+    onValidityChange: (Boolean) -> Unit = {},
 ) {
     val pagerState = rememberPagerState { ModelFormTab.entries.size }
 
@@ -653,14 +659,15 @@ private fun ModelSettingsForm(
                                     onModelChange(model.copy(abilities = it))
                                 }
                             )
-
-                            ModelContextLengthSelector(
-                                contextLength = model.contextLength,
-                                onUpdateContextLength = {
-                                    onModelChange(model.copy(contextLength = it))
-                                }
-                            )
                         }
+
+                        // 上下文窗口、自动压缩、并发上限统一放在模型能力之后
+                        ModelRuntimeSettingsForm(
+                            model = model,
+                            onModelChange = onModelChange,
+                            globalAutoCompress = globalAutoCompress,
+                            onValidityChange = onValidityChange,
+                        )
                     }
                 }
 
@@ -722,7 +729,8 @@ private fun AddModelButton(
     onAddModel: (Model) -> Unit,
     onRemoveModel: (Model) -> Unit,
     parentProvider: ProviderSetting,
-    onUpdateProvider: (ProviderSetting) -> Unit
+    onUpdateProvider: (ProviderSetting) -> Unit,
+    globalAutoCompress: AutoCompressSettings = AutoCompressSettings()
 ) {
     val dialogState = useEditState<Model> {
         onAddModel(it.copy(displayName = it.displayName.trim()))
@@ -803,6 +811,8 @@ private fun AddModelButton(
 
     if (dialogState.isEditing) {
         dialogState.currentState?.let { modelState ->
+            // 输入框里有非法草稿时禁用确认，避免红框却存了旧值
+            var runtimeValid by remember(modelState.id) { mutableStateOf(true) }
             val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
             ModalBottomSheet(
                 onDismissRequest = {
@@ -845,7 +855,9 @@ private fun AddModelButton(
                             model = modelState,
                             onModelChange = { dialogState.currentState = it },
                             isEdit = false,
-                            parentProvider = parentProvider
+                            parentProvider = parentProvider,
+                            globalAutoCompress = globalAutoCompress,
+                            onValidityChange = { runtimeValid = it }
                         )
                     }
 
@@ -862,10 +874,13 @@ private fun AddModelButton(
                         }
                         Button(
                             onClick = {
-                                if (modelState.modelId.isNotBlank() && modelState.displayName.isNotBlank()) {
+                                if (runtimeValid && modelState.modelId.isNotBlank() && modelState.displayName.isNotBlank()) {
                                     dialogState.confirm()
                                 }
                             },
+                            enabled = runtimeValid &&
+                                modelState.modelId.isNotBlank() &&
+                                modelState.displayName.isNotBlank(),
                         ) {
                             Text(stringResource(R.string.setting_provider_page_add))
                         }
@@ -1156,54 +1171,7 @@ fun ModalAbilitySelector(
     }
 }
 
-// 常见的上下文窗口大小，其余的走自定义输入
-private val ContextLengthPresets = listOf(128_000, 200_000, 1_000_000)
-
-@Composable
-private fun ModelContextLengthSelector(
-    contextLength: Int,
-    onUpdateContextLength: (Int) -> Unit
-) {
-    var custom by remember { mutableStateOf(contextLength !in ContextLengthPresets) }
-    // 输入过程中允许为空，只有合法的正整数才写回模型
-    var customText by remember { mutableStateOf(contextLength.toString()) }
-
-    Text(
-        stringResource(R.string.setting_provider_page_context_length),
-        style = MaterialTheme.typography.titleSmall
-    )
-    // null 表示自定义
-    ConnectedChoiceButtons(
-        options = ContextLengthPresets + null,
-        selected = if (custom) null else contextLength,
-        onSelect = { preset ->
-            custom = preset == null
-            if (preset != null) {
-                customText = preset.toString()
-                onUpdateContextLength(preset)
-            }
-        },
-    ) { preset, selected ->
-        ConnectedChoiceLabel(
-            text = preset?.formatNumber() ?: stringResource(R.string.setting_provider_page_context_length_custom),
-            selected = selected,
-        )
-    }
-    AnimatedVisibility(visible = custom) {
-        OutlinedTextField(
-            value = customText,
-            onValueChange = { value ->
-                customText = value.filter { it.isDigit() }
-                customText.toIntOrNull()?.takeIf { it > 0 }?.let(onUpdateContextLength)
-            },
-            modifier = Modifier.fillMaxWidth(),
-            suffix = { Text("tokens") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            singleLine = true,
-            isError = (customText.toIntOrNull() ?: 0) <= 0,
-        )
-    }
-}
+// 常见的上下文窗口大小，其余走自定义输入；实现见 ModelRuntimeSettingsForm.kt
 
 @Composable
 private fun ModelCard(
@@ -1211,7 +1179,8 @@ private fun ModelCard(
     modifier: Modifier = Modifier,
     onDelete: () -> Unit,
     onEdit: (Model) -> Unit,
-    parentProvider: ProviderSetting
+    parentProvider: ProviderSetting,
+    globalAutoCompress: AutoCompressSettings = AutoCompressSettings()
 ) {
     val dialogState = useEditState<Model> {
         onEdit(it.copy(displayName = it.displayName.trim()))
@@ -1222,6 +1191,8 @@ private fun ModelCard(
 
     if (dialogState.isEditing) {
         dialogState.currentState?.let { editingModel ->
+            // 非法草稿时禁用确认
+            var runtimeValid by remember(editingModel.id) { mutableStateOf(true) }
             val sheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden, enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded))
             ModalBottomSheet(
                 onDismissRequest = {
@@ -1269,7 +1240,9 @@ private fun ModelCard(
                             model = editingModel,
                             onModelChange = { dialogState.currentState = it },
                             isEdit = true,
-                            parentProvider = parentProvider
+                            parentProvider = parentProvider,
+                            globalAutoCompress = globalAutoCompress,
+                            onValidityChange = { runtimeValid = it }
                         )
                     }
 
@@ -1286,10 +1259,11 @@ private fun ModelCard(
                         }
                         Button(
                             onClick = {
-                                if (editingModel.displayName.isNotBlank()) {
+                                if (runtimeValid && editingModel.displayName.isNotBlank()) {
                                     dialogState.confirm()
                                 }
                             },
+                            enabled = runtimeValid && editingModel.displayName.isNotBlank(),
                         ) {
                             Text(stringResource(R.string.confirm))
                         }
