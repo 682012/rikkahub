@@ -382,7 +382,10 @@ class StreamChunkHandler(private val model: Model? = null) {
 
             is StreamChunk.ImageEnd -> this.also { imagePartIndexes.remove(chunk.id) }
             is StreamChunk.Annotations -> copy(annotations = (annotations + chunk.annotations).distinct())
-            is StreamChunk.Usage -> copy(usage = if (chunk.completeSnapshot) chunk.usage else usage.merge(chunk.usage))
+            is StreamChunk.Usage -> copy(
+                usage = if (chunk.completeSnapshot) chunk.usage else usage.merge(chunk.usage),
+                lastUsage = chunk.lastRequestUsage,
+            )
             is StreamChunk.Finish -> copy(
                 finishedAt = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
             ).finishReasoning().also {

@@ -152,7 +152,12 @@ sealed class StreamChunk {
 
     @Serializable
     @SerialName("usage")
-    data class Usage(val usage: TokenUsage, val completeSnapshot: Boolean = false) : StreamChunk()
+    data class Usage(
+        val usage: TokenUsage,
+        val completeSnapshot: Boolean = false,
+        /** Internal continuations can cost several requests while only the last one defines context size. */
+        val lastRequestUsage: TokenUsage? = null,
+    ) : StreamChunk()
 
     @Serializable
     @SerialName("finish")

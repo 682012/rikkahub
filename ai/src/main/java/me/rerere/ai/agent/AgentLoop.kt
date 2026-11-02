@@ -129,7 +129,7 @@ internal class AgentLoop(
     ): UIMessage {
         // 多轮工具调用共用同一条助手消息，消息上已有的 usage 和耗时来自之前的步骤。
         // 本步从清空的统计开始（merge 只适合同一次请求内的快照），再与之前的步骤累加。
-        val stepStart = base.copy(usage = null, generationTimeMs = null)
+        val stepStart = base.copy(usage = null, lastUsage = null, generationTimeMs = null)
         // 重试时已经展示出去的半截回复不能先缩水再重画，是否放行这次预览由它判断
         val previews = StreamPreviewGuard(base.parts.size)
         return try {
@@ -186,6 +186,7 @@ internal class AgentLoop(
             annotations = result.message.annotations.ifEmpty { base.annotations },
             modelId = params.model.id,
             usage = result.usage,
+            lastUsage = result.message.lastUsage,
         ).finishReasoning().withStepStats(base, requestTime)
         preview(generated, newPartsFrom = base.parts.size)
         return generated
@@ -440,7 +441,7 @@ private fun UIMessage.withStepStats(stepBase: UIMessage, stepTime: Duration): UI
     usage = stepBase.usage.sum(usage),
     generationTimeMs = (stepBase.generationTimeMs ?: 0L) + stepTime.inWholeMilliseconds,
     // 上下文占用只看最后一次请求，usage 是多步累计值；本步没返回 usage 时沿用之前步骤的
-    lastUsage = usage ?: stepBase.lastUsage,
+    lastUsage = lastUsage ?: usage ?: stepBase.lastUsage,
     stepCount = (stepBase.stepCount ?: 0) + 1,
 )
 

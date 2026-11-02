@@ -158,7 +158,7 @@ internal fun streamClaudeWithPauseTurn(
             when (chunk) {
                 is StreamChunk.Usage -> {
                     passUsage = if (chunk.completeSnapshot) chunk.usage else passUsage.merge(chunk.usage)
-                    completedUsage.sum(passUsage)?.let { emit(StreamChunk.Usage(it, completeSnapshot = true)) }
+                    completedUsage.sum(passUsage)?.let { emit(StreamChunk.Usage(it, completeSnapshot = true, lastRequestUsage = passUsage)) }
                 }
 
                 is StreamChunk.Finish -> {
