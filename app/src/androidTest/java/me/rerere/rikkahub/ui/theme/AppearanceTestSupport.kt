@@ -114,11 +114,8 @@ object AppearanceTestSupport {
         val file = File(dir, "$name.png")
         file.outputStream().use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
         assertTrue("截图 $name 是空的", file.length() > 0)
-        // Export from an internal cache file; run-as cannot access scoped external storage after setuid.
-        val command = "mkdir -p $EXPORT_DIR; run-as ${context.packageName} cat ${file.absolutePath} > $EXPORT_DIR/$name.png; test -s $EXPORT_DIR/$name.png && echo CAPTURED"
-        val shell = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("sh -c '$command'")
-        val receipt = android.os.ParcelFileDescriptor.AutoCloseInputStream(shell).bufferedReader().use { it.readText() }
-        assertTrue("截图 $name 没能导出: $receipt", receipt.contains("CAPTURED"))
+        // The external ADB runner exports these after instrumentation. UI assertions do not depend
+        // on UiAutomation's command tokenizer, which is not a POSIX shell.
         return file
     }
 }

@@ -185,9 +185,14 @@ class WorkspaceStorageGrantAndroidTest {
         }
     }
 
-    private fun shell(command: String): String = ParcelFileDescriptor.AutoCloseInputStream(
-        InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand("/system/bin/sh -c '${command.replace("'", "'\\\"'\\\"'")}'"),
-    ).bufferedReader().use { it.readText() }
+    private fun shell(command: String): String {
+        val pipes = InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommandRw("sh")
+        ParcelFileDescriptor.AutoCloseOutputStream(pipes[1]).bufferedWriter().use { output ->
+            output.write(command)
+            output.write("\nexit\n")
+        }
+        return ParcelFileDescriptor.AutoCloseInputStream(pipes[0]).bufferedReader().use { it.readText() }
+    }
 
     private fun accessStorePath(context: Context): String =
         File(context.noBackupFilesDir, "workspace-access/$ROOT.json").absolutePath
