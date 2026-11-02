@@ -14,6 +14,7 @@ import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.provider.canDisableToolCallsWithDefinitions
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
@@ -122,7 +123,7 @@ class ChatRequestFactory(
             memories = if (assistant.enableMemory) memoryRepository.getFiles(assistant.memoryId) else emptyList(),
             // 压缩这类旁路请求只需要文本，指定了单独模型时不带工具，
             // 避免不支持工具调用的上游直接拒绝请求
-            tools = if (modelOverride != null) {
+            tools = if (modelOverride != null || (provider is ProviderSetting.WebAccount && !provider.toolBridgeEnabled)) {
                 emptyList()
             } else {
                 chatToolFactory.createTools(
@@ -131,7 +132,10 @@ class ChatRequestFactory(
                     model = model,
                     workspaceCwd = conversation.workspaceCwd,
                     conversationId = conversation.id,
-                )
+                ).let { tools ->
+                    if (provider is ProviderSetting.WebAccount) tools.map { it.copy(needsApproval = { true }) }
+                    else tools
+                }
             },
         )
     }
@@ -185,17 +189,18 @@ class ChatRequestFactory(
      *
      * 请求按正常对话组装（系统提示词、参数和 sessionId 都相同），只在末尾追加压缩指令，
      * 前缀与上一轮对话一致；历史里的工具调用和结果仍然随消息发出去，模型能看到。
-     * 工具定义本身在 [buildStep] 里按 includeTools = false 去掉（fork.27）：模型看到工具就会去调用，
-     * 回复正文只剩一句“我看看”，摘要拿不到内容。代价是这条请求无法复用带工具的提示词前缀。
+     * OpenAI/Claude 保留工具定义但强制 tool_choice=none，使 tools/system 前缀可复用；
+     * 其余协议仍移除工具。压缩后历史本身改变，会自然重建消息缓存，不声称百分百命中。
      */
     suspend fun generateCompressionSummary(
         turn: ChatTurnContext,
         messages: List<UIMessage>,
         compressPrompt: String,
     ): String {
-        // 摘要请求不能带工具：模型看到工具定义就会去调用，正文只剩一句"我看看"，
-        // compressionSummaryOrNull 会判定失败（chat_page_compress_tool_call_response）
-        val (requestMessages, params) = buildStep(turn, messages, includeTools = false)
+        // Native OpenAI/Claude can retain declarations but force tool_choice=none. Other protocols
+        // still drop definitions. Never trade summary correctness for cache hits.
+        val preserveDefinitions = turn.providerSetting.canDisableToolCallsWithDefinitions
+        val (requestMessages, params) = buildStep(turn, messages, includeTools = preserveDefinitions)
         // 压缩指令不经过输入转换器，模板转换器会把其中的花括号当成模板语法
         val result = withRetry(
             policy = turn.settings.retryPolicy().copy(networkHandover = providerManager.networkHandover),
@@ -208,7 +213,11 @@ class ChatRequestFactory(
                 providerSetting = turn.providerSetting,
                 messages = requestMessages + UIMessage.user(compressPrompt),
                 // 助手的输出上限是给聊天回复定的，结构化摘要写不完会被截断；max_tokens 不属于请求前缀，改了不影响缓存
-                params = params.copy(maxTokens = null),
+                params = params.copy(
+                    maxTokens = null,
+                    disableToolCalls = preserveDefinitions,
+                    model = if (preserveDefinitions) params.model else params.model.copy(tools = emptySet()),
+                ),
             )
         }
         val summary = result.message.compressionSummaryOrNull()
@@ -244,7 +253,7 @@ class ChatRequestFactory(
                     append(buildMemoryPrompt(turn.memories))
                 }
                 // 工具prompt
-                tools.forEach { tool ->
+                turn.tools.forEach { tool ->
                     appendLine()
                     append(tool.systemPrompt(turn.model, messages))
                 }

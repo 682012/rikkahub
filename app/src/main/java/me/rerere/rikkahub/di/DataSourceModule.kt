@@ -145,6 +145,19 @@ val dataSourceModule = module {
         MessageFtsManager(get())
     }
 
+    single {
+        val vault = me.rerere.rikkahub.data.ai.account.WebSessionVault(get())
+        val store = get<SettingsStore>()
+        get<AppScope>().launch {
+            store.awaitLoaded()
+            store.settingsFlow.collect { settings ->
+                vault.retainOnly(settings.providers.filterIsInstance<me.rerere.ai.provider.ProviderSetting.WebAccount>()
+                    .map { it.id }.toSet())
+            }
+        }
+        vault
+    }
+
     single { McpManager(settingsStore = get(), appScope = get(), filesManager = get(), networkHandover = get()) }
 
     single {
@@ -282,6 +295,7 @@ val dataSourceModule = module {
             client = get(),
             context = get(),
             accountCredentials = get<ProviderAccountManager>(),
+            webSessions = get<me.rerere.rikkahub.data.ai.account.WebSessionVault>(),
             networkHandover = get(),
             requestLimit = { snapshot ->
                 // Read the current value even before the asynchronous notification collector runs.

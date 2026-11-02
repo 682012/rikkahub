@@ -1,5 +1,6 @@
 package me.rerere.ai.provider.providers.claude
 
+import me.rerere.ai.provider.applyToolCallPolicy
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -156,8 +157,8 @@ internal fun streamClaudeWithPauseTurn(
             responseMessages = handler.handle(responseMessages, chunk)
             when (chunk) {
                 is StreamChunk.Usage -> {
-                    passUsage = passUsage.merge(chunk.usage)
-                    completedUsage.sum(passUsage)?.let { emit(StreamChunk.Usage(it)) }
+                    passUsage = if (chunk.completeSnapshot) chunk.usage else passUsage.merge(chunk.usage)
+                    completedUsage.sum(passUsage)?.let { emit(StreamChunk.Usage(it, completeSnapshot = true)) }
                 }
 
                 is StreamChunk.Finish -> {
@@ -553,7 +554,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                     }
                 }
             }
-        }.mergeCustomBody(params.customBody)
+        }.mergeCustomBody(params.customBody).applyToolCallPolicy(params, claude = true)
     }
 
     private fun cacheControlEphemeral(promptCacheTtl: ClaudePromptCacheTtl) = buildJsonObject {

@@ -128,6 +128,7 @@ object CherryStudioProviderImporter {
             is ProviderSetting.Claude -> "claude|${provider.baseUrl}|${provider.apiKey}"
             // 账号型提供商不会从外部导入，只按 id 区分
             is ProviderSetting.Account -> "account|${provider.id}"
+            is ProviderSetting.WebAccount -> "web-session|${provider.id}"
         }
     }
 }

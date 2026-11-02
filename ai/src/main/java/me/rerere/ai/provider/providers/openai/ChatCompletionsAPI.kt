@@ -1,5 +1,6 @@
 package me.rerere.ai.provider.providers.openai
 
+import me.rerere.ai.provider.applyToolCallPolicy
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -443,7 +444,7 @@ class ChatCompletionsAPI(
                     }
                 }
             }
-        }.mergeCustomBody(params.customBody)
+        }.mergeCustomBody(params.customBody).applyToolCallPolicy(params)
     }
 
     private fun isModelAllowTemperature(model: Model): Boolean {

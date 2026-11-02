@@ -74,6 +74,8 @@ data class TextGenerationParams(
     val customHeaders: List<CustomHeader> = emptyList(),
     val customBody: List<CustomBody> = emptyList(),
     val sessionId: String? = Uuid.random().toString(),
+    /** OpenAI/Claude text-only summary requests retain schemas while prohibiting tool execution. */
+    val disableToolCalls: Boolean = false,
 )
 
 @Serializable

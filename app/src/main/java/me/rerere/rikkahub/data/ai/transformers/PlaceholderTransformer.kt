@@ -8,7 +8,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessage
-import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
@@ -86,8 +85,9 @@ object DefaultPlaceholderProvider : PlaceholderProvider {
             "${Build.BRAND} ${Build.MODEL}"
         }
 
+        // 真实值不再在替换时直接落进 system 提示, 见 CacheStablePlaceholders
         placeholder("battery_level", { Text(stringResource(R.string.placeholder_battery_level)) }) {
-            it.context.batteryLevel().toString()
+            it.context.batteryLevelPercent()?.toString() ?: RuntimeBindings.UNKNOWN
         }
 
         placeholder("nickname", { Text(stringResource(R.string.placeholder_nickname)) }) {
@@ -108,57 +108,37 @@ object DefaultPlaceholderProvider : PlaceholderProvider {
         .withLocale(Locale.getDefault())
         .format(this)
 
-    private fun Context.batteryLevel(): Int {
-        val batteryManager = getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-        return batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-    }
 }
+
+/** 当前电量百分比; 读不到时返回 null (交给调用方决定怎么表达) */
+internal fun Context.batteryLevelPercent(): Int? = runCatching {
+    val batteryManager = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+    batteryManager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)?.takeIf { it in 0..100 }
+}.getOrNull()
 
 object PlaceholderTransformer : InputMessageTransformer, KoinComponent {
     private val defaultProvider = DefaultPlaceholderProvider
+
+    // 每条消息已注入的 runtime 绑定 (有界, 只存两个短值), 保证同一请求在后续工具 steps 里逐字节相同
+    private val stablePlaceholders = CacheStablePlaceholders()
 
     override suspend fun transform(
         ctx: TransformerContext,
         messages: List<UIMessage>,
     ): List<UIMessage> {
         val settingsStore = get<SettingsStore>()
-        return messages.map {
-            it.copy(
-                parts = it.parts.map { part ->
-                    if (part is UIMessagePart.Text) {
-                        part.copy(
-                            text = replacePlaceholders(text = part.text, ctx = ctx, settingsStore = settingsStore)
-                        )
-                    } else {
-                        part
-                    }
-                }
-            )
-        }
-    }
-
-    private fun replacePlaceholders(
-        text: String,
-        ctx: TransformerContext,
-        settingsStore: SettingsStore
-    ): String {
-        if ('{' !in text) return text
-        var result = text
-
-        val ctx = PlaceholderCtx(
+        val placeholderCtx = PlaceholderCtx(
             context = ctx.context,
             settingsStore = settingsStore,
             model = ctx.model,
             assistant = ctx.assistant
         )
-        defaultProvider.placeholders.forEach { (key, placeholderInfo) ->
-            if (!result.contains("{$key}", ignoreCase = true)) return@forEach
-            val value = placeholderInfo.resolver(ctx)
-            result = result
-                .replace(oldValue = "{{$key}}", newValue = value, ignoreCase = true)
-                .replace(oldValue = "{$key}", newValue = value, ignoreCase = true)
-        }
-
-        return result
+        return stablePlaceholders.render(
+            messages = messages,
+            // 易变占位符由 CacheStablePlaceholders 单独处理, 其余语义不变
+            staticKeys = defaultProvider.placeholders.keys.filterNot { it in RuntimeBindings.KEYS },
+            resolveStatic = { key -> defaultProvider.placeholders[key]?.resolver(placeholderCtx) },
+            batteryLevel = { ctx.context.batteryLevelPercent()?.toString() },
+        )
     }
 }

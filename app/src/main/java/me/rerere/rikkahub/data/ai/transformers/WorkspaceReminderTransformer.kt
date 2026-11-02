@@ -31,6 +31,7 @@ class WorkspaceReminderTransformer(
 ) : InputMessageTransformer {
     private val remoteEnvironments = RemoteEnvironmentCache()
     private val agentsPrompts = AgentsPromptCache()
+    private val localDistros = LastKnownDistroCache()
 
     override suspend fun transform(
         ctx: TransformerContext,
@@ -56,10 +57,12 @@ class WorkspaceReminderTransformer(
             // HTTP 远程执行时只给 shell 与 job 工具（WorkspaceExecutionPolicy.isToolAvailableOnBackend），
             // 规范里不能提读文件、搜索工具
             val backend = effectiveExecutionBackend(workspace.isSsh(), ctx.settings.workspaceRuntime)
+            val shell = workspaceRepository.shell(workspaceId)
+            val distro = localDistros.resolve("$workspaceId|$backend|$shell", readDistroName(workspaceId))
             buildWorkspacePrompt(
                 workspace = workspace,
-                shell = workspaceRepository.shell(workspaceId),
-                distro = readDistroName(workspaceId),
+                shell = shell,
+                distro = distro,
                 cwd = ctx.workspaceCwd,
                 guidance = if (backend == WorkspaceExecutionBackend.REMOTE_HTTP) ToolUseGuidance.SHELL_ONLY else ToolUseGuidance.LOCAL,
             ) + buildAgentsPrompt(workspaceId, ctx.workspaceCwd)

@@ -152,7 +152,7 @@ sealed class StreamChunk {
 
     @Serializable
     @SerialName("usage")
-    data class Usage(val usage: TokenUsage) : StreamChunk()
+    data class Usage(val usage: TokenUsage, val completeSnapshot: Boolean = false) : StreamChunk()
 
     @Serializable
     @SerialName("finish")

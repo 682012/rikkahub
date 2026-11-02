@@ -4,6 +4,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -281,6 +283,7 @@ private fun RecommendProviderButton(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 16.dp)
                     .padding(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -561,6 +564,9 @@ private fun AddButton(onAdd: (ProviderSetting) -> Unit) {
             ProviderSetting.Claude(),
             ProviderSetting.ChatGPT(),
             ProviderSetting.Grok(),
+            // 网页会话类：不用 OAuth，需要用户自己粘贴官方站点的 Cookie
+            ProviderSetting.GeminiWeb(),
+            ProviderSetting.ClaudeWeb(),
         )
     }
 
@@ -635,6 +641,8 @@ private fun ProviderSetting.typeName(): String = when (this) {
     is ProviderSetting.Claude -> "Claude"
     is ProviderSetting.ChatGPT -> stringResource(R.string.setting_provider_page_type_subscription, "ChatGPT")
     is ProviderSetting.Grok -> stringResource(R.string.setting_provider_page_type_subscription, "Grok")
+    is ProviderSetting.GeminiWeb -> stringResource(R.string.setting_provider_web_type_gemini)
+    is ProviderSetting.ClaudeWeb -> stringResource(R.string.setting_provider_web_type_claude)
 }
 
 @Composable

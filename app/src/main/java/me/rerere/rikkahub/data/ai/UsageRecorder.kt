@@ -95,7 +95,7 @@ class UsageRecorder(
                 var usage: TokenUsage? = null
                 try {
                     upstream.collect { chunk ->
-                        if (chunk is StreamChunk.Usage) usage = usage.merge(chunk.usage)
+                        if (chunk is StreamChunk.Usage) usage = if (chunk.completeSnapshot) chunk.usage else usage.merge(chunk.usage)
                         emit(chunk)
                     }
                 } finally {

@@ -46,6 +46,7 @@ val ProviderSetting.supportsBuiltInSearch: Boolean
         is ProviderSetting.Google -> true
         is ProviderSetting.Claude -> true
         is ProviderSetting.Account -> true
+        is ProviderSetting.WebAccount -> false
     }
 
 @Serializable
@@ -319,6 +320,60 @@ sealed class ProviderSetting {
                 shortDescription = shortDescription,
             )
         }
+    }
+
+    /** Experimental web sessions live only in the Android local vault, never in Settings JSON. */
+    @Serializable
+    sealed class WebAccount : ProviderSetting() {
+        abstract val toolBridgeEnabled: Boolean
+        abstract fun withToolBridge(enabled: Boolean): WebAccount
+    }
+
+    @Serializable
+    @SerialName("gemini_web")
+    data class GeminiWeb(
+        override val id: Uuid = Uuid.random(),
+        override val enabled: Boolean = true,
+        override val name: String = "Gemini Web",
+        override val models: List<Model> = emptyList(),
+        override val customHeaders: List<CustomHeader> = emptyList(),
+        @Transient override val builtIn: Boolean = false,
+        @Transient override val description: @Composable (() -> Unit) = {},
+        @Transient override val shortDescription: @Composable (() -> Unit) = {},
+        override val toolBridgeEnabled: Boolean = false,
+    ) : WebAccount() {
+        override fun withToolBridge(enabled: Boolean): WebAccount = copy(toolBridgeEnabled = enabled)
+        override fun copyProvider(
+            id: Uuid, enabled: Boolean, name: String, models: List<Model>,
+            customHeaders: List<CustomHeader>, builtIn: Boolean,
+            description: @Composable (() -> Unit), shortDescription: @Composable (() -> Unit),
+        ): ProviderSetting = copy(id = id, enabled = enabled, name = name, models = models,
+            customHeaders = customHeaders, builtIn = builtIn, description = description,
+            shortDescription = shortDescription)
+    }
+
+    @Serializable
+    @SerialName("claude_web")
+    data class ClaudeWeb(
+        override val id: Uuid = Uuid.random(),
+        override val enabled: Boolean = true,
+        override val name: String = "Claude Web",
+        override val models: List<Model> = emptyList(),
+        override val customHeaders: List<CustomHeader> = emptyList(),
+        @Transient override val builtIn: Boolean = false,
+        @Transient override val description: @Composable (() -> Unit) = {},
+        @Transient override val shortDescription: @Composable (() -> Unit) = {},
+        override val toolBridgeEnabled: Boolean = false,
+        val organizationId: String? = null,
+    ) : WebAccount() {
+        override fun withToolBridge(enabled: Boolean): WebAccount = copy(toolBridgeEnabled = enabled)
+        override fun copyProvider(
+            id: Uuid, enabled: Boolean, name: String, models: List<Model>,
+            customHeaders: List<CustomHeader>, builtIn: Boolean,
+            description: @Composable (() -> Unit), shortDescription: @Composable (() -> Unit),
+        ): ProviderSetting = copy(id = id, enabled = enabled, name = name, models = models,
+            customHeaders = customHeaders, builtIn = builtIn, description = description,
+            shortDescription = shortDescription)
     }
 
     companion object {

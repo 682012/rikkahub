@@ -1,5 +1,6 @@
 package me.rerere.ai.provider.providers.openai
 
+import me.rerere.ai.provider.applyToolCallPolicy
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -338,7 +339,7 @@ class ResponseAPI(
                     }
                 }
             }
-        }.mergeCustomBody(params.customBody)
+        }.mergeCustomBody(params.customBody).applyToolCallPolicy(params)
     }
 
     internal fun buildMessages(messages: List<UIMessage>) = buildJsonArray {

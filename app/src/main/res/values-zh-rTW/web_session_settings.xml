@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setting_provider_web_type_gemini">Gemini 網頁（實驗）</string>
+    <string name="setting_provider_web_type_claude">Claude 網頁（實驗）</string>
+
+    <string name="setting_provider_web_session_title">瀏覽器工作階段</string>
+    <string name="setting_provider_web_session_unconfigured">未設定</string>
+    <string name="setting_provider_web_session_unconfigured_desc">本機尚未儲存工作階段。請先在官網登入，再把 Cookie 貼到這裡。</string>
+    <string name="setting_provider_web_session_saved">已儲存，待驗證</string>
+    <string name="setting_provider_web_session_saved_desc">工作階段只保存在本機；驗證需要發起一次真實請求。</string>
+    <string name="setting_provider_web_session_verified">已驗證，模型已更新</string>
+    <string name="setting_provider_web_session_verified_desc">上一次真實請求使用目前工作階段並成功回應。</string>
+    <string name="setting_provider_web_session_verifying">正在驗證…</string>
+    <string name="setting_provider_web_session_verifying_desc">正在向官網發起一次真實請求，點這裡可以取消。</string>
+    <string name="setting_provider_web_session_failed">驗證失敗</string>
+    <string name="setting_provider_web_session_failed_desc">工作階段可能已失效，或帳號觸發了限制。請重新登入並貼上新的 Cookie，原有模型會保留。</string>
+
+    <string name="setting_provider_web_open_login">開啟官網登入</string>
+    <string name="setting_provider_web_open_login_desc">在瀏覽器登入不會自動同步工作階段到這裡。登入後請複製 Cookie 請求標頭或瀏覽器匯出的 cookie JSON，再回到這裡貼上。</string>
+    <string name="setting_provider_web_import">貼上工作階段</string>
+    <string name="setting_provider_web_import_desc">貼上 Cookie 請求標頭或瀏覽器匯出的 JSON，只在本機加密儲存。</string>
+    <string name="setting_provider_web_import_title">貼上網頁工作階段</string>
+    <string name="setting_provider_web_import_label">Cookie 請求標頭或 JSON</string>
+    <string name="setting_provider_web_import_hint">Cookie: sessionKey=…; …</string>
+    <string name="setting_provider_web_import_confirm">儲存到本機</string>
+    <string name="setting_provider_web_import_empty">尚未貼上內容。</string>
+    <string name="setting_provider_web_import_failed">這段工作階段無法使用，請確認來自官網且在有效期內。</string>
+    <string name="setting_provider_web_import_success">工作階段已儲存到本機</string>
+    <string name="setting_provider_web_import_privacy">內容只存在這個對話框：切換或關閉就會清空，也不會自動讀取剪貼簿。</string>
+
+    <string name="setting_provider_web_verify">驗證並載入模型</string>
+    <string name="setting_provider_web_verify_desc">用目前工作階段發起一次真實請求，成功後更新模型清單。</string>
+    <string name="setting_provider_web_verify_failed">驗證失敗：工作階段可能已失效，或帳號觸發了限制。原有模型已保留。</string>
+    <string name="setting_provider_web_clear">清除本機工作階段</string>
+    <string name="setting_provider_web_clear_title">清除本機工作階段？</string>
+    <string name="setting_provider_web_clear_desc">只刪除本機加密儲存的 Cookie，不會登出瀏覽器，也不會刪除既有模型。</string>
+
+    <string name="setting_provider_web_tool_bridge">提示詞工具適配（實驗）</string>
+    <string name="setting_provider_web_tool_bridge_desc">不是原生函式呼叫：模型透過提示詞請求工具，每次呼叫都需要你確認，背景子代理不會啟用工具。</string>
+    <string name="setting_provider_web_tool_confirm_title">啟用提示詞工具適配？</string>
+    <string name="setting_provider_web_tool_confirm_desc">這只是提示詞約定，不是原生函式呼叫，也不會提升模型能力；每次工具呼叫仍需要你確認。</string>
+    <string name="setting_provider_web_text_only">首版只支援文字，暫不支援圖片輸入。</string>
+
+    <string name="setting_provider_web_org_title">組織 ID（選填）</string>
+    <string name="setting_provider_web_org_desc">留空則使用個人組織。帳號屬於多個組織時，需要填寫目標組織的 UUID，不會自動選擇其他人的組織。</string>
+    <string name="setting_provider_web_org_invalid">請填寫合法的 UUID</string>
+
+    <string name="setting_provider_web_disclaimer">非官方接入，隨時可能失效或觸發帳號限制。內容會傳送到官方服務，並可能出現在網頁歷史記錄中。工作階段只保存在本機、不進入備份，清除或解除安裝後需要重新貼上。</string>
+    <string name="setting_provider_web_claude_terms">Claude 服務條款不允許第三方代持網頁工作階段。</string>
+</resources>

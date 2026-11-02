@@ -61,6 +61,23 @@ class ClaudePromptCacheRequestTest {
     }
 
     @Test
+    fun `summary keeps declarations and system prefix but never lets custom settings reenable tools`() {
+        val setting = ProviderSetting.Claude(promptCaching = true)
+        val messages = listOf(UIMessage.system("stable system"), UIMessage.user("history"))
+        val params = TextGenerationParams(
+            model = Model(modelId = "claude-test", abilities = listOf(ModelAbility.TOOL)),
+            tools = listOf(dummyTool()),
+            customBody = listOf(me.rerere.ai.provider.CustomBody("tool_choice", JsonPrimitive("auto"))),
+        )
+        val chat = buildRequest(setting, messages, params)
+        val summary = buildRequest(setting, messages + UIMessage.user("Summarize, do not call tools"),
+            params.copy(disableToolCalls = true))
+        assertEquals(chat["tools"], summary["tools"])
+        assertEquals(chat["system"], summary["system"])
+        assertEquals("none", summary["tool_choice"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+    }
+
+    @Test
     fun `promptCaching=false should not add cache_control anywhere`() {
         val providerSetting = ProviderSetting.Claude(promptCaching = false)
         val messages = listOf(

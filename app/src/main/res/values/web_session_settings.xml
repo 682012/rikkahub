@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setting_provider_web_type_gemini">Gemini Web (experimental)</string>
+    <string name="setting_provider_web_type_claude">Claude Web (experimental)</string>
+
+    <string name="setting_provider_web_session_title">Browser session</string>
+    <string name="setting_provider_web_session_unconfigured">Not configured</string>
+    <string name="setting_provider_web_session_unconfigured_desc">No session saved on this device yet. Sign in on the official site, then paste the cookies here.</string>
+    <string name="setting_provider_web_session_saved">Saved, not verified yet</string>
+    <string name="setting_provider_web_session_saved_desc">The session is only kept on this device. Verifying needs one real request.</string>
+    <string name="setting_provider_web_session_verified">Verified, models updated</string>
+    <string name="setting_provider_web_session_verified_desc">The last request went through with the saved session.</string>
+    <string name="setting_provider_web_session_verifying">Verifying…</string>
+    <string name="setting_provider_web_session_verifying_desc">Sending one real request to the official site. Tap to cancel.</string>
+    <string name="setting_provider_web_session_failed">Verification failed</string>
+    <string name="setting_provider_web_session_failed_desc">The session may have expired, or the account hit a limit. Sign in again and paste new cookies. Previous models were kept.</string>
+
+    <string name="setting_provider_web_open_login">Open the official site to sign in</string>
+    <string name="setting_provider_web_open_login_desc">Signing in inside the browser does not sync the session here. After signing in, copy the cookie header or the cookie JSON and paste it below.</string>
+    <string name="setting_provider_web_import">Paste session</string>
+    <string name="setting_provider_web_import_desc">Paste the cookie header or the browser cookie export. It is encrypted and stored on this device only.</string>
+    <string name="setting_provider_web_import_title">Paste browser session</string>
+    <string name="setting_provider_web_import_label">Cookie header or JSON</string>
+    <string name="setting_provider_web_import_hint">Cookie: sessionKey=…; …</string>
+    <string name="setting_provider_web_import_confirm">Save on this device</string>
+    <string name="setting_provider_web_import_empty">Nothing pasted yet.</string>
+    <string name="setting_provider_web_import_failed">These cookies cannot be used. Make sure they come from the official site and are still valid.</string>
+    <string name="setting_provider_web_import_success">Session saved on this device</string>
+    <string name="setting_provider_web_import_privacy">The text stays in this dialog only: switching away or closing it clears the input. It is never read from the clipboard automatically.</string>
+
+    <string name="setting_provider_web_verify">Verify and load models</string>
+    <string name="setting_provider_web_verify_desc">Sends one real request with the saved session and updates the model list on success.</string>
+    <string name="setting_provider_web_verify_failed">Verification failed. The session may have expired or the account hit a limit; your previous models were kept.</string>
+    <string name="setting_provider_web_clear">Clear this device\'s session</string>
+    <string name="setting_provider_web_clear_title">Clear the session?</string>
+    <string name="setting_provider_web_clear_desc">Only the encrypted cookies on this device are deleted. The browser stays signed in and existing models are kept.</string>
+
+    <string name="setting_provider_web_tool_bridge">Prompt-based tool bridge (experimental)</string>
+    <string name="setting_provider_web_tool_bridge_desc">Not native function calling. The model asks for a tool through the prompt, every call needs your confirmation, and background sub-agents never get tools.</string>
+    <string name="setting_provider_web_tool_confirm_title">Turn on the tool bridge?</string>
+    <string name="setting_provider_web_tool_confirm_desc">This is a prompt convention, not native function calling, and it does not add any model capability. Every tool call still needs your confirmation.</string>
+    <string name="setting_provider_web_text_only">This first version is text only. Image input is not supported.</string>
+
+    <string name="setting_provider_web_org_title">Organization ID (optional)</string>
+    <string name="setting_provider_web_org_desc">Leave it empty to use your personal organization. If the account belongs to several organizations, enter the UUID of the one you want; another organization is never picked for you.</string>
+    <string name="setting_provider_web_org_invalid">Enter a valid UUID</string>
+
+    <string name="setting_provider_web_disclaimer">Unofficial integration: it can stop working at any time or trigger account limits. Your messages are sent to the official service and may appear in the web history. The session is stored on this device only, is not backed up, and is deleted when you clear it or uninstall the app.</string>
+    <string name="setting_provider_web_claude_terms">Claude\'s terms of service do not allow third parties to hold a web session on your behalf.</string>
+</resources>

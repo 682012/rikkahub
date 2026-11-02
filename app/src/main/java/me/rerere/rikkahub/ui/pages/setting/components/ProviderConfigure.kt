@@ -130,6 +130,9 @@ fun ProviderConfigure(
                 plan = null,
                 disclaimer = stringResource(R.string.setting_provider_page_grok_disclaimer),
             )
+
+            // 网页会话类：不走 OAuth / WebView，只认用户本地粘贴的 Cookie
+            is ProviderSetting.WebAccount -> ProviderConfigureWebAccount(provider, onEdit)
         }
     }
 }

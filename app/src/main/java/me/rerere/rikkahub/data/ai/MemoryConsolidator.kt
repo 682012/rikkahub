@@ -176,6 +176,9 @@ class MemoryConsolidator(
         )
             ?: error("No model available")
         val providerSetting = model.findProvider(settings.providers) ?: error("Provider not found")
+        check(providerSetting !is me.rerere.ai.provider.ProviderSetting.WebAccount) {
+            "Experimental web accounts cannot perform unattended memory writes; select an API model for memory consolidation"
+        }
         // 自动整理只增改；删文件只在用户手动要求清理整个记忆库时才允许
         val tools = buildMemoryTools(memoryRepository, memoryId)
             .filter { fullReview || it.name != MemoryToolNames.DELETE } +

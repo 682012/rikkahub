@@ -555,7 +555,8 @@ internal fun buildSubagentRequest(
     provider = provider,
     providerSetting = providerSetting,
     messages = listOf(UIMessage.user(prompt)),
-    tools = tools,
+    // Web tool protocol needs interactive approval; background subagents cannot grant it.
+    tools = if (providerSetting is ProviderSetting.WebAccount) emptyList() else tools,
     stream = false,
     maxSteps = maxSteps.coerceIn(1, HARD_MAX_STEPS),
     retry = settings.retryPolicy().copy(networkHandover = networkHandover),

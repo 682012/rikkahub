@@ -24,6 +24,7 @@ class ProviderManager(
     accountCredentials: AccountCredentialProvider,
     requestLimit: (Model) -> Int? = { it.maxConcurrentRequests },
     val networkHandover: NetworkHandover? = null,
+    webSessions: WebSessionCredentialProvider? = null,
 ) {
     // 存储已注册的Provider实例
     private val providers = mutableMapOf<String, Provider<*>>()
@@ -40,6 +41,10 @@ class ProviderManager(
         registerProvider("claude", ClaudeProvider(client, context))
         registerProvider("chatgpt", ChatGPTProvider(client, accountCredentials))
         registerProvider("grok", GrokProvider(client, accountCredentials))
+        webSessions?.let {
+            registerProvider("gemini_web", me.rerere.ai.provider.providers.geminiweb.GeminiWebProvider(client, it))
+            registerProvider("claude_web", me.rerere.ai.provider.providers.claudeweb.ClaudeWebProvider(client, it))
+        }
     }
 
     /**
@@ -78,6 +83,8 @@ class ProviderManager(
             is ProviderSetting.Claude -> getProvider("claude")
             is ProviderSetting.ChatGPT -> getProvider("chatgpt")
             is ProviderSetting.Grok -> getProvider("grok")
+            is ProviderSetting.GeminiWeb -> getProvider("gemini_web")
+            is ProviderSetting.ClaudeWeb -> getProvider("claude_web")
         } as Provider<T>
     }
 

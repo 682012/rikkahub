@@ -5,8 +5,8 @@ import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import me.rerere.ai.core.MessageRole
-import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.core.merge
+import me.rerere.ai.core.sum
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.TextGenerationResult
 import me.rerere.ai.util.json
@@ -382,7 +382,7 @@ class StreamChunkHandler(private val model: Model? = null) {
 
             is StreamChunk.ImageEnd -> this.also { imagePartIndexes.remove(chunk.id) }
             is StreamChunk.Annotations -> copy(annotations = (annotations + chunk.annotations).distinct())
-            is StreamChunk.Usage -> copy(usage = usage.merge(chunk.usage))
+            is StreamChunk.Usage -> copy(usage = if (chunk.completeSnapshot) chunk.usage else usage.merge(chunk.usage))
             is StreamChunk.Finish -> copy(
                 finishedAt = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
             ).finishReasoning().also {
@@ -453,6 +453,18 @@ private fun mergeMetadata(old: JsonObject?, new: JsonObject?): JsonObject? = whe
     else -> JsonObject(old + new)
 }
 
+/**
+ * 把一个**完整响应**（非流式）合并进消息列表。
+ *
+ * 列表末尾已经是 assistant 时，说明这次响应是同一个逻辑 assistant 轮的续写：Claude 的
+ * `pause_turn` 会把一次逻辑回合拆成多个 HTTP 请求，每个请求都按完整上下文重新计费，因此用量
+ * 必须**累加**（`TokenUsage.sum`）而不是用最新值覆盖。用 `merge` 会让续写请求的 numbers
+ * 顶掉前面请求的数字（旧的 cached 会被留下、prompt 变成最后一次的值），总用量偏小。
+ *
+ * [UIMessage.usage] 是累计值，[UIMessage.lastUsage] 只放**本次请求自己**的用量：本次响应没带
+ * usage 时保留上一条真实请求的值，绝不把累计值冒充成"最后一次请求的用量"，否则
+ * [UIMessage.lastRequestUsage] / 上下文占用会把整轮累计当成单次上下文。
+ */
 fun List<UIMessage>.handleTextGenerationResult(
     result: TextGenerationResult,
     model: Model? = null,
@@ -461,14 +473,18 @@ fun List<UIMessage>.handleTextGenerationResult(
     val incoming = result.message.copy(
         modelId = model?.id,
         usage = result.usage,
+        lastUsage = result.usage,
         finishedAt = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()),
     ).finishReasoning()
     return if (last().role != incoming.role) {
         this + incoming
     } else {
-        dropLast(1) + last().appendMessage(incoming).copy(
-            modelId = model?.id ?: last().modelId,
-            usage = last().usage.merge(result.usage ?: TokenUsage()),
+        val previous = last()
+        dropLast(1) + previous.appendMessage(incoming).copy(
+            modelId = model?.id ?: previous.modelId,
+            // 跨请求（pause_turn 续写）累计：每次请求都按完整上下文计费，prompt 也要相加。
+            usage = previous.usage.sum(result.usage),
+            lastUsage = result.usage ?: previous.lastUsage,
             finishedAt = incoming.finishedAt,
         ).finishReasoning()
     }

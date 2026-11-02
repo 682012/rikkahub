@@ -27,6 +27,13 @@ internal class ClaudeStreamDecoder : StreamChunkDecoder {
     private var finished = false
 
     /**
+     * 本次响应的 usage 累计快照：只被显式上报的字段覆盖。
+     *
+     * 每个解码器实例只服务一次请求，实例初建时为空，不会带上一次请求的数字。
+     */
+    private var usageSnapshot: ClaudeUsageSnapshot? = null
+
+    /**
      * 是否已收到协议终态：`[DONE]`、`message_stop`，或明确的非空 `stop_reason`。
      *
      * 只用于 [onClosed] 判断正常收尾还是断流；收到终态后不提前 finish，
@@ -61,7 +68,7 @@ internal class ClaudeStreamDecoder : StreamChunkDecoder {
         }
 
         val chunks = buildList {
-            parseTokenUsage(dataJson)?.let { add(StreamChunk.Usage(it)) }
+            parseTokenUsage(dataJson)?.let { add(StreamChunk.Usage(it, completeSnapshot = true)) }
             val index = dataJson["index"]?.jsonPrimitive?.intOrNull
             val contentBlock = dataJson["content_block"]?.jsonObject
 
@@ -200,21 +207,70 @@ internal class ClaudeStreamDecoder : StreamChunkDecoder {
         }
     }
 
+    /**
+     * 解析 usage 并返回**累计快照**。
+     *
+     * Anthropic 的 usage 分散在两帧里：`message_start` 的 `message.usage` 带输入侧字段
+     * （`input_tokens` / `cache_read_input_tokens` / `cache_creation_input_tokens`），
+     * `message_delta` 的 `usage` 往往只有累计的 `output_tokens`。把"本帧没带这个字段"当成 0
+     * 会让后面的帧把前面已经确认的输入侧数字清掉：prompt 从 1200 掉成 100，而下游
+     * [TokenUsage.merge] 又保留旧的 cached(900)，于是缓存命中率算出 900%。
+     *
+     * 因此解码器按字段维护快照：只覆盖本帧**显式出现**的字段（显式上报的 0 是真实值，要覆盖），
+     * 未出现的字段沿用已确认的值。每次 emit 都是完整快照，缺字段不等于 0。
+     *
+     * 完全没有 usage 对象的帧不发空快照，避免把"没数"写成"0 用量"。
+     */
     private fun parseTokenUsage(bodyJson: JsonObject): TokenUsage? {
         val usageJson = bodyJson["usage"]?.jsonObject
             ?: bodyJson["message"]?.jsonObject?.get("usage")?.jsonObject
             ?: return null
-        val inputTokens = usageJson["input_tokens"]?.jsonPrimitive?.intOrNull ?: 0
-        val cachedInputTokens = usageJson["cache_read_input_tokens"]?.jsonPrimitive?.intOrNull ?: 0
-        val cachedCreationTokens = usageJson["cache_creation_input_tokens"]?.jsonPrimitive?.intOrNull ?: 0
-        val completionTokens = usageJson["output_tokens"]?.jsonPrimitive?.intOrNull ?: 0
-        val promptTokens = inputTokens + cachedInputTokens + cachedCreationTokens
+        val inputTokens = usageJson.explicitInt("input_tokens")
+        val cacheReadTokens = usageJson.explicitInt("cache_read_input_tokens")
+        val cacheCreationTokens = usageJson.explicitInt("cache_creation_input_tokens")
+        val outputTokens = usageJson.explicitInt("output_tokens")
+        // 一个已知字段都没有的 usage 对象（例如只有 server_tool_use 之类扩展字段）
+        // 不构成新的用量事实，不能覆盖成空快照。
+        if (inputTokens == null && cacheReadTokens == null &&
+            cacheCreationTokens == null && outputTokens == null
+        ) {
+            return null
+        }
+
+        val previous = usageSnapshot
+        val snapshot = ClaudeUsageSnapshot(
+            inputTokens = inputTokens ?: previous?.inputTokens,
+            cacheReadTokens = cacheReadTokens ?: previous?.cacheReadTokens,
+            cacheCreationTokens = cacheCreationTokens ?: previous?.cacheCreationTokens,
+            outputTokens = outputTokens ?: previous?.outputTokens,
+        )
+        usageSnapshot = snapshot
+
+        // cache_creation 是本次新写入缓存的输入 token，按输入计费，绝不能算进 cachedTokens
+        // （cachedTokens 只表示真正命中的 cache_read）。
+        val promptTokens = snapshot.promptTokens
+        val completionTokens = snapshot.completionTokens
         return TokenUsage(
             promptTokens = promptTokens,
             completionTokens = completionTokens,
             totalTokens = promptTokens + completionTokens,
-            cachedTokens = cachedInputTokens,
+            cachedTokens = snapshot.cacheReadTokens ?: 0,
         )
+    }
+
+    private fun JsonObject.explicitInt(key: String): Int? =
+        this[key]?.jsonPrimitive?.intOrNull
+
+    /** 本响应里各 usage 字段已确认的值；null 表示该字段至今没有显式上报过。 */
+    private data class ClaudeUsageSnapshot(
+        val inputTokens: Int? = null,
+        val cacheReadTokens: Int? = null,
+        val cacheCreationTokens: Int? = null,
+        val outputTokens: Int? = null,
+    ) {
+        /** prompt 包含普通输入 + 命中缓存 + 新写入缓存三部分，三者都是计费输入。 */
+        val promptTokens: Int get() = (inputTokens ?: 0) + (cacheReadTokens ?: 0) + (cacheCreationTokens ?: 0)
+        val completionTokens: Int get() = outputTokens ?: 0
     }
 
     private data class ClaudeStreamBlock(

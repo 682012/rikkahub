@@ -78,7 +78,8 @@ internal class AgentLoop(
             parts = current.parts.map { part ->
                 if (part is UIMessagePart.Tool && !part.isExecuted &&
                     part.approvalState == ToolApprovalState.Auto &&
-                    findTool(part.toolName)?.needsApproval?.invoke(part.inputAsJson()) == true
+                    (request.providerSetting is me.rerere.ai.provider.ProviderSetting.WebAccount ||
+                        findTool(part.toolName)?.needsApproval?.invoke(part.inputAsJson()) == true)
                 ) {
                     part.copy(approvalState = ToolApprovalState.Pending)
                 } else {

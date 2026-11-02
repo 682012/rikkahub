@@ -17,7 +17,7 @@ internal data class AutoCompressionPlan(
             contextLength.toLong() * thresholdPercent.coerceIn(10, 100)
 }
 
-internal fun autoCompressionPlan(conversation: Conversation, config: AutoCompressSettings): AutoCompressionPlan? {
+internal fun autoCompressionPlan(conversation: Conversation, config: AutoCompressSettings, estimateWhenUsageMissing: Boolean = false): AutoCompressionPlan? {
     if (!config.enabled) return null
     val nodes = conversation.messageNodes
     // Never compress while continuing an assistant/tool-approval turn.
@@ -26,6 +26,23 @@ internal fun autoCompressionPlan(conversation: Conversation, config: AutoCompres
     if (history.isEmpty() || history.last().currentMessage.isContextCheckpoint) return null
     val messages = history.map { it.currentMessage }
     if (messages.any { m -> m.getTools().any { it.isPending || it.canResumeExecution } }) return null
-    val used = conversation.copy(messageNodes = history).lastContextTokens()?.takeIf { it > 0 } ?: return null
+    val measured = conversation.copy(messageNodes = history).lastContextTokens()?.takeIf { it > 0 }
+    val used = if (estimateWhenUsageMissing) estimateWebContextBudget(messages) else measured ?: return null
     return AutoCompressionPlan(history.last().id, messages, used)
+}
+
+/** Conservative client-side budget only, never reported as provider token usage or billing. */
+internal fun estimateWebContextBudget(messages: List<UIMessage>): Int {
+    val checkpoint = messages.indexOfLast { it.isContextCheckpoint }
+    val current = if (checkpoint >= 0) messages.drop(checkpoint) else messages
+    val bytes = current.sumOf { message ->
+        64L + message.parts.sumOf { part -> when (part) {
+            is me.rerere.ai.ui.UIMessagePart.Text -> part.text.toByteArray(Charsets.UTF_8).size.toLong()
+            is me.rerere.ai.ui.UIMessagePart.Tool -> part.input.toByteArray(Charsets.UTF_8).size.toLong() +
+                part.output.filterIsInstance<me.rerere.ai.ui.UIMessagePart.Text>()
+                    .sumOf { it.text.toByteArray(Charsets.UTF_8).size.toLong() }
+            else -> 0L
+        } }
+    }
+    return ((bytes + 1) / 2).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 }

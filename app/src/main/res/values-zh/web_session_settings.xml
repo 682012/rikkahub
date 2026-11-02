@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setting_provider_web_type_gemini">Gemini 网页（实验）</string>
+    <string name="setting_provider_web_type_claude">Claude 网页（实验）</string>
+
+    <string name="setting_provider_web_session_title">浏览器会话</string>
+    <string name="setting_provider_web_session_unconfigured">未配置</string>
+    <string name="setting_provider_web_session_unconfigured_desc">本机还没有保存会话。请先在官网登录，再把 Cookie 粘贴到这里。</string>
+    <string name="setting_provider_web_session_saved">已保存，待验证</string>
+    <string name="setting_provider_web_session_saved_desc">会话只保存在本机；验证需要发起一次真实请求。</string>
+    <string name="setting_provider_web_session_verified">已验证，模型已更新</string>
+    <string name="setting_provider_web_session_verified_desc">上一次真实请求使用了当前会话并成功返回。</string>
+    <string name="setting_provider_web_session_verifying">正在验证…</string>
+    <string name="setting_provider_web_session_verifying_desc">正在向官网发起一次真实请求，点这里可以取消。</string>
+    <string name="setting_provider_web_session_failed">验证失败</string>
+    <string name="setting_provider_web_session_failed_desc">会话可能已失效，或账号触发了限制。请重新登录并粘贴新的 Cookie，原有模型会保留。</string>
+
+    <string name="setting_provider_web_open_login">打开官网登录</string>
+    <string name="setting_provider_web_open_login_desc">在浏览器里登录不会自动同步会话到这里。登录后请复制 Cookie 请求头或浏览器导出的 cookie JSON，再回到这里粘贴。</string>
+    <string name="setting_provider_web_import">粘贴会话</string>
+    <string name="setting_provider_web_import_desc">粘贴 Cookie 请求头或浏览器导出的 JSON，只在本机加密保存。</string>
+    <string name="setting_provider_web_import_title">粘贴网页会话</string>
+    <string name="setting_provider_web_import_label">Cookie 请求头或 JSON</string>
+    <string name="setting_provider_web_import_hint">Cookie: sessionKey=…; …</string>
+    <string name="setting_provider_web_import_confirm">保存到本机</string>
+    <string name="setting_provider_web_import_empty">还没有粘贴内容。</string>
+    <string name="setting_provider_web_import_failed">这段会话无法使用，请确认来自官网并且在有效期内。</string>
+    <string name="setting_provider_web_import_success">会话已保存到本机</string>
+    <string name="setting_provider_web_import_privacy">内容只在这个对话框里：切换或关闭对话框就会清空，也不会自动读取剪贴板。</string>
+
+    <string name="setting_provider_web_verify">验证并加载模型</string>
+    <string name="setting_provider_web_verify_desc">用当前会话发起一次真实请求，成功后更新模型列表。</string>
+    <string name="setting_provider_web_verify_failed">验证失败：会话可能已失效，或账号触发了限制。原有模型已保留。</string>
+    <string name="setting_provider_web_clear">清除本机会话</string>
+    <string name="setting_provider_web_clear_title">清除本机会话？</string>
+    <string name="setting_provider_web_clear_desc">只删除本机加密保存的 Cookie，不会退出浏览器，也不会删除已有模型。</string>
+
+    <string name="setting_provider_web_tool_bridge">提示词工具适配（实验）</string>
+    <string name="setting_provider_web_tool_bridge_desc">不是原生函数调用：模型通过提示词请求工具，每次调用都需要你确认，后台子代理不会启用工具。</string>
+    <string name="setting_provider_web_tool_confirm_title">启用提示词工具适配？</string>
+    <string name="setting_provider_web_tool_confirm_desc">这只是提示词约定，不是原生函数调用，也不会提升模型能力；每次工具调用仍然需要你确认。</string>
+    <string name="setting_provider_web_text_only">首版只支持文本，完整响应后输出；网页默认型号由账号决定。</string>
+
+    <string name="setting_provider_web_org_title">组织 ID（可选）</string>
+    <string name="setting_provider_web_org_desc">留空则使用个人组织。账号属于多个组织时，需要填写目标组织的 UUID，不会自动选择其他人的组织。</string>
+    <string name="setting_provider_web_org_invalid">请填写合法的 UUID</string>
+
+    <string name="setting_provider_web_disclaimer">非官方接入，随时可能失效或触发账号限制。内容会发送到官方服务，并可能出现在网页历史记录里。会话只保存在本机、不进入备份，清除会话或卸载应用后需要重新粘贴。</string>
+    <string name="setting_provider_web_claude_terms">Claude 服务条款不允许第三方代持网页会话。</string>
+</resources>

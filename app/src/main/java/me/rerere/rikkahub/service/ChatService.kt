@@ -51,6 +51,7 @@ import me.rerere.rikkahub.data.ai.tools.InvalidMcpServerNamesException
 import me.rerere.rikkahub.data.ai.tools.shouldUseExternalWebSearch
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.findModelById
+import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.forModel
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.event.AppEvent
@@ -964,11 +965,12 @@ class ChatService(
         // Resolve from the selected chat model, never from the summarizer model.
         val chatModel = settings.getChatModelOf(snapshot) ?: return
         val config = settings.autoCompress.forModel(chatModel)
-        val plan = autoCompressionPlan(snapshot, config) ?: return
+        val plan = autoCompressionPlan(snapshot, config, estimateWhenUsageMissing =
+            chatModel.findProvider(settings.providers) is me.rerere.ai.provider.ProviderSetting.WebAccount) ?: return
         // 阈值按对话模型自己的窗口算；摘要仍可交给全局指定的压缩模型生成。
         if (!plan.exceedsThreshold(chatModel.contextLength, config.thresholdPercent)) return
         val compressionModel = config.modelId?.let { settings.findModelById(it) }
-        val turn = requestFactory.createContext(settings, snapshot, compressionModel)
+        val turn = requestFactory.createContext(settings, snapshot, compressionModel?.takeUnless { it.id == chatModel.id })
         session.processingStatus.value = "正在压缩上下文…"
         try {
             val summary = requestFactory.generateCompressionSummary(
