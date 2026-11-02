@@ -61,6 +61,12 @@ class UsageDashboardUiTest {
         rule.onNodeWithText("关闭").performClick()
         rule.onNodeWithTag("usage-dashboard").assertIsDisplayed()
     }
+    @Test fun invalidUpstreamCacheIsFlaggedInsteadOfClamped() {
+        launch()
+        rule.runOnIdle { total.value = DashboardTotals(1, 100, 20, 200, invalidCacheReport = true) }
+        rule.onNodeWithText("上游报告异常：200 tokens").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithText("200 tokens (100.0%)").assertDoesNotExist()
+    }
     @Test fun missingContextIsNotDisplayedAsZeroPercent() {
         launch(unknown = true)
         rule.onNodeWithText("暂无上游报告").performScrollTo().assertIsDisplayed()

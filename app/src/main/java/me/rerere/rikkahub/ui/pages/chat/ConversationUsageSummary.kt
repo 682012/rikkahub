@@ -24,7 +24,8 @@ internal fun summarizeConversationUsage(
         requests = selected.sumOf { it.requests.coerceAtLeast(0) },
         prompt = selected.sumOf { it.promptTokens.coerceAtLeast(0) },
         output = selected.sumOf { it.completionTokens.coerceAtLeast(0) },
-        cached = selected.sumOf { it.cachedTokens.coerceIn(0, it.promptTokens.coerceAtLeast(0)) },
+        cached = selected.sumOf { it.cachedTokens },
+        invalidCacheReport = selected.any { it.cachedTokens < 0 || it.cachedTokens > it.promptTokens },
     )
     val models = selected.groupBy { it.modelId?.takeIf(String::isNotBlank) ?: it.modelName.orEmpty() }
         .map { (id, rows) ->

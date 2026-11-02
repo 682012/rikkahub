@@ -77,6 +77,7 @@ private fun ClassicUsage(summary: ConversationUsageSummary, onStudio: () -> Unit
             "已报告缓存" to t.cached, "合计 tokens" to t.prompt + t.output).forEach { (label, value) ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(label); Text("$value") }
         }
+        if (t.invalidCacheReport) Text("缓存报告超出输入或为负值，已保留原始数值；不能据此计算命中率。", color = MaterialTheme.colorScheme.error)
         HorizontalDivider()
         if (t.requests == 0L) Text("暂无上游用量记录；未报告与历史未记录的请求不计入。")
         summary.models.forEach { model ->

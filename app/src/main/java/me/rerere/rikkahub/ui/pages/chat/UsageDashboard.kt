@@ -36,6 +36,7 @@ data class DashboardTotals(
     val prompt: Long = 0,
     val output: Long = 0,
     val cached: Long = 0,
+    val invalidCacheReport: Boolean = false,
 )
 
 data class DashboardModel(
@@ -74,7 +75,7 @@ fun UsageDashboard(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("输入  ${formatNumber(totals.prompt)} tokens")
                 Text("输出  ${formatNumber(totals.output)} tokens")
-                Text("缓存  ${formatNumber(totals.cached)} tokens（已含在输入中）")
+                Text("缓存  ${formatNumber(totals.cached)} tokens" + if (totals.invalidCacheReport) "（上游异常报告）" else "（已含在输入中）")
                 Text("合计  ${formatNumber(totalTokens)} tokens")
                 Text("每次请求都会重新计入输入。这里是累计消耗，不是当前上下文大小。未报告用量的请求不补造数据。", style = MaterialTheme.typography.bodySmall)
             }
@@ -257,7 +258,9 @@ fun UsageDashboard(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.height(4.dp))
-                if (totals.prompt > 0L) {
+                if (totals.invalidCacheReport) {
+                    Text("上游报告异常：${formatNumber(totals.cached)} tokens", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                } else if (totals.prompt > 0L) {
                     val ratio = (totals.cached.toDouble() / totals.prompt * 100.0).coerceIn(0.0, 100.0)
                     Text(
                         text = "${formatNumber(totals.cached)} tokens (%.1f%%)".format(Locale.US, ratio),

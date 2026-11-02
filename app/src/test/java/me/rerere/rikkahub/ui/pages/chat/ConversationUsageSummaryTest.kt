@@ -28,11 +28,12 @@ class ConversationUsageSummaryTest {
         assertEquals("model", summarizeConversationUsage(listOf(row), UsageScope.ALL).models.single().name)
         assertEquals("已移除的模型", summarizeConversationUsage(listOf(row.copy(modelName = null)), UsageScope.ALL).models.single().name)
     }
-    @Test fun totalsUseLongAndBadCacheCannotExceedInput() {
-        val rows = List(3) { group("CHAT", Int.MAX_VALUE.toLong(), 100, Long.MAX_VALUE) }
+    @Test fun totalsUseLongAndBadUpstreamCacheIsNotSilentlyRewritten() {
+        val rows = List(3) { group("CHAT", Int.MAX_VALUE.toLong(), 100, 2L * Int.MAX_VALUE) }
         val result = summarizeConversationUsage(rows, UsageScope.ALL)
         assertEquals(3L * Int.MAX_VALUE, result.totals.prompt)
-        assertEquals(result.totals.prompt, result.totals.cached)
+        assertEquals(6L * Int.MAX_VALUE, result.totals.cached)
+        assertTrue(result.totals.invalidCacheReport)
     }
     @Test fun emptyScopeIsNeutral() {
         val result = summarizeConversationUsage(emptyList(), UsageScope.SUBAGENT)

@@ -143,6 +143,9 @@ private fun UsageDetails(stats: NerdStats, contextLength: Int?) {
             modifier = Modifier.padding(bottom = 8.dp),
         )
         if (stats.contextTokens == null) Text("没有可信的单次上下文报告", style = MaterialTheme.typography.bodySmall)
+        if (stats.lastUsage.cachedTokens !in 0..stats.lastUsage.promptTokens) {
+            Text("上游缓存报告异常：${stats.lastUsage.cachedTokens}，未用于窗口分段", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
         stats.firstContentMs?.let { UsageDetailRow("最近首内容延迟", "${(it / 1000f).toFixed(2)}s") }
         Text("吞吐按上游输出口径（可能含推理）；不含本地工具等待。", style = MaterialTheme.typography.bodySmall)
         if (stats.steps > 1) {
@@ -168,11 +171,12 @@ private fun ContextUsageBar(
     modifier: Modifier = Modifier,
 ) {
     val colorScheme = MaterialTheme.colorScheme
+    val cached = lastUsage.cachedTokens.takeIf { it in 0..lastUsage.promptTokens } ?: 0
     val segments = listOf(
-        UsageSegment(stringResource(R.string.chat_message_usage_cached), lastUsage.cachedTokens, colorScheme.primary),
+        UsageSegment(stringResource(R.string.chat_message_usage_cached), cached, colorScheme.primary),
         UsageSegment(
             stringResource(R.string.chat_message_usage_input),
-            (lastUsage.promptTokens - lastUsage.cachedTokens).coerceAtLeast(0),
+            (lastUsage.promptTokens - cached).coerceAtLeast(0),
             colorScheme.primary.copy(alpha = 0.45f),
         ),
         UsageSegment(stringResource(R.string.chat_message_usage_output), lastUsage.completionTokens, colorScheme.tertiary),
