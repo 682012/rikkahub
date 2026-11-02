@@ -1,0 +1,1327 @@
+{
+  "versionName": "3.1.1-r3",
+  "versionCode": 3000050,
+  "applicationId": "me.rerere.rikkahub.fork",
+  "databaseSchema": 34,
+  "productionCommit": "2d0dbda6ef991608105317c58bbdb92cd4a0aa8a",
+  "sourceFilesVerified": 1852,
+  "verificationMethod": "HB local Gradle and API34 AOSP x86_64 emulator",
+  "tests": {
+    "jvm": {
+      "files": 237,
+      "tests": 1692,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "classes": {
+        "me.rerere.ai.registry.ModelsDevCatalogTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.agent.AgentLoopTest": {
+          "tests": 23,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.agent.ToolRepetitionTest": {
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.google.GoogleToolCombinationTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.ui.MessageMetadataTest": {
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.claude.ClaudeServerToolTest": {
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.stream.StreamTraceReplayTest": {
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.ModelRequestLimiterTest": {
+          "tests": 13,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.google.GoogleRequestMessageTest": {
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.agent.ModelRequestConcurrencyIntegrationTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.ui.UIMessageSerializationTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.grok.GrokProviderTest": {
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.openai.ChatCompletionsStreamDecoderNullTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.openai.ChatCompletionsRoleCompatibilityTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.chatgpt.ChatGPTProviderTest": {
+          "tests": 13,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.util.FileEncoderExifTransformTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.util.JsonTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.QuotaQueryRunnerTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.ui.ToolApprovalStateTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.openai.ResponseApiStreamDecoderEofTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.ProviderMessageGroupingTest": {
+          "tests": 15,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.claude.ClaudePromptCacheRequestTest": {
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.openai.ChatCompletionsToolSchemaTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.agent.AgentNonStreamToolIdsTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.ui.MessageVisibilityTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.claude.ClaudeStreamDecoderEofTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.RequestLimitedProviderTest": {
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.agent.NetworkHandoverRetryTest": {
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.ui.StreamChunkHandlerTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.openai.ResponseApiStreamDecoderTest": {
+          "tests": 14,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.agent.ToolLoopGuardTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.openai.ChatCompletionsStreamDecoderEofTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.ModelFilterTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.openai.ChatCompletionsMoonshotRequestTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.ui.MessageUploadValidationTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.openai.OpenAIProviderImageEditTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.util.RequestHeadersTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.openai.ResponseApiRequestMessageTest": {
+          "tests": 16,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.google.GoogleStreamDecoderEofTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.openai.ChatCompletionsRequestMessageTest": {
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.agent.RetryTest": {
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.openai.ChatCompletionsToolCallFallbackTest": {
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.google.InteractionsApiTest": {
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.ui.UIMessagePartTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.chatgpt.CodexEventStreamTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.claude.ClaudeRequestMessageTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.registry.ModelRegistryTest": {
+          "tests": 14,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.providers.openai.ChatCompletionsUsageParsingTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.provider.NetworkAwareProviderTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.ui.MessageContextLimitTest": {
+          "tests": 14,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.agent.AgentToolSchedulingTest": {
+          "tests": 15,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.ui.MessageNoticeTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.agent.ToolBatchTest": {
+          "tests": 19,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.ui.StreamChunkHandlerToolCallIdTest": {
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ai.ui.MessageToolMigrationTest": {
+          "tests": 14,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ui.webview.WebViewContentCacheTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.ui.crop.ImageCropStateTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.oauth.OAuthLoopbackCallbackServerTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.oauth.OAuthHttpClientTest": {
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.web.ExampleUnitTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.mediagen.provider.providers.openai.OpenAIMediaGenerationProviderTest": {
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.mediagen.provider.providers.volcengine.VolcengineMediaGenerationProviderTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.mediagen.provider.providers.minimax.MiniMaxMediaGenerationProviderTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.mediagen.provider.providers.aliyun.AliyunMediaGenerationProviderTest": {
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.mediagen.provider.MediaGenerationCapabilitiesTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.mediagen.provider.MediaGenerationProviderSettingTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.mediagen.provider.providers.openrouter.OpenRouterMediaGenerationProviderTest": {
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.search.ExaSearchServiceTest": {
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.search.ExampleUnitTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.search.DoubaoSearchServiceTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.search.CustomJsSearchServiceTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.common.http.sse.RealEventSourceTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.common.http.NetworkHandoverTest": {
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.common.http.NetworkHandoverSchedulerTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.common.ExampleUnitTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.material3.ExampleUnitTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.mcp.McpNetworkRecoveryDispatchTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.CompressionSummaryTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.transformers.WorkspaceReminderTransformerTest": {
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.service.NotificationIdentityTest": {
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.BackgroundTextGenerationParamsTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.utils.MarkdownUtilsTest": {
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.model.MemoryFileTest": {
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.RemoteErrorSnippetDeadlineTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.skills.SkillPathsTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.remote.ModelsDevAssetTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.model.ConversationContextTokensTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.account.GrokAuthTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.model.ConversationForkTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.service.ConversationSessionManagerTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.WorkspaceFilesImporterTest": {
+          "tests": 20,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.service.ConversationSessionTest": {
+          "tests": 26,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.tools.SearchToolsTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.sync.PendingRestoreTest": {
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.remote.ProxyConfigTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.mcp.McpNetworkRecoveryCoordinatorTest": {
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.WorkspaceImportStagingTest": {
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.utils.VersionTest": {
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.db.migrations.MemoryPathRepairTest": {
+          "tests": 13,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.db.fts.MessageFtsSchemaTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.service.ModelAutoCompressionTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.ui.floating.FloatingChatUiStateTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.service.QueuedAttachmentCleanupTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.subagent.SubagentTaskPersistenceTest": {
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.model.ConversationMessagesTest": {
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.RemoteCallTimeoutTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.db.migrations.Migration_27_28_Test": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.mcp.McpToolCallFailurePlanTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.MemoryRepositoryTest": {
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.service.ConversationInboxTest": {
+          "tests": 19,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.db.fts.FtsMatchQueryTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.tools.local.JavascriptToolTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.model.GenerationPhaseTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.service.AutoCompressionPlanTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.utils.DiffUtilsTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.ui.hooks.ChatInputStateTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.tools.WorkspaceToolApprovalTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.UsageRecorderTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.skills.SkillValidatorTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.WorkspaceExecutionPolicyTest": {
+          "tests": 15,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.tools.SkillsToolsTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.web.WebJwtTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.transformers.TimeReminderTransformerTest": {
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.model.MediaCreationTest": {
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.prompts.MemoryPromptTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.utils.ChatUtilTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.datastore.SettingsFieldsTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.subagent.SubagentPagingBoundaryTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.mcp.McpToolSchemaTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.mcp.McpConnectionKeyTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.utils.StringUtilsTest": {
+          "tests": 19,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.RemoteErrorReasonTest": {
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.service.ChatFloatingTrackerTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.utils.ForkVersionTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.NativeCursorWindowFallbackTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.WorkspaceFilesExporterTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.tools.CompactMcpToolsTest": {
+          "tests": 21,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.sync.importer.ChatboxImporterTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.mcp.McpReconnectBudgetTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.ui.pages.setting.components.ProviderConfigureConvertToTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.UsageDeltaTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.skills.BuiltinSkillsTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.RemoteErrorSlowBodyTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.model.ConversationUpsertMessageTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.ui.pages.setting.MaxRetriesInputTest": {
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.model.ConversationConfigTest": {
+          "tests": 13,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.model.ConversationToolCallsTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.mcp.McpReconnectAdmissionTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.MessageNodeTailReadTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.TransformNewPartsTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.tools.AgentEfficiencyBenchmarkTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.subagent.SubagentPermitPoolTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.utils.ForkReleaseTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.ShareSheetTest": {
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.mcp.McpTransportFailureTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.files.LegacyMessageCacheTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.account.ProviderAccountManagerTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.datastore.PreferenceStoreV5MigrationTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.datastore.PreferenceStoreV4MigrationTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.ui.pages.chat.VoiceSessionControllerTest": {
+          "tests": 14,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.tools.TextReplacersTest": {
+          "tests": 14,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.sync.s3.AwsSignatureV4Test": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.transformers.PromptInjectionTransformerTest": {
+          "tests": 36,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.RemoteErrorPayloadTest": {
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.MemoryConsolidatorTest": {
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.subagent.SubagentDefaultsTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.datastore.FindProviderTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.transformers.ThinkTagTransformerTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.tools.MemoryToolsTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.WorkspaceImportEdgeCasesTest": {
+          "tests": 21,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.datastore.DefaultProvidersTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.ui.pages.setting.RetryDelayPresetTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.subagent.SubagentDeliveryClaimTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.db.migrations.LegacyMemoryArchivePathTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.MessageNodeChunkCodepointsTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.ui.components.ui.QRCodeDecoderTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.subagent.SubagentConcurrencyTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.model.ConversationCheckpointTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.tools.ExternalWebSearchTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.subagent.SubagentResultPagingTest": {
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.tools.local.ScriptToolTest": {
+          "tests": 15,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.MessageNodeLoadResilientTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.model.ConversationModelSnapshotTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.tools.WorkspaceSearchToolsTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.ui.pages.setting.ModelRuntimeDraftTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.remote.RemoteFileStoreTest": {
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.datastore.ModelRuntimePersistenceTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.RetryDelayConfigTest": {
+          "tests": 14,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.MessageNodeWritesTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.MemoryConsolidationSchedulerTest": {
+          "tests": 24,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.tools.ToolOutputStoreTest": {
+          "tests": 26,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.datastore.SettingsStoreTest": {
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.account.ChatGPTAuthTest": {
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.ExampleUnitTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.ai.subagent.SubagentRequestWiringTest": {
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.TerminalRowTest": {
+          "tests": 16,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.TerminalTest": {
+          "tests": 17,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.TerminalSessionTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.UnicodeInputTest": {
+          "tests": 11,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.LocalPtyTransportTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.ScrollRegionTest": {
+          "tests": 14,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.HistoryTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.ByteQueueTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.ResizeTest": {
+          "tests": 13,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.CursorAndScreenTest": {
+          "tests": 13,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.RectangularAreasTest": {
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.OperatingSystemControlTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.KeyHandlerTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.ScreenBufferTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.DeviceControlStringTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.WcWidthTest": {
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.DecSetTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.TextStyleTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "com.termux.terminal.ControlSequenceIntroducerTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.workspace.LocalWorkspaceBackendTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.workspace.ExampleUnitTest": {
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.workspace.ssh.SshWorkspaceBackendTest": {
+          "tests": 26,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.workspace.ProotProcessTest": {
+          "tests": 10,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.workspace.WorkspaceSearchTest": {
+          "tests": 33,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.workspace.WorkspaceJobManagerTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.workspace.RootfsInstallerTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.workspace.RootfsPathResolutionTest": {
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.document.pdf.PdfCorpusTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 1
+        },
+        "me.rerere.document.pdf.PdfParserTest": {
+          "tests": 12,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.document.ExampleUnitTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.tts.provider.TTSProviderSettingStepTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.asr.ASRProviderSettingStepTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.tts.ExampleUnitTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.asr.ASRProviderSettingMiMoTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.asr.providers.VolcengineASRProtocolTest": {
+          "tests": 9,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.tts.provider.TTSProviderSettingFishAudioTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.tts.provider.TTSProviderSettingElevenLabsTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.tts.provider.providers.VolcengineTTSProviderTest": {
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.tts.provider.providers.MiMoTTSProviderTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.asr.ASRProviderSettingVolcengineTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.asr.ASRVoiceTurnTest": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.tts.provider.TTSProviderSettingMiMoTest": {
+          "tests": 2,
+          "failures": 0,
+          "skipped": 0
+        }
+      }
+    },
+    "android": {
+      "files": 1,
+      "tests": 67,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "classes": {
+        "me.rerere.rikkahub.ExampleInstrumentedTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.McpRecoveryAndroidTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.NetworkHandoverAndroidTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.UpstreamIdentityTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.db.dao.UsageRecordDAOTest": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.db.fts.MessageFtsManagerTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.db.migrations.Migration_11_12_Test": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.db.migrations.Migration_30_31_Test": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.db.migrations.Migration_30_32_Test": {
+          "tests": 1,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.db.migrations.Migration_32_34_Test": {
+          "tests": 5,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.LargeMessageCursorTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.MediaCreationRepositoryTest": {
+          "tests": 7,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.repository.WorkspaceImportAndroidTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.sync.BackupManagerTest": {
+          "tests": 6,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.data.sync.DatabaseBackupTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.ui.components.message.ToolApprovalPreviewTest": {
+          "tests": 4,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.ui.pages.setting.ModelRuntimeSettingsUiTest": {
+          "tests": 8,
+          "failures": 0,
+          "skipped": 0
+        },
+        "me.rerere.rikkahub.ui.pages.setting.RetryDelayUiTest": {
+          "tests": 3,
+          "failures": 0,
+          "skipped": 0
+        }
+      }
+    }
+  },
+  "apk": {
+    "name": "rikkahub-3.1.1-r3.apk",
+    "bytes": 19034218,
+    "sha256": "c19141b32330fbbe0ad349562097157d0b6e314451da976e48d589d5a59e38ea",
+    "signingCertificateSha256": "cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89",
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ]
+  },
+  "phases": {
+    "jvm": "success",
+    "R8LintVital": "success",
+    "android": "success",
+    "signedR2Upgrade": "success"
+  },
+  "notVerified": [
+    "User phone and actual VPN provider",
+    "Zero-loss TCP or exact same model output continuation",
+    "SSH terminal/process resumption"
+  ],
+  "testCommit": "ecb7c70d5f2b922ec232af72ae2e1cb64ac61509",
+  "githubCi": "Not used: previous run41365504428 repository invocation blocked; existing HB used for build and verification"
+}

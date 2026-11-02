@@ -2,21 +2,21 @@
 
 基于 [RikkaHub 官方 3.1.1](https://github.com/rikkahub/rikkahub/tree/3.1.1) 的非官方分支。保留官方聊天客户端，重点补上**多代理协作、后台长任务、自动压缩、工作区文件迁移，以及工具调用层的调用效率与可读性**。
 
-**当前版本：`3.1.1-r2` / `3000049` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
+**当前版本：`3.1.1-r3` / `3000050` · 维护分支：`fork/3.1.1` · 数据库：schema 34。**
 
-名字和图标使用上游最新版 RikkaHub，版本主体与官方 3.1.1 对齐，本版后缀为 `r2`。新增每模型的自动压缩开关/阈值、共享API请求并发上限，与原有上下文窗口设置集中在模型基本页。完整继承 r1 / fork.43 的功能与官方 master `5ad19405` 基线；独立品牌草稿不混入本版。
+名字和图标使用上游最新版 RikkaHub，版本主体与官方 3.1.1 对齐，本版后缀为 `r3`。新增默认网络切换恢复：VPN/网络恢复后提前重试文本请求、重建远端MCP会话、保留回复预览且不重放已发送工具。r2的每模型上下文、自动压缩与并发设置完整保留。完整继承 r1 / fork.43 的功能与官方 master `5ad19405` 基线；独立品牌草稿不混入本版。
 
 > 与官方团队没有隶属关系。本仓库记录个人修改，并在 GitHub Releases 保存已验安装包，方便重复下载；不提供官方或面向终端用户的技术支持。官方渠道下载的是官方版，不是此分支。上游版权与 AGPL-3.0 许可证保持不变。
 
-[完整功能对比](fork/FEATURES.md) · [r2 更新与说明](fork/RELEASE-r2.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
+[完整功能对比](fork/FEATURES.md) · [r3 更新与说明](fork/RELEASE-r3.md) · [版本历史](fork/CHANGES.md) · [构建维护](fork/README.md) · [修改声明](NOTICE.md)
 
 ## 下载与重复使用
 
-**[下载 3.1.1-r2 通用 APK（18.1 MiB）](https://github.com/682012/rikkahub/releases/download/v3.1.1-r2/rikkahub-3.1.1-r2.apk)** · [版本说明与 SHA-256](https://github.com/682012/rikkahub/releases/tag/v3.1.1-r2) · [最新正式版](https://github.com/682012/rikkahub/releases/latest)
+**[下载 3.1.1-r3 通用 APK（18.2 MiB）](https://github.com/682012/rikkahub/releases/download/v3.1.1-r3/rikkahub-3.1.1-r3.apk)** · [版本说明与 SHA-256](https://github.com/682012/rikkahub/releases/tag/v3.1.1-r3) · [最新正式版](https://github.com/682012/rikkahub/releases/latest)
 
 固定版本链接不会随 nightly 被覆盖；每个正式版本保留对应源码 tag、APK 与校验文件。直接安装不需要编译环境，也不会附带维护者的聊天、账号或服务凭据。
 
-同包名、同签名的 r1 与 fork.36–43 可按常规覆盖升级，先备份聊天和设置；不要为升级先卸载。旧版更新器只认 `-fork.`，首次进入 r 系列请直接从上面的链接下载安装；已安装 r1 的用户可检查更新。官方包与本分支不同，不能直接覆盖官方版。需要重新编译时见 [构建与维护](fork/README.md)，签名密钥和本机配置自行准备。
+同包名、同签名的 r1/r2 与 fork.36–43 可按常规覆盖升级，先备份聊天和设置；不要为升级先卸载。旧版更新器只认 `-fork.`，首次进入 r 系列请直接从上面的链接下载安装；已安装 r1/r2 的用户可检查更新。官方包与本分支不同，不能直接覆盖官方版。需要重新编译时见 [构建与维护](fork/README.md)，签名密钥和本机配置自行准备。
 
 ## 相比官方，到底增加了什么？
 
@@ -106,15 +106,17 @@ SSH入口：**设置 → 扩展 → 工作区 → 加号 → SSH远程工作区*
 
 | 检查 | 真实结果 |
 |---|---|
-| 正式构建 | [HB 本地构建与验收](https://github.com/682012/rikkahub/blob/v3.1.1-r2/fork/verification/r2.json)；R8 + lintVital 通过 |
-| JVM | 223 suites、1609 项，0 失败/错误，1 项跳过 |
-| Android | API 34 x86_64，65 项全过；含模型设置交互及截图 |
-| 签名覆盖升级 | r1 覆盖 r2、沙盒标记保留、冷启动通过；同签名/schema34无新迁移 |
+| 正式构建 | [HB 本地构建与验收](https://github.com/682012/rikkahub/blob/v3.1.1-r3/fork/verification/r3.json)；R8 + lintVital 通过 |
+| JVM | 1692 项，0 失败/错误，1 项跳过 |
+| Android | API 34 AOSP x86_64，67 项全过；含真实网络断开恢复、MCP回包丢失不重放 |
+| 签名覆盖升级 | r2 覆盖 r3、沙盒标记保留、冷启动通过；同签名/schema34无新迁移 |
 | 未验证 | 用户真机升级、厂商后台行为、真实模型 token/费用/耗时收益 |
 
-[完整验收与边界](fork/RELEASE-r2.md) · [机器可读摘要](fork/verification/r2.json)
+[完整验收与边界](fork/RELEASE-r3.md) · [机器可读摘要](fork/verification/r3.json)
 
 ## 使用前知道这些限制
+
+- 切VPN时旧TCP不能原地迁移。r3恢复请求/会话，重生成可能再次计费；不保证零延迟或逐字接续。已发送工具结果不确定时不会自动重跑。
 
 - 每模型设置入口：设置 → 提供商 → 编辑模型 → 基本。请求上限1–64，留空不额外限制；与全局子代理总数分别生效。上下文窗口不改变服务端模型容量。
 - 子代理默认关闭；不支持嵌套、独立费用预算或子代理内审批/续跑。需要审批的操作交给父对话。并发是本机资源的取舍：每个子代理都有独立上下文与工具集，设高不保证更快。
@@ -136,4 +138,4 @@ SSH入口：**设置 → 扩展 → 工作区 → 加号 → SSH远程工作区*
 
 ### English summary
 
-Unofficial personal fork of RikkaHub **3.1.1**, based on upstream master **5ad19405 (2026-11-01)**. Preserves subagents, background jobs, HTTP execution, automatic compression, ZIP migration, configurable retries and per-chat usage. **fork.43 reworks the tool-calling layer**: concurrent independent read calls with same-batch dedup and serial barriers, a compact MCP catalog with `tool_search`/`tool_call`, offloaded large outputs with paged read-back, paged subagent results with memory-aware concurrency, collapse of repeated tool results, `workspace_grep`/`workspace_glob` and paged file reads, and `run_script` for read-only tool chains. `run_script` cannot reach shell, MCP, writes or subagents, and none of this is a measured speed or token guarantee. **r2 adds per-model compression overrides and a cancellable, live-updating API concurrency cap**, independent for each configured model. HB local verification r2-hb-20261102: 1609 JVM tests (1 skipped), 65 Android tests, signed R8/lintVital build and r1-to-r2 emulator upgrade succeeded. No real-user upgrade or model latency/cost benefit is claimed. [Release notes](fork/RELEASE-r2.md).
+Unofficial personal fork of RikkaHub **3.1.1**, based on upstream master **5ad19405 (2026-11-01)**. Preserves subagents, background jobs, HTTP execution, automatic compression, ZIP migration, configurable retries and per-chat usage. **fork.43 reworks the tool-calling layer**: concurrent independent read calls with same-batch dedup and serial barriers, a compact MCP catalog with `tool_search`/`tool_call`, offloaded large outputs with paged read-back, paged subagent results with memory-aware concurrency, collapse of repeated tool results, `workspace_grep`/`workspace_glob` and paged file reads, and `run_script` for read-only tool chains. `run_script` cannot reach shell, MCP, writes or subagents, and none of this is a measured speed or token guarantee. **r2 adds per-model compression overrides and a cancellable, live-updating API concurrency cap**, independent for each configured model. **r3 adds bounded network-handover recovery for model requests and MCP sessions without replaying sent tools.** HB verification: 1692 JVM tests (1 skipped), 67 Android tests, signed R8/lintVital build and r2-to-r3 emulator upgrade succeeded. No real-user upgrade or model latency/cost benefit is claimed. [Release notes](fork/RELEASE-r3.md).
