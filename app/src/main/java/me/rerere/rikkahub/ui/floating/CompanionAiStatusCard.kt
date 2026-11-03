@@ -83,6 +83,9 @@ object CompanionStatusTestTags {
 
     /** 发送被拒（正忙/冷却/窗口不可见）时那句"没发出去，原话还在"。 */
     const val SEND_KEPT = "companion-status-send-kept"
+
+    /** 收起状态下那 1~2 行真实回复预览（展开后同一句在详情里，不再重复）。 */
+    const val REPLY = "companion-status-reply"
 }
 
 /**
@@ -90,7 +93,8 @@ object CompanionStatusTestTags {
  *
  * 所有字段都直接读 [CompanionAiState] / [interactions]（控制器写进去的真实状态），
  * 卡里没有任何定时器或动画推出来的"假进度"：模型没配就写没配，失败了写失败原因。
- * 收起时只占一行，展开后能看到全部细节，不影响面板里的审批和回复栏。
+ * 收起时是标题那一行加上这一轮真实回复的最后 1~2 行，展开后能看到全部细节
+ * （同一句话不再重复），不影响面板里的审批和回复栏。
  */
 @Composable
 fun CompanionAiStatusCard(
@@ -203,6 +207,21 @@ fun CompanionAiStatusCard(
                 ) {
                     Text(stringResource(R.string.companion_status_enable))
                 }
+            }
+
+            // 收起时也要看得见"它到底说了什么"：只放最后这句真实回复（最多 2 行）。
+            // 展开后同一句话在下面的详情里，这里就不再重复一遍。
+            if (!expanded && state.text.isNotBlank()) {
+                Text(
+                    text = state.text,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .testTag(CompanionStatusTestTags.REPLY),
+                )
             }
 
             if (expanded) {

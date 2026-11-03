@@ -55,13 +55,25 @@ import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.ui.components.message.ChatMessage
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
+import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.context.Navigator
+import me.rerere.ui.toast.rememberToasterState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+
+/**
+ * 没采到壁纸明暗时生产用的最坏情况兜底（见 Appearance.kt 的 `immersiveContrast`）：
+ * 一端纯黑、一端纯白。它同时也是“取样还没落地”的唯一可靠标记。
+ */
+private val WORST_CASE_BACKDROPS = listOf(grayFromLuminance(0f), grayFromLuminance(1f))
+
+/** 预算里的明暗两端已经换成真实取样，而不是兜底的纯黑/纯白。 */
+private fun ImmersiveContrastPlan.isSampled(): Boolean =
+    backdrops.isNotEmpty() && backdrops != WORST_CASE_BACKDROPS
 
 /**
  * r10 沉浸聊天的“对抗”视觉回归：专门挑会翻车的输入，而不是再走一遍顺风局。
@@ -170,13 +182,32 @@ class ImmersiveAdversarialR10Test {
         var page: Color? = null
     }
 
-    /** 等到壁纸真的解码 + 采样完成：采样前预算按纯黑/纯白兜底，直接截图会和真实壁纸对不上。 */
+    /**
+     * 等壁纸真的解码 + 取样完成。
+     *
+     * 判定必须和生产里真正会变的那两个信号对齐：
+     * - `LocalWallpaperActive` 只说明“解码成功”（`AppAppearanceHost.active`）；
+     * - `LocalImmersiveContrast` 的 `backdrops` 只有拿到 `WallpaperSample` 之后，才会从
+     *   “没采到 → 按纯黑/纯白兜底”换成 `grayFromLuminance(取样亮度)` 的两端。
+     *
+     * 本文件的壁纸是近黑 0x0E / 近白 0xF2，取样两端的灰度是 0.055 / 0.949，
+     * 既不会被误判成兜底，也不会因为“太接近 0/1”而永远等不到。
+     * 超时直接报出当时看到的状态：是 onSample 没送到，还是取样异常被
+     * `WallpaperBackdrop` 的 runCatching 吞了。
+     */
     private fun awaitSampled(probes: Probes) {
         rule.waitUntil(20_000) { probes.active == true }
         rule.waitUntil(20_000) { probes.immersive == true }
-        rule.waitUntil(20_000) {
-            val backdrops = probes.plan?.backdrops
-            !backdrops.isNullOrEmpty() && backdrops.none { it.red <= 0.001f || it.red >= 0.999f }
+        val timedOut = runCatching { rule.waitUntil(20_000) { probes.plan?.isSampled() == true } }
+        if (timedOut.isFailure) {
+            val plan = probes.plan?.let { "scrim=${it.scrim} surface=${it.surface} backdrops=${it.backdrops}" }
+                ?: "null"
+            throw AssertionError(
+                "壁纸解码成功了，但 20s 内没等到取样落进对比预算：immersive=${probes.immersive}, plan=$plan" +
+                    "（兜底值 $WORST_CASE_BACKDROPS 还在，说明 onSample 没送到，" +
+                    "或取样抛的异常被 WallpaperBackdrop 的 runCatching 吞了）",
+                timedOut.exceptionOrNull(),
+            )
         }
     }
 
@@ -424,6 +455,9 @@ class ImmersiveAdversarialR10Test {
                     LocalLayoutDirection provides if (rtl) LayoutDirection.Rtl else LayoutDirection.Ltr,
                     LocalNavController provides navigator,
                     LocalSettings provides settings,
+                    // 生产 ChatMessage 的用户头像走 CropLauncher，那里直接读 LocalToaster
+                    // （App 壳提供）；最小宿主必须补上，否则组合阶段就 IllegalStateException: Not provided。
+                    LocalToaster provides rememberToasterState(),
                 ) {
                     AppAppearanceHost(settings) {
                         val immersiveNow = LocalImmersiveChat.current

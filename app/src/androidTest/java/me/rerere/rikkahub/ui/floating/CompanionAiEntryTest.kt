@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -86,7 +87,9 @@ class CompanionAiEntryTest {
     private fun setCard(
         state: CompanionAiState,
         interactions: List<CompanionInteraction> = emptyList(),
-        expanded: Boolean = false,
+        // 必须是 getter：传 Boolean 会在 setCard 调用时就把值抄死，
+        // 于是点击 TOGGLE 后卡还是收着的（参数名又和内层 expanded 同名，读不到外面的状态）
+        expanded: () -> Boolean = { false },
         onExpandedChange: (Boolean) -> Unit = {},
         onRefresh: () -> Unit = {},
         onRetry: () -> Unit = {},
@@ -100,7 +103,7 @@ class CompanionAiEntryTest {
                 CompanionAiStatusCard(
                     state = state,
                     interactions = interactions,
-                    expanded = expanded,
+                    expanded = expanded(),
                     onExpandedChange = onExpandedChange,
                     onRefresh = onRefresh,
                     onRetry = onRetry,
@@ -119,6 +122,8 @@ class CompanionAiEntryTest {
         rule.onNodeWithTag(CompanionStatusTestTags.CARD).assertIsDisplayed()
         assertTrue("model label must be the resolved one", textShown(modelLabel))
         assertTrue("phase must be completed", textShown(context.getString(R.string.companion_status_phase_completed)))
+        // 收起时那 1~2 行预览必须是这一轮真实生成的句子，而且真的画在屏幕上（不只是存在于语义树里）
+        rule.onNodeWithTag(CompanionStatusTestTags.REPLY).assertIsDisplayed().assertTextEquals("在呢")
         assertTrue("the generated line must be visible", textShown("在呢"))
         assertFalse(textShown(context.getString(R.string.companion_status_recent)))
     }
@@ -131,7 +136,7 @@ class CompanionAiEntryTest {
         setCard(
             state = completedState(),
             interactions = listOf(interaction("上一句")),
-            expanded = expanded,
+            expanded = { expanded },
             onExpandedChange = { expanded = it },
             onRefresh = { refreshes.incrementAndGet() },
             onRetry = { retries.incrementAndGet() },
@@ -174,7 +179,7 @@ class CompanionAiEntryTest {
                 model = CompanionModelDescription(failure = CompanionFailure.ModelMissing),
                 failure = CompanionFailure.ModelMissing,
             ),
-            expanded = true,
+            expanded = { true },
             onOpenSettings = { opened++ },
         )
         assertTrue(textShown(context.getString(R.string.companion_status_model_missing)))
@@ -201,7 +206,7 @@ class CompanionAiEntryTest {
     @Test
     fun typedLineIsHandedToTheController() {
         val sent = mutableListOf<String>()
-        setCard(state = completedState(), expanded = true, onSend = { text -> sent += text; true })
+        setCard(state = completedState(), expanded = { true }, onSend = { text -> sent += text; true })
         rule.onNodeWithTag(CompanionStatusTestTags.INPUT).performTextInput("在吗")
         rule.onNodeWithTag(CompanionStatusTestTags.SEND).performClick()
         rule.waitForIdle()
@@ -247,8 +252,19 @@ class CompanionAiEntryTest {
         assertTrue(textShown("上一句"))
 
         // the original tool approval must still be there
-        assertTrue(textShown(context.getString(R.string.chat_message_tool_approve)))
-        rule.onAllNodesWithText(context.getString(R.string.chat_message_tool_approve), substring = true)[0].performClick()
+        val approveLabel = context.getString(R.string.chat_message_tool_approve)
+        assertTrue(textShown(approveLabel))
+        // 面板自己会把审批卡滚进视野，但那是动画（ChatFloatingPanel 的 animateScrollTo），
+        // 而 waitForIdle 不等动画：首跑时测试在动画还没走完就点，手指落在滚动区上、
+        // 按钮一次都没被点到。这里等它真的落进面板滚动区的可见范围再点，
+        // 断言依旧是"审批还在、点一下就批准"，没有放宽。
+        val approve = rule.onAllNodesWithText(approveLabel, substring = true)[0]
+        rule.waitUntil(5_000) {
+            val button = approve.fetchSemanticsNode().boundsInRoot
+            val viewport = bounds(FloatingPanelTestTags.SCROLL)
+            button.height > 0f && button.top >= viewport.top - 1f && button.bottom <= viewport.bottom + 1f
+        }
+        approve.performClick()
         rule.waitForIdle()
         assertEquals(listOf(true), approvals)
     }
@@ -264,7 +280,7 @@ class CompanionAiEntryTest {
                 model = CompanionModelDescription(label = modelLabel, source = CompanionModelMode.FIXED),
                 failure = CompanionFailure.Request(raw),
             ),
-            expanded = true,
+            expanded = { true },
         )
         assertTrue("the failure must be stated", textShown("Failed to get response"))
         assertFalse("api keys must not reach the overlay", textShown("sk-live-abcdef123456"))
@@ -422,7 +438,7 @@ class CompanionAiEntryTest {
     @Test
     fun busyCompanionIgnoresImeSendAndKeepsTheDraft() {
         val sent = mutableListOf<String>()
-        setCard(state = busyState(), expanded = true, onSend = { text -> sent += text; true })
+        setCard(state = busyState(), expanded = { true }, onSend = { text -> sent += text; true })
         rule.onNodeWithTag(CompanionStatusTestTags.INPUT).performTextInput("在吗")
         rule.onNodeWithTag(CompanionStatusTestTags.SEND).assertIsNotEnabled()
         rule.onNodeWithTag(CompanionStatusTestTags.INPUT).performImeAction()
