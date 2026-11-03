@@ -1,8 +1,14 @@
 # RikkaHub · 个人增强分支
 
-## r8 可折叠信息与立绘角色（预发布）
+## r9 消息气泡对齐修复（预发布）
 
-**本版：`3.1.1-r8 / 3000055`。** 基于 r7，顶部摘要、长正文与悬浮面板回复都可折叠，默认角色换成三张透明立绘。稳定 latest 仍是 r3，旧 r4/r5/r6/r7 保留。正式签名包 20,414,516 字节（19.47 MiB），最终 JVM 2103 项零失败／1 项跳过、Android 139 项全过，r7 → r8 同签名覆盖与真实界面验收通过。
+**本版：`3.1.1-r9 / 3000056`。** 修复 r8 用户短消息气泡偏到左侧，恢复与右侧头像/操作栏一致；助手仍靠左，折叠、立绘和文件预览全部保留，TPS 统计规则未改。新增 8 项横向位置回归，最终 JVM 2103 项零失败／1 跳过、Android 147 项全过；r8→r9 同签名覆盖与三布局/大字号真实前后对照通过。稳定 latest 仍 r3。
+
+[下载 r9 APK](https://github.com/682012/rikkahub/releases/download/v3.1.1-r9/rikkahub-3.1.1-r9.apk) · [验收与限制](fork/RELEASE-r9.md) · [错位原因与修复](fork/ALIGNMENT-r9.md) · [机器可读结果](fork/verification/r9.json)
+
+## r8 可折叠信息与立绘角色（前一预发布）
+
+**前一预发布：`3.1.1-r8 / 3000055`。** 基于 r7，顶部摘要、长正文与悬浮面板回复都可折叠，默认角色换成三张透明立绘。稳定 latest 仍是 r3，旧 r4/r5/r6/r7 保留。正式签名包 20,414,516 字节（19.47 MiB），最终 JVM 2103 项零失败／1 项跳过、Android 139 项全过，r7 → r8 同签名覆盖与真实界面验收通过。
 
 [下载 r8 APK](https://github.com/682012/rikkahub/releases/download/v3.1.1-r8/rikkahub-3.1.1-r8.apk) · [验收与限制](fork/RELEASE-r8.md) · [立绘与素材来源](fork/PORTRAIT-r8.md) · [机器可读结果](fork/verification/r8.json)
 

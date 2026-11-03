@@ -1,0 +1,332 @@
+{
+  "version": "3.1.1-r9",
+  "versionCode": 3000056,
+  "package": "me.rerere.rikkahub.fork",
+  "schema": 34,
+  "generatedAt": "2026-11-03T12:05:44.765963+00:00",
+  "sourceFilesVerified": 2026,
+  "sourceBaseCommit": "7aff6fa0cd7108eaa7c566241b203e69b9e90742",
+  "productionCommit": "9693bb79b9e3763a7cb974e2c8a4d9239a0f0e56",
+  "releaseChannel": "prerelease; r3 remains stable latest",
+  "apk": {
+    "name": "rikkahub-3.1.1-r9.apk",
+    "bytes": 20414600,
+    "sha256": "ae44b13e007e01943157648733182387f413a947c9e0c7b22c643a95b9c5e8ae",
+    "signingCertificateSha256": "cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89",
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ]
+  },
+  "tests": {
+    "jvm": {
+      "tests": 2103,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "files": 284
+    },
+    "android": {
+      "tests": 147,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "logSha256": "f311b3ece93c54070ae3bc73d8693e193d9d67c76b4c3d8b01125fb4c12b530c"
+    },
+    "shizukuPositive": {
+      "status": "not_verified"
+    },
+    "appSuRootPositive": {
+      "status": "not_verified"
+    }
+  },
+  "upgrade": {
+    "from": "3.1.1-r8",
+    "fromVersionCode": 3000055,
+    "to": "3.1.1-r9",
+    "markerPreserved": true,
+    "coldStartNoFatal": true,
+    "signatureAccepted": true
+  },
+  "alignment": {
+    "r8-before": [
+      {
+        "screenshot": "r8-before-classic-320-1.0.png",
+        "style": "classic",
+        "viewport": [
+          720,
+          1600
+        ],
+        "density": 320,
+        "fontRatio": 1.0,
+        "userTextBounds": [
+          108,
+          356,
+          174,
+          406
+        ],
+        "assistantTextBounds": [
+          60,
+          606,
+          258,
+          656
+        ],
+        "tpsVisible": true
+      },
+      {
+        "screenshot": "r8-before-studio-320-1.0.png",
+        "style": "studio",
+        "viewport": [
+          720,
+          1600
+        ],
+        "density": 320,
+        "fontRatio": 1.0,
+        "userTextBounds": [
+          100,
+          372,
+          166,
+          422
+        ],
+        "assistantTextBounds": [
+          52,
+          618,
+          250,
+          668
+        ],
+        "tpsVisible": true
+      },
+      {
+        "screenshot": "r8-before-focus-320-1.0.png",
+        "style": "focus",
+        "viewport": [
+          720,
+          1600
+        ],
+        "density": 320,
+        "fontRatio": 1.0,
+        "userTextBounds": [
+          116,
+          336,
+          182,
+          386
+        ],
+        "assistantTextBounds": [
+          68,
+          602,
+          266,
+          652
+        ],
+        "tpsVisible": true
+      },
+      {
+        "screenshot": "r8-before-classic-360-1.3.png",
+        "style": "classic",
+        "viewport": [
+          720,
+          1600
+        ],
+        "density": 360,
+        "fontRatio": 1.3,
+        "userTextBounds": [
+          122,
+          401,
+          217,
+          473
+        ],
+        "assistantTextBounds": [
+          68,
+          699,
+          351,
+          771
+        ],
+        "tpsVisible": true
+      }
+    ],
+    "r9-after": [
+      {
+        "screenshot": "r9-after-classic-320-1.0.png",
+        "style": "classic",
+        "viewport": [
+          720,
+          1600
+        ],
+        "density": 320,
+        "fontRatio": 1.0,
+        "userTextBounds": [
+          594,
+          356,
+          660,
+          406
+        ],
+        "assistantTextBounds": [
+          60,
+          606,
+          258,
+          656
+        ],
+        "tpsVisible": true
+      },
+      {
+        "screenshot": "r9-after-studio-320-1.0.png",
+        "style": "studio",
+        "viewport": [
+          720,
+          1600
+        ],
+        "density": 320,
+        "fontRatio": 1.0,
+        "userTextBounds": [
+          602,
+          372,
+          668,
+          422
+        ],
+        "assistantTextBounds": [
+          52,
+          618,
+          250,
+          668
+        ],
+        "tpsVisible": true
+      },
+      {
+        "screenshot": "r9-after-focus-320-1.0.png",
+        "style": "focus",
+        "viewport": [
+          720,
+          1600
+        ],
+        "density": 320,
+        "fontRatio": 1.0,
+        "userTextBounds": [
+          586,
+          336,
+          652,
+          386
+        ],
+        "assistantTextBounds": [
+          68,
+          602,
+          266,
+          652
+        ],
+        "tpsVisible": true
+      },
+      {
+        "screenshot": "r9-after-classic-360-1.3.png",
+        "style": "classic",
+        "viewport": [
+          720,
+          1600
+        ],
+        "density": 360,
+        "fontRatio": 1.3,
+        "userTextBounds": [
+          557,
+          401,
+          652,
+          473
+        ],
+        "assistantTextBounds": [
+          68,
+          699,
+          351,
+          771
+        ],
+        "tpsVisible": true
+      }
+    ]
+  },
+  "screenshots": [
+    "r8-before-classic-320-1.0.png",
+    "r8-before-studio-320-1.0.png",
+    "r8-before-focus-320-1.0.png",
+    "r8-before-classic-360-1.3.png",
+    "r9-after-classic-320-1.0.png",
+    "r9-after-studio-320-1.0.png",
+    "r9-after-focus-320-1.0.png",
+    "r9-after-classic-360-1.3.png",
+    "r9-studio-dark.png",
+    "r9-chat-expanded.png",
+    "r9-message-expanded-end.png",
+    "r9-message-recollapsed.png",
+    "r9-pet-edge.png",
+    "r9-pet-reexpanded.png",
+    "r9-pdf-preview.png",
+    "r9-html-preview.png",
+    "r9-docx-preview.png",
+    "r9-archive-preview.png",
+    "r9-audio-preview.png"
+  ],
+  "phases": {
+    "build": "success",
+    "android": "success",
+    "signedRelease": "success",
+    "upgrade": "success",
+    "alignmentBeforeAfter": "success",
+    "visualReview": "success",
+    "headerCollapse": "success",
+    "messageCollapse": "success",
+    "overlayMockSmoke": "success",
+    "filePreviews": "success"
+  },
+  "verificationBoundary": "Isolated AOSP API34 x86_64, actual signed r8/r9 before-and-after short-message geometry, synthetic chats/files/TPS fixtures, no user phone installation or real provider billing. All r8 features retained. TPS aggregation policy unchanged; legacy missing timing is not reconstructed.",
+  "testIterations": {
+    "initialAndroidRun": {
+      "tests": 147,
+      "failures": 1,
+      "reason": "UpstreamIdentityTest still asserted r8/3000055; changed strict expected identity to r9/3000056 without weakening package/name/icon assertions.",
+      "retainedLog": "android-version-assertion-failed.log",
+      "logSha256": "f214d4312521e93dacb680f1370ffd96ef70048ca2298b812fa9713c9e5273f6"
+    },
+    "newAlignmentTestsPassedInitialRun": 8,
+    "finalAndroidRun": {
+      "tests": 147,
+      "failures": 0,
+      "errors": 0
+    }
+  },
+  "visualReview": {
+    "status": "passed",
+    "reviewedAt": "2026-11-03T12:08:48.675858+00:00",
+    "viewportPixels": [
+      720,
+      1600
+    ],
+    "densityDpi": [
+      320,
+      360
+    ],
+    "fontRatio": [
+      1.0,
+      1.3
+    ],
+    "sha256": {
+      "r8-before-classic-320-1.0.png": "75a2f155859c48497c09e968e1ba6dc31b5521b7d1cf4656a6389d38c0c59a94",
+      "r8-before-studio-320-1.0.png": "91797ebb3dd19933b4476bddb7c685cafd787a930f8466b9ce51a2c79147ae15",
+      "r8-before-focus-320-1.0.png": "0c00c095ecda9b5b81ba562c13e0255063e70bbf7ce440ddd7cf90d92d721cd6",
+      "r8-before-classic-360-1.3.png": "05108c4bc58ba61908a906e55479631f36dfc47d47c6d6f2135bf8cb7c75badb",
+      "r9-after-classic-320-1.0.png": "f0194b831e97f5e987665a666a7fe474937fa33b4e5b5100073bacec13af17bf",
+      "r9-after-studio-320-1.0.png": "e5677e153b809ee69d6f98b59d35f729379a39d700a05df9d2ec9cba17e47875",
+      "r9-after-focus-320-1.0.png": "a24c996d6ea4a0b11286d1229c22e70a671d587e4fddad705d394e70570af990",
+      "r9-after-classic-360-1.3.png": "f1b02b448f181c1f5d79825d315e0f8fa998a68766c0d57ed3d8bd5e5122effa",
+      "r9-studio-dark.png": "2027bfeb6a36f54fdf8290ac91a8debe67366df8c17597eab44f0a93fe720f6a",
+      "r9-chat-expanded.png": "b3fb6cb4c0b0d5589c0d25ceabe2b069ab9577d1aa44868b37aea6fda42e280b",
+      "r9-message-expanded-end.png": "70780946fdeaaf9de6f4ea0f731605f3ad4e785dfccac0c4c3f9d493f9d13b50",
+      "r9-message-recollapsed.png": "b4477c66235beef901ad6bd05bad8e735a556ae929d62c20ec5ab37658d86fd3",
+      "r9-pet-edge.png": "df2d43f5943787621b95bd678699137aa439adb520024860d882cc569c3d1b0c",
+      "r9-pet-reexpanded.png": "f6275466afa057d6f8e5edd179ff52aab71264afcee1facbd54c9ba60136d3b3",
+      "r9-pdf-preview.png": "0402b9baea1938e093dfe949cbf22b2b6e1163c39e8c5e32825a2ab17027b529",
+      "r9-html-preview.png": "781085998a9e9b93ec1295409a460b3305a87466724615784c6f5b8400ff3f85",
+      "r9-docx-preview.png": "ed5d971bd33f13bae7b041669fae1916ba3c5abd5ac49bac8f62df3ade61d24c",
+      "r9-archive-preview.png": "12158fde2e90ee2ea0ba2887039c1a03cc30d3f3509ef18eae1229ac058991c0",
+      "r9-audio-preview.png": "11b4934d4839c5d916e99e3f18fd5747bc8d9a7bdd3ab64b94986d84d97c0aaf"
+    },
+    "observations": [
+      "Actual signed r8 showed the short user bubble on the left in classic/studio/focus and large-font variants.",
+      "The same synthetic conversation after signed r9 overlay upgrade puts the user bubble on the right and retains left assistant alignment; avatar/action placement does not move.",
+      "Reviewed long-message clipping/expand-collapse, header details, overlay edge/reexpand, and five file preview frames. Screenshot TPS is synthetic; no provider throughput claims."
+    ]
+  }
+}

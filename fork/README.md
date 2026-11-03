@@ -1,6 +1,8 @@
 # 个人分支：构建与维护
 
-本版 **3.1.1-r8 / 3000055**，以 r7 为基线的独立预发布，生产提交 `2def5785cf259023b56ca607f704426c6aa4f3ec`。三处折叠和透明立绘替换保留 r7 其他能力；正式包、2025 个生产输入、最终 JVM 2103／Android 139 项及同签名覆盖均已核对。见 [RELEASE-r8.md](RELEASE-r8.md)、[PORTRAIT-r8.md](PORTRAIT-r8.md)、[verification/r8.json](verification/r8.json)；下载与 tag 为 `v3.1.1-r8`，stable latest 仍是 r3。
+本版 **3.1.1-r9 / 3000056** 修复 r8 短用户气泡错位，全部 r8 功能保留、不增加功能组数；最终 JVM 2103 项零失败／1 跳过、Android 147 项全过。见 [r9 验收](RELEASE-r9.md)、[对齐修复](ALIGNMENT-r9.md)、[verification/r9.json](verification/r9.json)。r3 stable latest 不变。
+
+前一预发布 **3.1.1-r8 / 3000055**，以 r7 为基线的独立预发布，生产提交 `2def5785cf259023b56ca607f704426c6aa4f3ec`。三处折叠和透明立绘替换保留 r7 其他能力；正式包、2025 个生产输入、最终 JVM 2103／Android 139 项及同签名覆盖均已核对。见 [RELEASE-r8.md](RELEASE-r8.md)、[PORTRAIT-r8.md](PORTRAIT-r8.md)、[verification/r8.json](verification/r8.json)；下载与 tag 为 `v3.1.1-r8`，stable latest 仍是 r3。
 
 上一预发布 **3.1.1-r7 / 3000054**，见 [r7验收](RELEASE-r7.md)、[互动角色与预览](COMPANION-r7.md) 和 [verification/r7.json](verification/r7.json)。下方 r6 与 stable r3 是历史基线，不代表本轮测试。
 
