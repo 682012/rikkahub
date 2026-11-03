@@ -1,6 +1,8 @@
 # 相比官方 3.1.1：新增工作流、功能增强与限制
 
-本版 **3.1.1-r9 / 3000056** 修复 r8 短用户气泡错位，全部 r8 功能保留、不增加功能组数；最终 JVM 2103 项零失败／1 跳过、Android 147 项全过。见 [r9 验收](RELEASE-r9.md)、[对齐修复](ALIGNMENT-r9.md)、[verification/r9.json](verification/r9.json)。r3 stable latest 不变。
+本版 **3.1.1-r10 / 3000057**：壁纸聊天去厚重外框；TPS 按已测步骤计速并标覆盖；带图片的历史可生成文本压缩摘要，原图不删；小助手选模型即可按互动生成回应，并可查看真实状态、停止和近期互动。详见 [r10 说明](RELEASE-r10.md) 与 [验证范围](verification/r10.json)。下方分组数量沿用历史基线，r10 增量在此单列。
+
+前一预发布 **3.1.1-r9 / 3000056** 修复 r8 短用户气泡错位，全部 r8 功能保留、不增加功能组数；最终 JVM 2103 项零失败／1 跳过、Android 147 项全过。见 [r9 验收](RELEASE-r9.md)、[对齐修复](ALIGNMENT-r9.md)、[verification/r9.json](verification/r9.json)。r3 stable latest 不变。
 
 前一预发布 **3.1.1-r8 / 3000055**（生产提交 `2def5785cf259023b56ca607f704426c6aa4f3ec`）：三处可折叠信息与三张透明立绘，见 [r8 验收](RELEASE-r8.md)、[素材来源](PORTRAIT-r8.md)、[verification/r8.json](verification/r8.json)。**r8 不改变功能组数：折叠是呈现增强，立绘替换 r7 角色形象，不是新增一套 Live2D。**
 
