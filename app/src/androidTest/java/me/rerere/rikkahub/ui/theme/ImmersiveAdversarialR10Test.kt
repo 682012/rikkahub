@@ -218,10 +218,14 @@ class ImmersiveAdversarialR10Test {
                     val frame = chatFrame(current.surfaceContainerLow)
                     val base = chatPanel(current.surfaceContainerHigh)
                     val glass = chatPanelStrong(current.surfaceContainerLow)
+                    // CompositionLocal.current 是 @Composable getter，只能在组合里读。
+                    val wallpaperActive = LocalWallpaperActive.current
+                    val immersiveChat = LocalImmersiveChat.current
+                    val contrastPlan = LocalImmersiveContrast.current
                     SideEffect {
-                        probes.active = LocalWallpaperActive.current
-                        probes.immersive = LocalImmersiveChat.current
-                        probes.plan = LocalImmersiveContrast.current
+                        probes.active = wallpaperActive
+                        probes.immersive = immersiveChat
+                        probes.plan = contrastPlan
                         probes.background = current.background
                         probes.onSurface = current.onSurface
                         probes.frame = frame
@@ -336,10 +340,14 @@ class ImmersiveAdversarialR10Test {
                     val current = MaterialTheme.colorScheme
                     val base = chatPanel(current.surfaceContainerHigh)
                     val page = LocalPageContainer.current
+                    // 先取值再进 SideEffect：`current` 是 @Composable getter。
+                    val wallpaperActive = LocalWallpaperActive.current
+                    val immersiveChat = LocalImmersiveChat.current
+                    val contrastPlan = LocalImmersiveContrast.current
                     SideEffect {
-                        probes.active = LocalWallpaperActive.current
-                        probes.immersive = LocalImmersiveChat.current
-                        probes.plan = LocalImmersiveContrast.current
+                        probes.active = wallpaperActive
+                        probes.immersive = immersiveChat
+                        probes.plan = contrastPlan
                         probes.background = current.background
                         probes.base = base
                         probes.page = page
@@ -418,7 +426,8 @@ class ImmersiveAdversarialR10Test {
                     LocalSettings provides settings,
                 ) {
                     AppAppearanceHost(settings) {
-                        SideEffect { probeImmersive = LocalImmersiveChat.current }
+                        val immersiveNow = LocalImmersiveChat.current
+                        SideEffect { probeImmersive = immersiveNow }
                         Row(Modifier.fillMaxSize()) {
                             Column(Modifier.weight(0.72f).fillMaxHeight().testTag(COLUMN_TAG)) {
                                 Box(Modifier.fillMaxWidth().testTag(USER_TAG)) {
@@ -470,7 +479,7 @@ class ImmersiveAdversarialR10Test {
             gap(assistantText.left, column.left) <= 32f,
         )
         assertTrue("LTR 助手正文不该落在列右半边", assistantText.left < columnMid)
-        assertTrue("LTR 消息溢出屏幕底部：${userText.bottom} > ${root.bottom}", userText.bottom <= root.bottom + 0.5f)
+        assertTrue("LTR 消息溢出屏幕底部：${userText.bottom} > ${root.bottom}", userText.bottom <= root.bottom + 0.5.dp)
 
         val largeUserHeight = (userText.bottom - userText.top).value
 
@@ -565,10 +574,14 @@ class ImmersiveAdversarialR10Test {
                     val base = chatPanel(current.surfaceContainerHigh)
                     val glass = chatPanelStrong(current.surfaceContainerLow)
                     val page = LocalPageContainer.current
+                    // 先取值再进 SideEffect：`current` 是 @Composable getter。
+                    val wallpaperActive = LocalWallpaperActive.current
+                    val immersiveChat = LocalImmersiveChat.current
+                    val contrastPlan = LocalImmersiveContrast.current
                     SideEffect {
-                        probes.active = LocalWallpaperActive.current
-                        probes.immersive = LocalImmersiveChat.current
-                        probes.plan = LocalImmersiveContrast.current
+                        probes.active = wallpaperActive
+                        probes.immersive = immersiveChat
+                        probes.plan = contrastPlan
                         probes.background = current.background
                         probes.frame = frame
                         probes.base = base

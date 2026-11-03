@@ -55,7 +55,10 @@ class CompanionPromptBuilderTest {
         assertEquals(CompanionLimits.MEMORY_EXCHANGES * 2, request.history.size)
         // 只有最近几条，旧的不再发
         assertFalse(request.history.any { it.text == "user-1" })
-        assertEquals("user-10", request.history.last().text)
+        assertEquals("user-10", request.history[request.history.lastIndex - 1].text)
+        assertEquals(CompanionPromptRole.USER, request.history[request.history.lastIndex - 1].role)
+        assertEquals("reply-10", request.history.last().text)
+        assertEquals(CompanionPromptRole.ASSISTANT, request.history.last().role)
     }
 
     @Test

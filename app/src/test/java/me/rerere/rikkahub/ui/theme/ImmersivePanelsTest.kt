@@ -194,8 +194,8 @@ class ImmersivePanelsTest {
         val base = Color(0xFF101014)
         val r9 = wallpaperProtectionStops(0.2f, immersive = false, base = base)
         assertEquals(listOf(0f, 0.10f, 0.32f, 0.78f, 1f), r9.map { it.first })
-        assertEquals("r9 顶部 0.96 不能变", 0.96f, r9.first().second.alpha, 0f)
-        assertEquals("r9 底部 0.96 不能变", 0.96f, r9.last().second.alpha, 0f)
+        assertEquals("r9 顶部 0.96 的 8-bit alpha 不能变", 245f / 255f, r9.first().second.alpha, 0f)
+        assertEquals("r9 底部 0.96 的 8-bit alpha 不能变", 245f / 255f, r9.last().second.alpha, 0f)
 
         val immersive = wallpaperProtectionStops(0.2f, immersive = true, base = base)
         assertTrue("顶部还留着大黑块：${immersive.first().second.alpha}", immersive.first().second.alpha <= 0.5f)
@@ -238,7 +238,8 @@ class ImmersivePanelsTest {
     fun `luminance round trips through gray colors`() {
         listOf(0f, 0.05f, 0.2f, 0.5f, 0.9f, 1f).forEach { value ->
             val roundTrip = grayFromLuminance(value).luminance()
-            assertEquals("$value 反解后亮度漂了", value, roundTrip, 2e-3f)
+            // sRGB Color stores 8-bit channels; half a channel step maps to at most ~0.0045 luminance.
+            assertEquals("$value 反解后亮度漂了", value, roundTrip, 5e-3f)
         }
     }
 }

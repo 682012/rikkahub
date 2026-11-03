@@ -117,13 +117,18 @@ class ImmersiveChatUiTest {
                     val glass = chatPanelStrong(scheme.surfaceContainerLow)
                     val base = chatPanel(scheme.surfaceContainerHigh)
                     val frame = chatFrame(scheme.surfaceContainerLow)
+                    // CompositionLocal.current 是 @Composable getter，只能在组合里读；
+                    // SideEffect 里只做采样写入，避免在 lambda 里调用 @Composable。
+                    val immersive = LocalImmersiveChat.current
+                    val wallpaperActive = LocalWallpaperActive.current
+                    val contrastPlan = LocalImmersiveContrast.current
                     SideEffect {
                         probes.glass = glass
                         probes.base = base
                         probes.frame = frame
-                        probes.immersive = LocalImmersiveChat.current
-                        probes.active = LocalWallpaperActive.current
-                        probes.plan = LocalImmersiveContrast.current
+                        probes.immersive = immersive
+                        probes.active = wallpaperActive
+                        probes.plan = contrastPlan
                         probes.schemeBackground = scheme.background
                     }
                     Column(Modifier.fillMaxSize()) {
@@ -198,12 +203,18 @@ class ImmersiveChatUiTest {
             MaterialExpressiveTheme(colorScheme = lightScheme) {
                 AppAppearanceHost(settingsFor(wallpaper = null, immersive = true)) {
                     val scheme = MaterialTheme.colorScheme
+                    // @Composable getter 先取值，再在 SideEffect 里写采样。
+                    val frame = chatFrame(scheme.surfaceContainerLow)
+                    val base = chatPanel(scheme.surfaceContainerHigh)
+                    val glass = chatPanelStrong(scheme.surfaceContainerLow)
+                    val immersive = LocalImmersiveChat.current
+                    val wallpaperActive = LocalWallpaperActive.current
                     SideEffect {
-                        probes.immersive = LocalImmersiveChat.current
-                        probes.active = LocalWallpaperActive.current
-                        probes.frame = chatFrame(scheme.surfaceContainerLow)
-                        probes.base = chatPanel(scheme.surfaceContainerHigh)
-                        probes.glass = chatPanelStrong(scheme.surfaceContainerLow)
+                        probes.immersive = immersive
+                        probes.active = wallpaperActive
+                        probes.frame = frame
+                        probes.base = base
+                        probes.glass = glass
                     }
                     Box(Modifier.fillMaxSize())
                 }
@@ -236,10 +247,13 @@ class ImmersiveChatUiTest {
                 AppAppearanceHost(settingsFor(wallpaper, immersiveOn)) {
                     val active = LocalWallpaperActive.current
                     val scheme = MaterialTheme.colorScheme
+                    // CompositionLocal.current 是 @Composable getter，先取值再进 SideEffect。
+                    val immersive = LocalImmersiveChat.current
+                    val contrastPlan = LocalImmersiveContrast.current
                     SideEffect {
                         probes.active = active
-                        probes.immersive = LocalImmersiveChat.current
-                        probes.plan = LocalImmersiveContrast.current
+                        probes.immersive = immersive
+                        probes.plan = contrastPlan
                         probes.schemeBackground = scheme.background
                     }
                     Box(Modifier.fillMaxSize())
@@ -279,10 +293,14 @@ class ImmersiveChatUiTest {
             val hazeState = remember { HazeState() }
             MaterialExpressiveTheme(colorScheme = lightScheme) {
                 AppAppearanceHost(settings) {
+                    // CompositionLocal.current 只能在组合里读，SideEffect 里只做采样写入。
+                    val wallpaperActive = LocalWallpaperActive.current
+                    val immersive = LocalImmersiveChat.current
+                    val contrastPlan = LocalImmersiveContrast.current
                     SideEffect {
-                        probes.active = LocalWallpaperActive.current
-                        probes.immersive = LocalImmersiveChat.current
-                        probes.plan = LocalImmersiveContrast.current
+                        probes.active = wallpaperActive
+                        probes.immersive = immersive
+                        probes.plan = contrastPlan
                     }
                     CompositionLocalProvider(LocalSettings provides settings) {
                         ChatList(

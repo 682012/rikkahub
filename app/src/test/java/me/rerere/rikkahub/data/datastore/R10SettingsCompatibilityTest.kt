@@ -620,7 +620,7 @@ class R10SettingsCompatibilityTest {
                 appearance = AppearanceSettings(wallpaper = "https://example.test/a.png"),
                 floatingCompanion = FloatingCompanionSettings(
                     customImagePath = "https://example.test/cat.png",
-                    customTapImagePath = "file:///other/files/floating_companions/x.png",
+                    customTapImagePath = "file:///other/shared_images/x.png",
                 ),
             ),
         )
@@ -630,7 +630,7 @@ class R10SettingsCompatibilityTest {
         assertEquals("https://example.test/a.png", restored.displaySetting.appearance.wallpaper)
         assertEquals("https://example.test/cat.png", restored.displaySetting.floatingCompanion.customImagePath)
         assertEquals(
-            "file:///other/files/floating_companions/x.png",
+            "file:///other/shared_images/x.png",
             restored.displaySetting.floatingCompanion.customTapImagePath,
         )
         // 什么都没变时必须返回原对象，避免无意义的重写
