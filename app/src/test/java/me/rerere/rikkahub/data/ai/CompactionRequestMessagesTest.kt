@@ -9,6 +9,8 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.ai.prompts.buildCompressPrompt
 import me.rerere.rikkahub.data.datastore.AutoCompressSettings
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.insertContextCheckpoint
+import me.rerere.rikkahub.service.autoCompressionPlan
 import me.rerere.rikkahub.data.model.toMessageNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse

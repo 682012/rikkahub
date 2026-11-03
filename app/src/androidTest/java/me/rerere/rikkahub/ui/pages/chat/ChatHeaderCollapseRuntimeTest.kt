@@ -56,6 +56,7 @@ class ChatHeaderCollapseRuntimeTest {
         val message = UIMessage(
             role = MessageRole.ASSISTANT,
             parts = emptyList(),
+            finishedAt = kotlinx.datetime.LocalDateTime.parse("2026-11-03T20:00:00"),
             generationTiming = GenerationTiming(
                 generationMs = 2000, outputTokens = 100, measuredSteps = 1, totalSteps = 1,
             ),

@@ -12,8 +12,9 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChatSpeedStatusTest {
-    private fun chat(timing: GenerationTiming?): Conversation {
-        val message=UIMessage(role=MessageRole.ASSISTANT,parts=emptyList(),generationTiming=timing)
+    private fun chat(timing: GenerationTiming?, finished: Boolean = true): Conversation {
+        val message=UIMessage(role=MessageRole.ASSISTANT,parts=emptyList(),generationTiming=timing,
+            finishedAt=if (finished) kotlinx.datetime.LocalDateTime.parse("2026-11-03T20:00:00") else null)
         return Conversation(assistantId=Uuid.random(),messageNodes=listOf(MessageNode(messages=listOf(message),selectIndex=0)))
     }
     @Test fun measuredSpeedUsesStreamNotRequestWait() {
@@ -73,6 +74,14 @@ class ChatSpeedStatusTest {
         val ui = conversationSpeedUi(chat(null))
         assertNull(ui.speed)
         assertEquals(GenerationSkipReason.LEGACY_UNKNOWN, ui.reasonCode)
+        assertFalse(ui.hasCoverage)
+    }
+
+    @Test fun unfinishedConversationHeaderMatchesTheFooter() {
+        val ui = conversationSpeedUi(chat(GenerationTiming(generationMs=2000, outputTokens=100,
+            measuredSteps=1, totalSteps=1), finished=false))
+        assertNull(ui.speed)
+        assertNull(ui.reasonCode)
         assertFalse(ui.hasCoverage)
     }
 
