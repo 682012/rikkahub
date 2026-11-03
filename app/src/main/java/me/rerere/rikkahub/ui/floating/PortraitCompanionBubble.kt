@@ -132,7 +132,11 @@ fun PortraitCompanionBubble(
                 },onError={imageFailed=true})
             if(minimized) Icon(HugeIcons.ArrowLeft01,null,modifier=Modifier.align(Alignment.BottomEnd).size(14.dp),tint=MaterialTheme.colorScheme.primary)
         }
-        if(!minimized && onMinimizedChange!=null) IconButton(onClick={onMinimizedChange(true)},modifier=Modifier.size(48.dp)
-            .testTag("portrait-minimize")) {Icon(HugeIcons.ArrowRight01,stringResource(R.string.portrait_minimize))}
+        if(!minimized && onMinimizedChange!=null) androidx.compose.material3.FilledTonalIconButton(
+            onClick={onMinimizedChange(true)},modifier=Modifier.size(48.dp)
+                .testTag("portrait-minimize"),
+            colors=androidx.compose.material3.IconButtonDefaults.filledTonalIconButtonColors(
+                containerColor=MaterialTheme.colorScheme.surface,contentColor=MaterialTheme.colorScheme.onSurface),
+        ) {Icon(HugeIcons.ArrowRight01,stringResource(R.string.portrait_minimize))}
     }
 }

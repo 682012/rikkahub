@@ -233,6 +233,7 @@ private fun CollapseToggleButton(
  * 只是绘制被裁掉。好处是首屏高度稳定、流式时不会因为不断换高度而抖。
  */
 private fun Modifier.clipToMaxHeight(maxHeight: Dp): Modifier = this
+    .clipToBounds()
     .layout { measurable, constraints ->
         val maxPx = maxHeight.roundToPx().coerceAtLeast(0)
         val placeable = measurable.measure(
@@ -244,4 +245,3 @@ private fun Modifier.clipToMaxHeight(maxHeight: Dp): Modifier = this
             placeable.placeRelative(0, 0)
         }
     }
-    .clipToBounds()
