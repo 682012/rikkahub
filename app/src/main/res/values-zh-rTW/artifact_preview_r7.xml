@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="artifact_preview_previous_page">上一頁</string>
+    <string name="artifact_preview_next_page">下一頁</string>
+    <string name="artifact_preview_page_indicator">第 %1$d / %2$d 頁</string>
+    <string name="artifact_preview_pdf_password">這個 PDF 需要密碼，請用其他應用程式開啟</string>
+    <string name="artifact_preview_pdf_corrupt">這個 PDF 已損壞或格式不受支援</string>
+    <string name="artifact_preview_pdf_failed">無法預覽這個 PDF</string>
+    <string name="artifact_preview_fallback_hint">仍然可以用上方的按鈕交給其他應用程式開啟</string>
+    <string name="artifact_preview_office_note">僅擷取 %1$s 文字，不還原版面、圖片和表格樣式</string>
+    <string name="artifact_preview_office_truncated">內容較長，預覽已截斷</string>
+    <string name="artifact_preview_archive_summary">%1$s 壓縮檔 · %2$d 個檔案 · 解壓後約 %3$s</string>
+    <string name="artifact_preview_archive_note">只列出目錄，不會解壓縮到工作區</string>
+    <string name="artifact_preview_archive_truncated">項目過多，只顯示前 %1$d 項</string>
+    <string name="artifact_preview_binary_summary">二進位檔案 · %1$s · %2$s</string>
+    <string name="artifact_preview_binary_note">顯示前 %1$d 位元組的十六進位內容</string>
+    <string name="artifact_preview_media_play">播放</string>
+    <string name="artifact_preview_media_pause">暫停</string>
+    <string name="artifact_preview_media_restart">回到開頭</string>
+    <string name="artifact_preview_empty">沒有可預覽的內容</string>
+</resources>

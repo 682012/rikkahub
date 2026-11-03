@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wallpaper_adaptive_tint_title">Match wallpaper colors</string>
+    <string name="wallpaper_adaptive_tint_desc">Coordinate panel colors with the wallpaper; keep your light or dark theme. Turn off to use original theme colors.</string>
+</resources>

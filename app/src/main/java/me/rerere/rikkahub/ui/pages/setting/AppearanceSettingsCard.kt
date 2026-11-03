@@ -256,6 +256,12 @@ fun AppearanceSettingsCard(
                 }
             }
             switchItem(
+                checked = current.wallpaperAdaptiveTint,
+                onCheckedChange = { enabled -> update { it.copy(wallpaperAdaptiveTint = enabled) } },
+                headlineContent = { Text(stringResource(R.string.wallpaper_adaptive_tint_title)) },
+                supportingContent = { Text(stringResource(R.string.wallpaper_adaptive_tint_desc)) },
+            )
+            switchItem(
                 checked = current.immersiveWallpaper,
                 onCheckedChange = { immersive -> update { it.copy(immersiveWallpaper = immersive) } },
                 supportingContent = { Text(stringResource(R.string.appearance_wallpaper_immersive_desc)) },

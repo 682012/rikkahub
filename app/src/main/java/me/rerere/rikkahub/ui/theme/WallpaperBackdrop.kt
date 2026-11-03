@@ -18,6 +18,17 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.toBitmap
+import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.ui.graphics.Color
 import me.rerere.rikkahub.data.datastore.AppearanceSettings
 import me.rerere.rikkahub.data.datastore.WallpaperScale
 
@@ -28,20 +39,43 @@ fun WallpaperBackdrop(
     appearance: AppearanceSettings,
     modifier: Modifier = Modifier,
     onLoaded: (Boolean) -> Unit = {},
+    onTone: (Color?) -> Unit = {},
 ) {
     val options = appearance.normalized()
+    val context = LocalContext.current
+    val request = remember(context, source) { ImageRequest.Builder(context).data(source).allowHardware(false).build() }
+    val scope = rememberCoroutineScope()
+    var sampled by remember(source) { mutableStateOf(false) }
+    DisposableEffect(source) { onTone(null); onDispose {} }
     var loaded by remember(source) { mutableStateOf(false) }
     Box(modifier.fillMaxSize()) {
         val blur = if (Build.VERSION.SDK_INT >= 31 && options.wallpaperBlur > 0f)
             Modifier.blur(options.wallpaperBlur.dp) else Modifier
         AsyncImage(
-            model = source,
+            model = request,
             contentDescription = null,
             contentScale = if (options.wallpaperScale == WallpaperScale.FIT) ContentScale.Fit else ContentScale.Crop,
             alignment = BiasAlignment(options.wallpaperAlignmentX * 2f - 1f, options.wallpaperAlignmentY * 2f - 1f),
             modifier = Modifier.fillMaxSize().then(blur).alpha(options.wallpaperOpacity),
-            onSuccess = { loaded = true; onLoaded(true) },
-            onError = { loaded = false; onLoaded(false) },
+            onSuccess = { result ->
+                loaded = true; onLoaded(true)
+                if (!sampled) {
+                    sampled = true
+                    scope.launch {
+                        val tone = withContext(Dispatchers.Default) {
+                            runCatching {
+                                val bitmap = result.result.image.toBitmap(width = 24, height = 24, config = android.graphics.Bitmap.Config.ARGB_8888)
+                                val pixels = IntArray(bitmap.width * bitmap.height)
+                                bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                                wallpaperTone(pixels)
+                            }.onFailure { android.util.Log.w("WallpaperTone", "sample failed", it) }.getOrNull()
+                        }
+                        android.util.Log.d("WallpaperTone", "sample completed")
+                        onTone(tone)
+                    }
+                }
+            },
+            onError = { loaded = false; sampled = false; onLoaded(false); onTone(null) },
         )
         if (loaded) WallpaperProtection(options)
     }

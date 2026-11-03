@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="artifact_preview_previous_page">Previous</string>
+    <string name="artifact_preview_next_page">Next</string>
+    <string name="artifact_preview_page_indicator">Page %1$d / %2$d</string>
+    <string name="artifact_preview_pdf_password">This PDF is password protected, preview it in another app</string>
+    <string name="artifact_preview_pdf_corrupt">This PDF is damaged or uses an unsupported format</string>
+    <string name="artifact_preview_pdf_failed">Unable to preview this PDF</string>
+    <string name="artifact_preview_fallback_hint">You can still open it with another app from the button above</string>
+    <string name="artifact_preview_office_note">%1$s text only. Layout, images and tables are not rendered</string>
+    <string name="artifact_preview_office_truncated">Content is long, preview truncated</string>
+    <string name="artifact_preview_archive_summary">%1$s archive · %2$d files · %3$s uncompressed</string>
+    <string name="artifact_preview_archive_note">File list only, nothing is extracted</string>
+    <string name="artifact_preview_archive_truncated">Too many entries, showing the first %1$d</string>
+    <string name="artifact_preview_binary_summary">Binary file · %1$s · %2$s</string>
+    <string name="artifact_preview_binary_note">Showing the first %1$d bytes as hex</string>
+    <string name="artifact_preview_media_play">Play</string>
+    <string name="artifact_preview_media_pause">Pause</string>
+    <string name="artifact_preview_media_restart">Restart</string>
+    <string name="artifact_preview_empty">Nothing to preview</string>
+</resources>

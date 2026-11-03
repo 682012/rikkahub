@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="floating_companion_section_preview">Preview</string>
+    <string name="floating_companion_preview_hint">Tap it — it reacts first, then the panel opens.</string>
+    <string name="floating_companion_bubble_desc">Floating companion. Tap to check progress.</string>
+
+    <string name="floating_companion_section_preset">Character</string>
+    <string name="floating_companion_preset_logo">App logo</string>
+    <string name="floating_companion_preset_cat">Cat</string>
+    <string name="floating_companion_preset_dragon">Dragon</string>
+    <string name="floating_companion_preset_custom">My image</string>
+    <string name="floating_companion_preset_logo_desc">The original icon bubble, unchanged.</string>
+    <string name="floating_companion_preset_cat_desc">Drawn in-app: blinks, flicks its ears and tail.</string>
+    <string name="floating_companion_preset_dragon_desc">Drawn in-app: blinks, sways its tail and wings.</string>
+    <string name="floating_companion_preset_custom_desc">A still or animated image from your gallery.</string>
+
+    <string name="floating_companion_section_image">Image</string>
+    <string name="floating_companion_image_idle_title">Idle image</string>
+    <string name="floating_companion_image_idle_desc">PNG, GIF or animated WebP. Kept in this app\'s private storage, max 16 MB.</string>
+    <string name="floating_companion_image_pick">Pick image</string>
+    <string name="floating_companion_image_replace">Replace</string>
+    <string name="floating_companion_image_tap_title">Tap image (optional)</string>
+    <string name="floating_companion_image_tap_desc">Shown for a moment when you tap. Leave empty to reuse the idle image.</string>
+    <string name="floating_companion_image_tap_pick">Pick tap image</string>
+    <string name="floating_companion_image_tap_clear">Clear</string>
+    <string name="floating_companion_image_remove">Remove</string>
+    <string name="floating_companion_image_none">No image yet — the app logo is used until you pick one.</string>
+    <string name="floating_companion_image_failed">Could not load that image (%1$s)</string>
+    <string name="floating_companion_image_saving">Saving…</string>
+
+    <string name="floating_companion_section_voice">Name and lines</string>
+    <string name="floating_companion_name_title">Name</string>
+    <string name="floating_companion_name_hint">Default name</string>
+    <string name="floating_companion_name_desc">Only shown to you; leave empty for the default.</string>
+    <string name="floating_companion_lines_title">Tap lines</string>
+    <string name="floating_companion_lines_desc">One line per entry, picked at random on each tap. Up to 8.</string>
+    <string name="floating_companion_lines_hint">Say something on tap…</string>
+    <string name="floating_companion_lines_reset">Use defaults</string>
+
+    <string name="floating_companion_section_behavior">Size and motion</string>
+    <string name="floating_companion_size_title">Size</string>
+    <string name="floating_companion_size_desc">%1$d dp. Range 56–112 dp.</string>
+    <string name="floating_companion_animation_title">Animate</string>
+    <string name="floating_companion_animation_desc">Blinking, idle sway and tap particles. Turn off to save battery.</string>
+
+    <string name="floating_companion_default_name_logo">Logo</string>
+    <string name="floating_companion_default_name_cat">Mimi</string>
+    <string name="floating_companion_default_name_dragon">Ember</string>
+    <string name="floating_companion_default_name_custom">My character</string>
+
+    <string name="floating_companion_default_line_cat_1">Mew? You called?</string>
+    <string name="floating_companion_default_line_cat_2">Still writing here…</string>
+    <string name="floating_companion_default_line_dragon_1">Hm? Something needs me?</string>
+    <string name="floating_companion_default_line_dragon_2">One second, wings are busy.</string>
+</resources>

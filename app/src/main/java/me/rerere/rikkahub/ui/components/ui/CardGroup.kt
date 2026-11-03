@@ -331,13 +331,23 @@ fun CardGroup(
 
     Column(modifier = modifier) {
         if (title != null) {
-            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.primary) {
-                ProvideTextStyle(MaterialTheme.typography.titleSmallEmphasized) {
-                    Box(modifier = Modifier.padding(start = 4.dp, top = 8.dp, bottom = 8.dp)) {
-                        title()
+            val protected = me.rerere.rikkahub.ui.theme.LocalWallpaperActive.current
+            val titleColor = if (protected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.primary
+            val label: @Composable () -> Unit = {
+                CompositionLocalProvider(LocalContentColor provides titleColor) {
+                    ProvideTextStyle(MaterialTheme.typography.titleSmallEmphasized) {
+                        Box(modifier = Modifier.padding(horizontal = if (protected) 10.dp else 4.dp, vertical = 8.dp)) { title() }
                     }
                 }
             }
+            if (protected) {
+                Surface(
+                    modifier = Modifier.padding(bottom = 8.dp),
+                    shape = MaterialTheme.shapes.small,
+                    color = me.rerere.rikkahub.ui.theme.appearanceSurface(MaterialTheme.colorScheme.surfaceContainerHigh, strong = true),
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                ) { label() }
+            } else label()
         }
         val count = scope.items.size
         scope.items.fastForEachIndexed { index, item ->

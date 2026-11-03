@@ -97,6 +97,7 @@ val appModule = module {
             context = get(),
             appScope = get(),
             tracker = get(),
+            settingsStore = get(),
             lazyChatService = lazy { get() },
         )
     }

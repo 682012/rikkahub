@@ -90,4 +90,8 @@ internal fun Settings.withoutInvalidReferences(): Settings {
 private fun Settings.withValuesInRange(): Settings = copy(
     searchServiceSelected = searchServiceSelected.coerceIn(0, (searchServices.size - 1).coerceAtLeast(0)),
     defaultTTSPlaybackSpeed = defaultTTSPlaybackSpeed.coerceIn(0.5f, 2.0f),
+    displaySetting = displaySetting.copy(
+        appearance = displaySetting.appearance.normalized(),
+        floatingCompanion = displaySetting.floatingCompanion.normalized(),
+    ),
 )

@@ -56,6 +56,8 @@ data class AppearanceSettings(
     /** 壁纸裁切时保留的焦点，0..1 的比例坐标。 */
     val wallpaperAlignmentX: Float = 0.5f,
     val wallpaperAlignmentY: Float = 0.5f,
+    /** Preserve light/dark mode while coordinating panels with the visible wallpaper hue. */
+    val wallpaperAdaptiveTint: Boolean = true,
 ) {
     /**
      * 把可能存在的坏值收敛成一份能直接拿去画的设置。

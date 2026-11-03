@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="floating_companion_section_preview">预览</string>
+    <string name="floating_companion_preview_hint">点它一下——先做反应，再打开面板。</string>
+    <string name="floating_companion_bubble_desc">悬浮角色，点击查看进度</string>
+
+    <string name="floating_companion_section_preset">角色</string>
+    <string name="floating_companion_preset_logo">应用图标</string>
+    <string name="floating_companion_preset_cat">猫咪</string>
+    <string name="floating_companion_preset_dragon">小龙</string>
+    <string name="floating_companion_preset_custom">我的图片</string>
+    <string name="floating_companion_preset_logo_desc">原来的图标气泡，一点没变。</string>
+    <string name="floating_companion_preset_cat_desc">应用内绘制，会眨眼、抖耳朵、甩尾巴。</string>
+    <string name="floating_companion_preset_dragon_desc">应用内绘制，会眨眼、摇尾巴、扇翅膀。</string>
+    <string name="floating_companion_preset_custom_desc">从相册选一张静态图或动图。</string>
+
+    <string name="floating_companion_section_image">图片</string>
+    <string name="floating_companion_image_idle_title">待机图片</string>
+    <string name="floating_companion_image_idle_desc">PNG、GIF 或动态 WebP，存在本应用私有目录，最大 16 MB。</string>
+    <string name="floating_companion_image_pick">选择图片</string>
+    <string name="floating_companion_image_replace">更换</string>
+    <string name="floating_companion_image_tap_title">点击图片（可选）</string>
+    <string name="floating_companion_image_tap_desc">被点一下的瞬间换这张图，留空就沿用待机图片。</string>
+    <string name="floating_companion_image_tap_pick">选择点击图</string>
+    <string name="floating_companion_image_tap_clear">清除</string>
+    <string name="floating_companion_image_remove">移除</string>
+    <string name="floating_companion_image_none">还没有图片，选之前先用应用图标。</string>
+    <string name="floating_companion_image_failed">这张图加载不了（%1$s）</string>
+    <string name="floating_companion_image_saving">保存中…</string>
+
+    <string name="floating_companion_section_voice">名字和台词</string>
+    <string name="floating_companion_name_title">名字</string>
+    <string name="floating_companion_name_hint">默认名字</string>
+    <string name="floating_companion_name_desc">只给你自己看，留空用默认的。</string>
+    <string name="floating_companion_lines_title">点击台词</string>
+    <string name="floating_companion_lines_desc">一行一句，每次点击随机挑一句，最多 8 句。</string>
+    <string name="floating_companion_lines_hint">点它的时候说点什么…</string>
+    <string name="floating_companion_lines_reset">用默认台词</string>
+
+    <string name="floating_companion_section_behavior">大小与动效</string>
+    <string name="floating_companion_size_title">大小</string>
+    <string name="floating_companion_size_desc">%1$d dp，范围 56–112 dp。</string>
+    <string name="floating_companion_animation_title">播放动效</string>
+    <string name="floating_companion_animation_desc">眨眼、轻微摆动和点击粒子，关掉更省电。</string>
+
+    <string name="floating_companion_default_name_logo">图标</string>
+    <string name="floating_companion_default_name_cat">喵丸</string>
+    <string name="floating_companion_default_name_dragon">焰尾</string>
+    <string name="floating_companion_default_name_custom">我的角色</string>
+
+    <string name="floating_companion_default_line_cat_1">喵？叫我啦？</string>
+    <string name="floating_companion_default_line_cat_2">还在写，别急嘛。</string>
+    <string name="floating_companion_default_line_dragon_1">嗯？找我有什么事？</string>
+    <string name="floating_companion_default_line_dragon_2">稍等，翅膀正忙着。</string>
+</resources>

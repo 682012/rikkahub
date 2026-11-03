@@ -75,6 +75,8 @@ import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.Wrench01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.tools.local.ASK_USER_TOOL_NAME
+import me.rerere.rikkahub.data.datastore.FloatingCompanionPreset
+import me.rerere.rikkahub.data.datastore.FloatingCompanionSettings
 import me.rerere.rikkahub.ui.components.message.tools.ToolApprovalPreview
 import me.rerere.rikkahub.ui.components.message.tools.effectiveTarget
 import me.rerere.rikkahub.data.model.GenerationPhase
@@ -117,9 +119,30 @@ data class FloatingChatUiState(
     val failed: Boolean get() = !generating && error != null
 }
 
-/** 收起时的小图标：应用 logo，生成中轮廓不停变形，结束后在角上标出结果 */
+/**
+ * 收起时的小图标。
+ *
+ * [companion] 是设置里选的角色：默认（[FloatingCompanionSettings] 原样）还是原来的应用 logo 气泡，
+ * 行为、动画、状态徽标都和过去一致；选了猫/小龙/自定义图片时交给 [FloatingCompanionBubble]，
+ * 那里有眨眼、点击抬手、粒子和短台词。调用方不传 [companion] 时不会改变现有表现。
+ */
 @Composable
-fun ChatFloatingBubble(state: FloatingChatUiState, onClick: () -> Unit) {
+fun ChatFloatingBubble(
+    state: FloatingChatUiState,
+    onClick: () -> Unit,
+    companion: FloatingCompanionSettings = FloatingCompanionSettings(),
+) {
+    val settings = remember(companion) { companion.normalized() }
+    if (settings.effectivePreset == FloatingCompanionPreset.LOGO) {
+        LogoChatFloatingBubble(state = state, onClick = onClick)
+    } else {
+        FloatingCompanionBubble(state = state, companion = settings, onClick = onClick)
+    }
+}
+
+/** 原来的应用 logo 气泡：生成中轮廓不停变形，结束后在角上标出结果 */
+@Composable
+private fun LogoChatFloatingBubble(state: FloatingChatUiState, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val logoLayers = rememberAppLogoLayers()
     val shapePosition = remember { Animatable(0f) }

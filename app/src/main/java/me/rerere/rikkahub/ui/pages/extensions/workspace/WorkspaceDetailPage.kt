@@ -285,23 +285,9 @@ fun WorkspaceDetailPage(id: String) {
                                         previewImageUri = file.absolutePath
                                     }
 
-                                    WorkspaceFileType.OTHER -> vm.exportToCacheFile(entry, context.cacheDir) { file ->
-                                        val uri = FileProvider.getUriForFile(
-                                            context,
-                                            "${context.packageName}.fileprovider",
-                                            file,
-                                        )
-                                        val mime = MimeTypeMap.getSingleton().getMimeTypeFromExtension(
-                                            file.extension.lowercase()
-                                        ) ?: "*/*"
-                                        val intent = Intent(Intent.ACTION_VIEW).apply {
-                                            setDataAndType(uri, mime)
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        }
-                                        runCatching {
-                                            context.startActivity(Intent.createChooser(intent, null))
-                                        }
-                                    }
+                                    WorkspaceFileType.OTHER -> navController.navigate(
+                                        Screen.WorkspaceArtifact(id, entry.path, area = state.area.name)
+                                    )
                                 }
                             }
                         },

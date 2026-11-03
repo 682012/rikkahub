@@ -71,6 +71,7 @@ import me.rerere.rikkahub.ui.activity.SafeModeActivity
 import me.rerere.rikkahub.ui.components.ui.TTSController
 import me.rerere.rikkahub.ui.context.LocalASRState
 import me.rerere.rikkahub.ui.context.LocalNavController
+import me.rerere.rikkahub.ui.context.LocalNavControllerOrNull
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalSharedTransitionScope
 import me.rerere.rikkahub.ui.context.LocalTTSState
@@ -98,6 +99,7 @@ import me.rerere.rikkahub.ui.pages.extensions.QuickMessagesPage
 import me.rerere.rikkahub.ui.pages.extensions.skills.SkillDetailPage
 import me.rerere.rikkahub.ui.pages.memory.MemoryFilePage
 import me.rerere.rikkahub.ui.pages.extensions.skills.SkillsPage
+import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceArtifactPage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspacePage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceDetailPage
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceFileEditorPage
@@ -149,6 +151,18 @@ private const val TAG = "RouteActivity"
 private const val ACTION_TRANSLATE = "me.rerere.rikkahub.action.TRANSLATE"
 private const val ACTION_MEDIA_CREATION = "me.rerere.rikkahub.action.MEDIA_CREATION"
 private const val EXTRA_CONVERSATION_ID = "conversationId"
+private const val EXTRA_ARTIFACT_WORKSPACE_ID = "artifactWorkspaceId"
+private const val EXTRA_ARTIFACT_PATH = "artifactPath"
+private const val EXTRA_ARTIFACT_FRAGMENT = "artifactFragment"
+
+/** Explicit in-app navigation used by overlay windows, not an externally exported path handler. */
+fun workspaceArtifactIntent(context: Context, workspaceId: String, path: String, fragment: String? = null): Intent =
+    Intent(context, RouteActivity::class.java).apply {
+        flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        putExtra(EXTRA_ARTIFACT_WORKSPACE_ID, workspaceId)
+        putExtra(EXTRA_ARTIFACT_PATH, path)
+        putExtra(EXTRA_ARTIFACT_FRAGMENT, fragment)
+    }
 
 /** 打开指定会话的聊天页 */
 fun conversationIntent(context: Context, conversationId: String): Intent =
@@ -249,12 +263,22 @@ class RouteActivity : ComponentActivity() {
             Intent.ACTION_PROCESS_TEXT -> Screen.ShareHandler(
                 text = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString().orEmpty(),
             )
-            else -> mediaCreationDestination(intent)
+            else -> artifactDestination(intent)
+                ?: mediaCreationDestination(intent)
                 ?: intent.getStringExtra(EXTRA_CONVERSATION_ID)?.let { Screen.Chat(it) }
         }
         if (destination != null && backStack.lastOrNull() != destination) {
             backStack.add(destination)
         }
+    }
+
+    private fun artifactDestination(intent: Intent): Screen? {
+        val id = intent.getStringExtra(EXTRA_ARTIFACT_WORKSPACE_ID) ?: return null
+        if (runCatching { Uuid.parse(id) }.getOrNull() == null) return null
+        val path = intent.getStringExtra(EXTRA_ARTIFACT_PATH) ?: return null
+        val parsed = me.rerere.rikkahub.utils.WorkspaceArtifactLink.parse("sandbox:" + android.net.Uri.encode(path, "/"))
+            as? me.rerere.rikkahub.utils.WorkspaceArtifactLink.WorkspaceFile ?: return null
+        return Screen.WorkspaceArtifact(id, parsed.path, intent.getStringExtra(EXTRA_ARTIFACT_FRAGMENT))
     }
 
     // 快捷方式没有指定会话，打开一个空会话
@@ -314,9 +338,11 @@ class RouteActivity : ComponentActivity() {
         SharedTransitionLayout {
             CompositionLocalProvider(
                 LocalNavController provides Navigator(backStack),
+                LocalNavControllerOrNull provides Navigator(backStack),
                 LocalSharedTransitionScope provides this,
                 LocalSettings provides settings,
                 LocalToaster provides toastState,
+                me.rerere.rikkahub.ui.context.LocalToasterOrNull provides toastState,
                 LocalTTSState provides tts,
                 LocalASRState provides asr,
             ) {
@@ -589,6 +615,15 @@ class RouteActivity : ComponentActivity() {
                                 )
                             }
 
+                            entry<Screen.WorkspaceArtifact> { key ->
+                                WorkspaceArtifactPage(
+                                    id = key.id,
+                                    path = key.path,
+                                    fragment = key.fragment,
+                                    area = key.area,
+                                )
+                            }
+
                             entry<Screen.SkillDetail> { key ->
                                 SkillDetailPage(skillName = key.skillName)
                             }
@@ -824,6 +859,18 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data class WorkspaceFileEditor(val id: String, val area: String, val path: String) : Screen
+
+    /**
+     * 从 Markdown 链接（sandbox:/workspace/...）打开的工作区产物预览。
+     * [id] 是当前对话绑定的工作区，[path] 是解码后的环境内绝对路径。
+     */
+    @Serializable
+    data class WorkspaceArtifact(
+        val id: String,
+        val path: String,
+        val fragment: String? = null,
+        val area: String? = null,
+    ) : Screen
 
     @Serializable
     data class SkillDetail(val skillName: String) : Screen

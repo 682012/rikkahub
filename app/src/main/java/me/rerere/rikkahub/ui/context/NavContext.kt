@@ -54,3 +54,9 @@ class PopUpToBuilder {
 val LocalNavController = compositionLocalOf<Navigator> {
     error("No Navigator provided")
 }
+
+/**
+ * 可能没有导航栈的场景（悬浮窗预览等）用这个：拿不到 Navigator 时是 null，调用方自己给提示。
+ * 和 [LocalNavController] 一起在 RouteActivity 里提供。
+ */
+val LocalNavControllerOrNull = compositionLocalOf<Navigator?> { null }

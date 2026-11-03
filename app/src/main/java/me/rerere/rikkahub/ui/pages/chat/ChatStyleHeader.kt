@@ -31,17 +31,21 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import me.rerere.ai.provider.Model
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ChartColumn
@@ -65,6 +69,7 @@ internal fun ChatStyleHeader(
     spec: ChatStyleSpec,
     settings: Settings,
     conversation: Conversation,
+    chatModel: Model?,
     title: String,
     meta: String?,
     bigScreen: Boolean,
@@ -77,6 +82,15 @@ internal fun ChatStyleHeader(
 ) {
     // 上下文状态条还受旧的 useStudioDisplay 开关控制：那个开关管"统计怎么呈现"，风格只管排版
     val showStatusStrip = spec.headerShowStatusStrip && settings.displaySetting.useStudioDisplay
+    // 当前请求真正会用的提供商 + 模型，三种风格都常显，不再依赖 usage 开关或消息历史
+    val unselectedModelLabel = stringResource(R.string.chat_header_model_unselected)
+    val providerInfo = remember(chatModel, settings.providers, unselectedModelLabel) {
+        chatHeaderProviderInfo(
+            model = chatModel,
+            providers = settings.providers,
+            unselectedLabel = unselectedModelLabel,
+        )
+    }
     if (spec.headerFloating) {
         StudioHeader(
             spec = spec,
@@ -84,6 +98,7 @@ internal fun ChatStyleHeader(
             settings = settings,
             title = title,
             meta = meta,
+            providerInfo = providerInfo,
             bigScreen = bigScreen,
             previewMode = previewMode,
             showStatusStrip = showStatusStrip,
@@ -100,6 +115,7 @@ internal fun ChatStyleHeader(
             settings = settings,
             title = title,
             meta = meta,
+            providerInfo = providerInfo,
             bigScreen = bigScreen,
             previewMode = previewMode,
             showStatusStrip = showStatusStrip,
@@ -120,6 +136,7 @@ private fun StudioHeader(
     conversation: Conversation,
     title: String,
     meta: String?,
+    providerInfo: ChatHeaderProviderInfo,
     bigScreen: Boolean,
     previewMode: Boolean,
     showStatusStrip: Boolean,
@@ -165,6 +182,7 @@ private fun StudioHeader(
                 HeaderTitle(
                     title = title,
                     meta = meta,
+                    providerInfo = providerInfo,
                     dense = spec.headerDenseMeta,
                     modifier = Modifier
                         .weight(1f)
@@ -212,6 +230,8 @@ private fun StudioHeader(
                 }
             }
         }
+        HeaderSelectedModelRow(providerInfo)
+        ChatSpeedStatus(conversation)
         if (showStatusStrip) {
             ChatStudioStatus(
                 conversation = conversation,
@@ -231,6 +251,7 @@ private fun PlainHeader(
     conversation: Conversation,
     title: String,
     meta: String?,
+    providerInfo: ChatHeaderProviderInfo,
     bigScreen: Boolean,
     previewMode: Boolean,
     showStatusStrip: Boolean,
@@ -259,16 +280,16 @@ private fun PlainHeader(
                         Icon(HugeIcons.Menu03, null)
                     }
                 }
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                HeaderTitle(
+                    title = title,
+                    meta = meta,
+                    providerInfo = providerInfo,
+                    dense = true,
+                    titleStyle = MaterialTheme.typography.titleMedium,
                     modifier = Modifier
                         .weight(1f)
                         .heightIn(min = 48.dp)
-                        .clickable(onClick = onEditTitle)
-                        .padding(horizontal = 6.dp, vertical = 10.dp),
+                        .clickable(onClick = onEditTitle),
                 )
                 // FOCUS 不常驻状态条，用这个按钮按需进同一份统计数据
                 CompactIcon(stringResource(R.string.chat_style_usage), onOpenUsage) {
@@ -295,8 +316,9 @@ private fun PlainHeader(
                     HeaderTitle(
                         title = title,
                         meta = meta,
+                        providerInfo = providerInfo,
                         dense = false,
-                        metaSize = if (settings.displaySetting.useStudioDisplay) 11.sp else 8.sp,
+                        metaSize = if (settings.displaySetting.useStudioDisplay) 11.sp else 10.sp,
                         modifier = Modifier.clickable(onClick = onEditTitle),
                     )
                 },
@@ -322,6 +344,8 @@ private fun PlainHeader(
                 },
             )
         }
+        HeaderSelectedModelRow(providerInfo)
+        ChatSpeedStatus(conversation)
         if (showStatusStrip) {
             ChatStudioStatus(
                 conversation = conversation,
@@ -334,30 +358,59 @@ private fun PlainHeader(
     }
 }
 
-/** 标题 + 一行元数据；长标题单行省略，320dp 和横屏大字都不会顶开按钮。 */
+/** 标题 + 一行“提供商 · 模型”（meta 跟在后面）；长文本单行省略，窄屏和大字都不会顶开按钮。 */
 @Composable
 private fun HeaderTitle(
     title: String,
     meta: String?,
+    providerInfo: ChatHeaderProviderInfo,
     dense: Boolean,
     metaSize: TextUnit = 11.sp,
+    titleStyle: TextStyle? = null,
     modifier: Modifier = Modifier,
 ) {
+    val subtitle = meta?.takeIf { it.isNotBlank() }
     Column(modifier = modifier.padding(horizontal = 6.dp, vertical = if (dense) 4.dp else 6.dp)) {
         Text(
             text = title,
             maxLines = 1,
-            style = MaterialTheme.typography.bodyMedium,
+            style = titleStyle ?: MaterialTheme.typography.bodyMedium,
             overflow = TextOverflow.Ellipsis,
         )
-        if (meta != null) {
-            Text(
-                text = meta,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = LocalContentColor.current.copy(0.65f),
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = metaSize),
-            )
+        if (subtitle != null) Text(
+            text = subtitle,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            color = LocalContentColor.current.copy(0.8f),
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = metaSize),
+        )
+    }
+}
+
+/** Full-width row reserves most space for the model, rather than truncating provider+model together. */
+@Composable
+private fun HeaderSelectedModelRow(info: ChatHeaderProviderInfo) {
+    val description = stringResource(R.string.chat_header_current_model)
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.small,
+        color = chatPanelStrong(MaterialTheme.colorScheme.surfaceContainerLow),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp)
+                .testTag(ChatHeaderModelTag)
+                .semantics(mergeDescendants = true) { contentDescription = "$description: ${info.text}" },
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            info.providerName?.let { provider ->
+                Text(provider, modifier = Modifier.weight(.38f, fill = false), maxLines = 1,
+                    overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            Text(info.modelName, modifier = Modifier.weight(1f), maxLines = 1,
+                overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
         }
     }
 }

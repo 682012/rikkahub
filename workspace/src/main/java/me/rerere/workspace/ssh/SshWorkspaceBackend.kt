@@ -125,6 +125,26 @@ class SshWorkspaceBackend(
         }
     }
 
+    /** Artifact links are confined without restricting explicitly authorized terminal/file tools. */
+    fun artifactFileSize(path: String): Long = pool.use(id, config, retry = true) { connection ->
+        connection.sftp { sftp -> sftp.requireFile(sftp.confinedArtifact(path), path).size }
+    }
+
+    fun exportArtifactFile(path: String, outputStream: OutputStream) {
+        pool.use(id, config, retry = false) { connection ->
+            connection.sftp { sftp -> sftp.export(sftp.confinedArtifact(path), path, outputStream) }
+        }
+    }
+
+    private fun ChannelSftp.confinedArtifact(path: String): String {
+        val root = realpath(workspaceDir).trimEnd('/')
+        val actual = realpath(normalizeAbsolute(path))
+        require(root.isNotEmpty() && (actual == root || actual.startsWith("$root/"))) {
+            "Path escapes workspace root: $path"
+        }
+        return actual
+    }
+
     override fun absoluteFileSize(path: String): Long {
         val file = normalizeAbsolute(path)
         return pool.use(id, config, retry = true) { connection ->

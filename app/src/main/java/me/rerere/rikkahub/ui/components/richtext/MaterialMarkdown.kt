@@ -63,7 +63,9 @@ import me.rerere.bettertext.markdown.Markdown as BetterMarkdown
  *
  * @param style 正文样式，合并到 `LocalTextStyle` 上；没有颜色时用 `LocalContentColor`
  * @param streaming 内容还在生成时为 true，末尾没写完的语法（如 `**加粗`、`$\frac{`）会被补全或隐藏
- * @param onLinkClick 链接点击回调，为 null 时交给系统的 UriHandler 打开
+ * @param onLinkClick 链接点击回调；为 null 时走 [rememberMarkdownLinkHandler]：http/https 用
+ * CustomTabs，工作区文件（sandbox:/workspace/...）跳到当前对话绑定工作区的预览页，
+ * 其它 scheme 走 ACTION_VIEW 并捕获没有 handler 的情况
  */
 @Composable
 fun MaterialMarkdown(
@@ -78,6 +80,10 @@ fun MaterialMarkdown(
 ) {
     val merged = LocalTextStyle.current.merge(style)
     val resolved = merged.copy(color = merged.color.takeOrElse { LocalContentColor.current })
+    // 没显式给 onLinkClick 时也要走应用自己的分发: 默认的 LocalUriHandler 会把
+    // sandbox:/workspace/... 直接甩给系统浏览器, 绕过 CustomTabs 和工作区预览
+    val defaultLinkClick = rememberMarkdownLinkHandler()
+    val linkClick = onLinkClick ?: defaultLinkClick
     // 插槽里的组件（代码块、表格工具栏等）用 Material 的 Text，让它们也拿到正文样式
     ProvideTextStyle(resolved) {
         BetterMarkdown(
@@ -88,7 +94,7 @@ fun MaterialMarkdown(
             components = components,
             softBreakAsLineBreak = softBreakAsLineBreak,
             streaming = streaming,
-            onLinkClick = onLinkClick,
+            onLinkClick = linkClick,
         )
     }
 }
@@ -205,9 +211,9 @@ object MaterialMarkdownDefaults {
     /** 模块里没有图片加载能力，默认只显示替代文本，点击后打开图片地址 */
     @Composable
     fun Image(image: MarkdownInline.Image, link: String?, modifier: Modifier = Modifier) {
-        val uriHandler = LocalUriHandler.current
+        val linkClick = rememberMarkdownLinkHandler()
         Surface(
-            onClick = { runCatching { uriHandler.openUri(link ?: image.url) } },
+            onClick = { linkClick(link ?: image.url) },
             modifier = modifier,
             shape = MaterialTheme.shapes.small,
             color = MaterialTheme.colorScheme.surfaceContainerHigh,

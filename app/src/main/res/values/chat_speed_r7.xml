@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+<string name="chat_speed_label">Measured speed</string>
+<string name="chat_speed_unavailable">Speed is unavailable until a measured stream reports usage. Short bursts and unmeasured responses are not estimated.</string>
+</resources>

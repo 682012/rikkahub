@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -48,6 +49,10 @@ fun ChatMessageContextCheckpoint(
     modifier: Modifier = Modifier,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
+    val wallpaper = me.rerere.rikkahub.ui.theme.LocalWallpaperActive.current
+    val labelColor = if (wallpaper) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
+    val labelBackground = if (wallpaper) me.rerere.rikkahub.ui.theme.appearanceSurface(MaterialTheme.colorScheme.surfaceContainerHigh, strong = true)
+        else androidx.compose.ui.graphics.Color.Transparent
 
     Column(
         modifier = modifier.fillMaxWidth(),
@@ -57,30 +62,31 @@ fun ChatMessageContextCheckpoint(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(MaterialTheme.shapes.small)
+                .background(labelBackground)
                 .clickable { expanded = !expanded }
-                .padding(vertical = 8.dp),
+                .padding(horizontal = if (wallpaper) 10.dp else 0.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            HorizontalDivider(modifier = Modifier.weight(1f))
+            HorizontalDivider(modifier = Modifier.weight(1f), color = labelColor.copy(alpha = .35f))
             Icon(
                 imageVector = HugeIcons.Package01,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = labelColor,
             )
             Text(
                 text = stringResource(R.string.chat_page_compress_checkpoint_title),
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = labelColor,
             )
             Icon(
                 imageVector = if (expanded) HugeIcons.ArrowUp01 else HugeIcons.ArrowDown01,
                 contentDescription = null,
                 modifier = Modifier.size(16.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = labelColor,
             )
-            HorizontalDivider(modifier = Modifier.weight(1f))
+            HorizontalDivider(modifier = Modifier.weight(1f), color = labelColor.copy(alpha = .35f))
         }
 
         AnimatedVisibility(
@@ -91,7 +97,8 @@ fun ChatMessageContextCheckpoint(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = me.rerere.rikkahub.ui.theme.appearanceSurface(MaterialTheme.colorScheme.surfaceContainerHigh),
+                contentColor = MaterialTheme.colorScheme.onSurface,
             ) {
                 Column(
                     modifier = Modifier.padding(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 4.dp),
@@ -100,7 +107,7 @@ fun ChatMessageContextCheckpoint(
                     Text(
                         text = stringResource(R.string.chat_page_compress_checkpoint_hint),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = labelColor,
                     )
                     MarkdownBlock(content = message.toText())
                     Row(

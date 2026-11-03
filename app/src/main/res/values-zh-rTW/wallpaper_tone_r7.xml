@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="wallpaper_adaptive_tint_title">依桌布協調配色</string>
+    <string name="wallpaper_adaptive_tint_desc">面板顏色隨桌布協調，保留你的淺色或深色主題；關閉後使用原主題顏色。</string>
+</resources>

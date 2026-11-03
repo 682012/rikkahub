@@ -108,12 +108,10 @@ fun ChatMessageNerdLine(
                             content = { Text(text = stringResource(R.string.chat_message_usage_steps, stats.steps)) }
                         )
                     }
-                    if (stats.tps != null) {
-                        StatsItem(
-                            icon = { StatsIcon(HugeIcons.Zap, stringResource(R.string.chat_message_usage_speed)) },
-                            content = { Text(text = "${stats.tps.toFixed(1)} tok/s") }
-                        )
-                    }
+                    StatsItem(
+                        icon = { StatsIcon(HugeIcons.Zap, stringResource(R.string.chat_message_usage_speed)) },
+                        content = { Text(text = if (stats.tps != null) "${stats.tps.toFixed(1)} tok/s" else "— tok/s") }
+                    )
                     StatsItem(
                         icon = { StatsIcon(HugeIcons.Layers01, stringResource(R.string.chat_message_usage_context)) },
                         content = {

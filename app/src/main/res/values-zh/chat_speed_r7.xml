@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+<string name="chat_speed_label">生成速度</string>
+<string name="chat_speed_unavailable">等待流式计时与用量报告；短突发或未测量的回复不估算速度。</string>
+</resources>

@@ -50,6 +50,7 @@ import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.GenerationPhase
 import me.rerere.rikkahub.data.model.generationPhase
 import me.rerere.rikkahub.data.model.pendingToolCalls
+import me.rerere.rikkahub.data.model.getAssistantOf
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.service.ChatFloatingTracker
 import me.rerere.rikkahub.service.ChatService
@@ -71,6 +72,7 @@ class ChatFloatingWindows(
     private val appScope: AppScope,
     private val tracker: ChatFloatingTracker,
     lazyChatService: Lazy<ChatService>,
+    private val settingsStore: me.rerere.rikkahub.data.datastore.SettingsStore,
 ) {
     private val chatService by lazyChatService
     private var bubble: FxControl? = null
@@ -139,7 +141,10 @@ class ChatFloatingWindows(
 
     private fun installBubble(): FxControl = FloatingX.install(BUBBLE_TAG) {
         compose {
-            WindowContent { state -> ChatFloatingBubble(state = state, onClick = tracker::expand) }
+            WindowContent { state ->
+                val settings by settingsStore.settingsFlow.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
+                ChatFloatingBubble(state = state, onClick = tracker::expand, companion = settings.displaySetting.floatingCompanion)
+            }
         }
         anchor(FxGravity.CENTER_END, dy = -dp(96f))
         margin(left = dp(8f), right = dp(8f))
@@ -190,8 +195,23 @@ class ChatFloatingWindows(
     @Composable
     private fun WindowContent(content: @Composable (FloatingChatUiState) -> Unit) {
         val state by uiState.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
+        val settings by settingsStore.settingsFlow.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
+        val conversationId = state?.conversationId
+        val conversationFlow = remember(conversationId) {
+            conversationId?.let { chatService.getConversationFlow(it) } ?: flowOf(null)
+        }
+        val conversation by conversationFlow.collectAsStateWithLifecycle(initialValue = null, minActiveState = Lifecycle.State.RESUMED)
+        val workspaceId = conversation?.let { settings.getAssistantOf(it).workspaceId?.toString() }
         RikkahubTheme {
-            CompositionLocalProvider(LocalUriHandler provides uriHandler) {
+            CompositionLocalProvider(
+                LocalUriHandler provides uriHandler,
+                me.rerere.rikkahub.ui.context.LocalWorkspaceId provides workspaceId,
+                me.rerere.rikkahub.ui.context.LocalWorkspaceArtifactOpener provides { id, link ->
+                    tracker.collapse()
+                    context.startActivity(me.rerere.rikkahub.workspaceArtifactIntent(context, id, link.path, link.fragment)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                },
+            ) {
                 state?.let { content(it) }
             }
         }

@@ -179,7 +179,7 @@ class BackupManager(
 
     companion object {
         private val ATTACHMENT_FOLDERS =
-            listOf(FileFolders.UPLOAD, FileFolders.SKILLS, FileFolders.FONTS, FileFolders.MEDIA_CREATION, "appearance_wallpapers", "msg_cache")
+            listOf(FileFolders.UPLOAD, FileFolders.SKILLS, FileFolders.FONTS, FileFolders.MEDIA_CREATION, "appearance_wallpapers", "floating_companions", "msg_cache")
 
         /** Backed up with their subdirectories; the other folders only contain top-level files. */
         private val NESTED_ATTACHMENT_FOLDERS = setOf(FileFolders.SKILLS, FileFolders.MEDIA_CREATION)

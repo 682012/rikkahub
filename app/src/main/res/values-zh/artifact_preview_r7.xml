@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="artifact_preview_previous_page">上一页</string>
+    <string name="artifact_preview_next_page">下一页</string>
+    <string name="artifact_preview_page_indicator">第 %1$d / %2$d 页</string>
+    <string name="artifact_preview_pdf_password">这个 PDF 需要密码，请用其他应用打开</string>
+    <string name="artifact_preview_pdf_corrupt">这个 PDF 已损坏或格式不受支持</string>
+    <string name="artifact_preview_pdf_failed">无法预览这个 PDF</string>
+    <string name="artifact_preview_fallback_hint">仍然可以用上面的按钮交给其他应用打开</string>
+    <string name="artifact_preview_office_note">仅提取 %1$s 文本，不还原排版、图片和表格样式</string>
+    <string name="artifact_preview_office_truncated">内容较长，预览已截断</string>
+    <string name="artifact_preview_archive_summary">%1$s 压缩包 · %2$d 个文件 · 解压后约 %3$s</string>
+    <string name="artifact_preview_archive_note">只列目录，不会解压到工作区</string>
+    <string name="artifact_preview_archive_truncated">条目过多，只显示前 %1$d 项</string>
+    <string name="artifact_preview_binary_summary">二进制文件 · %1$s · %2$s</string>
+    <string name="artifact_preview_binary_note">显示前 %1$d 字节的十六进制内容</string>
+    <string name="artifact_preview_media_play">播放</string>
+    <string name="artifact_preview_media_pause">暂停</string>
+    <string name="artifact_preview_media_restart">回到开头</string>
+    <string name="artifact_preview_empty">没有可预览的内容</string>
+</resources>

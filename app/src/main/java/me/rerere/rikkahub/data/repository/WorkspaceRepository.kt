@@ -343,6 +343,14 @@ class WorkspaceRepository(
         outputStream: OutputStream,
     ) = readFromBackend(id) { it.exportFile(area, path, outputStream) }
 
+    suspend fun artifactFileSize(id: String, path: String): Long = readFromBackend(id) { backend ->
+        if (backend is SshWorkspaceBackend) backend.artifactFileSize(path) else backend.absoluteFileSize(path)
+    }
+
+    suspend fun exportArtifactFile(id: String, path: String, outputStream: OutputStream) = readFromBackend(id) { backend ->
+        if (backend is SshWorkspaceBackend) backend.exportArtifactFile(path, outputStream) else backend.exportAbsoluteFile(path, outputStream)
+    }
+
     /** 按环境内绝对路径读取文件大小, 本地工作区支持 /workspace、bind mount 与 Rootfs 内部路径 */
     suspend fun absoluteFileSize(
         id: String,

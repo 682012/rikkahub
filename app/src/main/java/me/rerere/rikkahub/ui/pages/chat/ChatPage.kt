@@ -579,19 +579,15 @@ private fun TopBar(
     val styleSpec = rememberChatStyleSpec()
 
     val editTitleWarning = stringResource(R.string.chat_page_edit_title_warning)
-    val provider = chatModel?.findProvider(providers = settings.providers, checkOverwrite = false)
-    val metaText = if (chatModel != null && provider != null) {
-        "${assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) }} / " +
-            "${chatModel.displayName} (${provider.name})"
-    } else {
-        null
-    }
+    // 标题栏第二行固定是“提供商 · 模型”，助手名跟在后面；不再把模型信息塞给 meta
+    val metaText = assistant.name.ifBlank { stringResource(R.string.assistant_page_default_assistant) }
 
     // 标题栏本身按风格换形态；抽屉、编辑标题、用量、预览、新会话这些回调三套共用
     ChatStyleHeader(
         spec = styleSpec,
         settings = settings,
         conversation = conversation,
+        chatModel = chatModel,
         title = conversation.title.ifBlank { stringResource(R.string.chat_page_new_chat) },
         meta = metaText,
         bigScreen = bigScreen,

@@ -117,14 +117,29 @@ fun Context.openUsageAccessSettings() {
  */
 fun Context.openUrl(url: String) {
     Log.i(TAG, "openUrl: $url")
-    runCatching {
-        val intent = CustomTabsIntent.Builder()
-            .setShowTitle(true)
-            .build()
-        intent.launchUrl(this, url.toUri())
-    }.onFailure {
-        it.printStackTrace()
-        Toast.makeText(this, "Failed to open URL: $url", Toast.LENGTH_SHORT).show()
+    when (val link = WorkspaceArtifactLink.parse(url)) {
+        // 工作区文件要落到当前对话绑定工作区的预览页, Context 里拿不到导航和 workspaceId,
+        // 这里只提示, 绝不能交给浏览器
+        is WorkspaceArtifactLink.WorkspaceFile ->
+            Toast.makeText(this, "工作区文件请在对话里打开: ${link.path}", Toast.LENGTH_SHORT).show()
+
+        is WorkspaceArtifactLink.ExternalScheme -> openExternalScheme(link.raw).onFailure {
+            Toast.makeText(this, it.message ?: "没有可以处理这个链接的 App", Toast.LENGTH_SHORT).show()
+        }
+
+        is WorkspaceArtifactLink.Rejected ->
+            Toast.makeText(this, link.reason.message, Toast.LENGTH_SHORT).show()
+
+        is WorkspaceArtifactLink.Web -> runCatching {
+            val intent = CustomTabsIntent.Builder()
+                .setShowTitle(true)
+                .build()
+            if (getActivity() == null) intent.intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            intent.launchUrl(this, link.raw.toUri())
+        }.onFailure {
+            Log.e(TAG, "openUrl failed: $url", it)
+            Toast.makeText(this, "Failed to open URL: $url", Toast.LENGTH_SHORT).show()
+        }
     }
 }
 

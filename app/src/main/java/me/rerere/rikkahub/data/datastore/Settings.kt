@@ -219,6 +219,7 @@ data class DisplaySetting(
     val enableNotificationOnMessageGeneration: Boolean = false,
     val enableLiveUpdateNotification: Boolean = false,
     val enableFloatingChatWindow: Boolean = false,
+    val floatingCompanion: FloatingCompanionSettings = FloatingCompanionSettings(),
     val codeBlockAutoWrap: Boolean = false,
     val codeBlockAutoCollapse: Boolean = false,
     val showLineNumbers: Boolean = false,

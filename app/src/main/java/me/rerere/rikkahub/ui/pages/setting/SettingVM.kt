@@ -36,6 +36,12 @@ class SettingVM(
         }
     }
 
+    suspend fun persistFloatingCompanion(companion: me.rerere.rikkahub.data.datastore.FloatingCompanionSettings) {
+        settingsStore.update { latest ->
+            latest.copy(displaySetting = latest.displaySetting.copy(floatingCompanion = companion.normalized()))
+        }
+    }
+
     fun updateSettings(fn: (Settings) -> Settings) {
         viewModelScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
             settingsStore.update(fn)
