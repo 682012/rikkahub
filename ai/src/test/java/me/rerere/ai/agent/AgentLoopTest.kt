@@ -413,6 +413,106 @@ class AgentLoopTest {
         assertEquals(2, message.generationTiming?.totalSteps)
         // Buffered one-chunk steps cannot support a credible token/second measurement.
         assertNull(message.generationTiming?.speedTokensPerSecond)
+        // 一步都测不到时，原因要留着给 UI 说清楚，而不是只有一个破折号
+        assertEquals(
+            mapOf(GenerationSkipReason.SINGLE_PACKET to 2),
+            message.generationTiming?.skippedReasons,
+        )
+    }
+
+    @Test
+    fun `partially measured steps keep a weighted speed and coverage`() = runTest {
+        var now = 0L
+        provider.stream {
+            // 第一步有两个内容包、300ms 窗口，可以测
+            emit(StreamChunk.TextDelta("t", "let me search"))
+            now += 300_000_000L
+            toolCall("call-1", "search")
+            usage(100, 10)
+            finish()
+        }
+        provider.stream {
+            // 第二步整包缓冲，测不到：它的 token 不能进分子
+            text("answer")
+            usage(150, 20)
+            finish()
+        }
+
+        val message = runAgent(request(tools = listOf(tool("search"))), hooks) { now }
+            .toList()
+            .finished()
+            .message
+        val timing = message.generationTiming!!
+
+        assertEquals(2, timing.totalSteps)
+        assertEquals(1, timing.measuredSteps)
+        assertEquals(1, timing.skippedSteps)
+        assertEquals(30L, timing.outputTokens)
+        assertEquals(10L, timing.measuredTokens)
+        assertEquals(300L, timing.generationMs)
+        // 10 tok / 300ms；如果拿 30 tok 去除就是虚高的 100 tok/s
+        assertEquals(33.3333, timing.speedTokensPerSecond!!, 1e-3)
+        assertEquals(mapOf(GenerationSkipReason.SINGLE_PACKET to 1), timing.skippedReasons)
+    }
+
+    @Test
+    fun `retry timing restarts with the new attempt`() = runTest {
+        var now = 0L
+        provider.stream {
+            emit(StreamChunk.TextDelta("t", "partial"))
+            now += 400_000_000L
+            throw IOException("connection reset")
+        }
+        provider.stream {
+            emit(StreamChunk.TextDelta("t", "full"))
+            now += 300_000_000L
+            emit(StreamChunk.TextDelta("t", " reply"))
+            usage(10, 20)
+            finish()
+        }
+
+        val message = runAgent(request(retry = RetryPolicy.NETWORK), hooks) { now }
+            .toList()
+            .finished()
+            .message
+        val timing = message.generationTiming!!
+
+        assertEquals(1, timing.totalSteps)
+        assertEquals(1, timing.measuredSteps)
+        // 只算第二次尝试的 300ms；计时器没重建的话这里会是 700ms，速度被算低一半以上
+        assertEquals(300L, timing.generationMs)
+        assertEquals(66.6667, timing.speedTokensPerSecond!!, 1e-3)
+    }
+
+    @Test
+    fun `legacy steps without timing count as unknown coverage`() = runTest {
+        var now = 0L
+        val previous = UIMessage(
+            role = MessageRole.ASSISTANT,
+            parts = listOf(UIMessagePart.Text("old reply")),
+            usage = TokenUsage(promptTokens = 10, completionTokens = 5),
+            stepCount = 2,
+        )
+        provider.stream {
+            emit(StreamChunk.TextDelta("t", "new"))
+            now += 400_000_000L
+            emit(StreamChunk.TextDelta("t", " reply"))
+            usage(20, 20)
+            finish()
+        }
+
+        val message = runAgent(request(messages = listOf(UIMessage.user("hi"), previous)), hooks) { now }
+            .toList()
+            .finished()
+            .message
+        val timing = message.generationTiming!!
+
+        // 旧的两步没有计时记录：算进覆盖范围并注明来源，不能假装测到了
+        assertEquals(3, timing.totalSteps)
+        assertEquals(1, timing.measuredSteps)
+        assertEquals(mapOf(GenerationSkipReason.LEGACY_UNKNOWN to 2), timing.skippedReasons)
+        assertTrue(timing.isPartial)
+        assertEquals(50.0, timing.speedTokensPerSecond!!, 1e-3)
     }
 
     @Test

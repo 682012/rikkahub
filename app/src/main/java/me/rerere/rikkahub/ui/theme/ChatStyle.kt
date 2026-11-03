@@ -157,3 +157,12 @@ fun chatPanel(base: Color, strong: Boolean = false): Color = appearanceSurface(b
 /** 面板色但明确"这一层必须压得住字"（标题栏、抽屉、输入框）。 */
 @Composable
 fun chatPanelStrong(base: Color): Color = appearanceSurface(base, strong = true)
+
+/**
+ * 消息外框：包住一整条消息的那块大圆角卡片。
+ *
+ * 沉浸模式下这块直接透明——壁纸一路铺到消息之间，每条消息只留自己的轻薄正文底。
+ * 没壁纸或关了沉浸时还是原来的面板色，r9 观感一点不变。
+ */
+@Composable
+fun chatFrame(base: Color): Color = appearanceFrame(base)

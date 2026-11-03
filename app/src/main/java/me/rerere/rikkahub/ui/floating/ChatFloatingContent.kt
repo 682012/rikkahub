@@ -49,10 +49,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -75,6 +77,8 @@ import me.rerere.hugeicons.stroke.Tick01
 import me.rerere.hugeicons.stroke.Wrench01
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.tools.local.ASK_USER_TOOL_NAME
+import me.rerere.rikkahub.data.companion.CompanionAiState
+import me.rerere.rikkahub.data.companion.CompanionInteraction
 import me.rerere.rikkahub.data.datastore.FloatingCompanionPreset
 import me.rerere.rikkahub.data.datastore.FloatingCompanionSettings
 import me.rerere.rikkahub.ui.components.message.tools.ToolApprovalPreview
@@ -86,6 +90,7 @@ import me.rerere.rikkahub.ui.components.ui.logoMorphShape
 import me.rerere.rikkahub.ui.components.ui.rememberAppLogoLayers
 import me.rerere.rikkahub.ui.components.richtext.MaterialMarkdown
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -115,6 +120,8 @@ data class FloatingChatUiState(
     val queuePaused: Boolean,
     /** 这一轮出现的错误 */
     val error: ChatError?,
+    /** 本轮生成开始的时间（毫秒），用来给自动互动生成不会重复的事件键 */
+    val generationStartedAt: Long? = null,
 ) {
     val failed: Boolean get() = !generating && error != null
 }
@@ -132,12 +139,21 @@ fun ChatFloatingBubble(
     onClick: () -> Unit,
     companion: FloatingCompanionSettings = FloatingCompanionSettings(),
     onMinimizedChange: ((Boolean) -> Unit)? = null,
+    aiState: CompanionAiState = CompanionAiState(),
+    onAiTrigger: (() -> Unit)? = null,
 ) {
     val settings = remember(companion) { companion.normalized() }
     if (settings.effectivePreset == FloatingCompanionPreset.LOGO) {
         LogoChatFloatingBubble(state = state, onClick = onClick)
     } else {
-        PortraitCompanionBubble(state = state, companion = settings, onClick = onClick, onMinimizedChange = onMinimizedChange)
+        PortraitCompanionBubble(
+            state = state,
+            companion = settings,
+            onClick = onClick,
+            onMinimizedChange = onMinimizedChange,
+            aiState = aiState,
+            onAiTrigger = onAiTrigger,
+        )
     }
 }
 
@@ -209,6 +225,20 @@ private fun BoxScope.StatusBadge(icon: ImageVector, containerColor: Color, conte
     }
 }
 
+/** 面板里几个固定/滚动区域的测试标签：仪器测试按这些断言"输入栏没有被状态卡挤出去"。 */
+object FloatingPanelTestTags {
+    const val PANEL = "floating-panel"
+    const val SCROLL = "floating-panel-scroll"
+    const val REPLY_BAR = "floating-panel-reply-bar"
+    const val REPLY_INPUT = "floating-panel-reply-input"
+    const val REPLY_SEND = "floating-panel-reply-send"
+    const val REPLY_STOP = "floating-panel-reply-stop"
+}
+
+/** 键盘弹出时面板高度再收一档（面板贴顶，收完底部仍在键盘上方）。 */
+private const val KEYBOARD_SAFE_FRACTION = 0.6f
+private val KeyboardEditingMinHeight = 220.dp
+
 /** 展开后的面板：看进度、审批工具、停止生成和快速回复。[maxHeight] 是窗口能占的高度 */
 @Composable
 fun ChatFloatingPanel(
@@ -223,11 +253,48 @@ fun ChatFloatingPanel(
     onResumeQueue: () -> Unit,
     previewExpanded: Boolean = false,
     onPreviewExpandedChange: ((Boolean) -> Unit)? = null,
+    companionState: CompanionAiState = CompanionAiState(),
+    companionInteractions: List<CompanionInteraction> = emptyList(),
+    companionExpanded: Boolean = false,
+    onCompanionExpandedChange: ((Boolean) -> Unit)? = null,
+    onCompanionRefresh: () -> Unit = {},
+    onCompanionRetry: () -> Unit = {},
+    onCompanionStop: () -> Unit = {},
+    onCompanionSend: (String) -> Boolean = { false },
+    onCompanionOpenSettings: () -> Unit = {},
+    onCompanionEnableAi: (() -> Unit)? = null,
 ) {
     var localPreviewExpanded by rememberSaveable(state.conversationId.toString()) { mutableStateOf(previewExpanded) }
+    var localCompanionExpanded by rememberSaveable(state.conversationId.toString()) { mutableStateOf(companionExpanded) }
     val showPreview = if(onPreviewExpandedChange == null) localPreviewExpanded else previewExpanded
+    val showCompanion = if(onCompanionExpandedChange == null) localCompanionExpanded else companionExpanded
+    // 面板里的输入框在用键盘（就一句小助手输入、一封主聊天回复都一样）：面板贴屏幕顶部，
+    // 高度再收一档，输入栏和停止键才不会被键盘盖住；小屏大字下靠上面的滚动区滚动，功能都还在
+    var editing by remember { mutableStateOf(false) }
+    val contentMaxHeight = if (editing) {
+        (maxHeight * KEYBOARD_SAFE_FRACTION)
+            .coerceAtLeast(KeyboardEditingMinHeight)
+            .coerceAtMost(maxHeight)
+    } else {
+        maxHeight
+    }
+    val scrollState = rememberScrollState()
+    val pendingToolIds = state.pendingTools.map { it.toolCallId }
+    // 新的审批出现时滚到审批卡：批准/拒绝按钮不用用户自己在滚动区里找
+    LaunchedEffect(pendingToolIds) {
+        if (pendingToolIds.isEmpty()) return@LaunchedEffect
+        // 等这一层的测量结果出来再滚，第一帧的 maxValue 还是 0
+        snapshotFlow { scrollState.maxValue }.first { it > 0 }
+        scrollState.animateScrollTo(scrollState.maxValue)
+    }
     // Compact by default. Preview and pending approvals can scroll; the reply bar stays reachable.
-    Box(modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight), contentAlignment = Alignment.TopCenter) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = contentMaxHeight)
+            .testTag(FloatingPanelTestTags.PANEL),
+        contentAlignment = Alignment.TopCenter,
+    ) {
         Surface(
             modifier = Modifier
                 .widthIn(max = 560.dp)
@@ -247,44 +314,63 @@ fun ChatFloatingPanel(
                     onCollapse = onCollapse,
                     onDismiss = onDismiss,
                 )
-                // 多个审批、横屏或大字体时放不下，中间这段滚动，标题和输入栏始终可见
-                if (state.preview.isNotEmpty() || state.pendingTools.isNotEmpty() || state.queuedCount > 0) {
-                    Column(
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        if (state.preview.isNotEmpty()) {
-                            TextButton(onClick = {
-                                if(onPreviewExpandedChange != null) onPreviewExpandedChange(!showPreview)
-                                else localPreviewExpanded = !showPreview
-                            },modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                                Text(stringResource(if(showPreview) R.string.portrait_panel_collapse else R.string.portrait_panel_expand))
-                            }
-                            if(showPreview) MessagePreview(
-                                text = state.preview,
-                                isReasoning = state.previewIsReasoning,
-                                generating = state.generating,
-                            )
-                        }
-                        state.pendingTools.forEach { tool ->
-                            PendingToolCard(
-                                tool = tool,
-                                onApproval = { approved -> onToolApproval(tool.toolCallId, approved) },
-                                onOpenConversation = onOpenConversation,
-                            )
-                        }
-                        if (state.queuedCount > 0) {
-                            QueueRow(count = state.queuedCount, paused = state.queuePaused, onResume = onResumeQueue)
+                // 小助手的真实状态卡和主预览/审批/队列共用这一个受限滚动区：
+                // 状态卡展开只是让这里滚动，主聊天回复栏（发送/停止）不会被顶出面板
+                Column(
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .fillMaxWidth()
+                        .verticalScroll(scrollState)
+                        .testTag(FloatingPanelTestTags.SCROLL),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    CompanionAiStatusCard(
+                        state = companionState,
+                        interactions = companionInteractions,
+                        expanded = showCompanion,
+                        onExpandedChange = { expanded ->
+                            if (onCompanionExpandedChange != null) onCompanionExpandedChange(expanded)
+                            else localCompanionExpanded = expanded
+                        },
+                        onRefresh = onCompanionRefresh,
+                        onRetry = onCompanionRetry,
+                        onStop = onCompanionStop,
+                        onSend = onCompanionSend,
+                        onOpenSettings = onCompanionOpenSettings,
+                        onEnableAi = onCompanionEnableAi,
+                        onEditingChange = { editing = it },
+                    )
+                    if (state.preview.isNotEmpty()) {
+                        TextButton(onClick = {
+                            if(onPreviewExpandedChange != null) onPreviewExpandedChange(!showPreview)
+                            else localPreviewExpanded = !showPreview
+                        },modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                            Text(stringResource(if(showPreview) R.string.portrait_panel_collapse else R.string.portrait_panel_expand))
                         }
                     }
+                    if (showPreview && state.preview.isNotEmpty()) MessagePreview(
+                        text = state.preview,
+                        isReasoning = state.previewIsReasoning,
+                        generating = state.generating,
+                    )
+                    state.pendingTools.forEach { tool ->
+                        PendingToolCard(
+                            tool = tool,
+                            onApproval = { approved -> onToolApproval(tool.toolCallId, approved) },
+                            onOpenConversation = onOpenConversation,
+                        )
+                    }
+                    if (state.queuedCount > 0) {
+                        QueueRow(count = state.queuedCount, paused = state.queuePaused, onResume = onResumeQueue)
+                    }
                 }
+                // 主聊天的输入栏固定在最外层：滚动区再怎么长，发送和停止都在
                 ReplyBar(
                     conversationId = state.conversationId,
                     generating = state.generating,
                     onSend = onSend,
                     onStop = onStop,
+                    onEditingChange = { editing = it },
                 )
             }
         }
@@ -455,6 +541,7 @@ private fun ReplyBar(
     generating: Boolean,
     onSend: (String) -> Unit,
     onStop: () -> Unit,
+    onEditingChange: ((Boolean) -> Unit)? = null,
 ) {
     val focusManager = LocalFocusManager.current
     var text by rememberSaveable(conversationId) { mutableStateOf("") }
@@ -467,14 +554,24 @@ private fun ReplyBar(
         focusManager.clearFocus()
     }
 
+    val focusModifier = if (onEditingChange != null) {
+        Modifier.onFocusChanged { onEditingChange(it.isFocused) }
+    } else {
+        Modifier
+    }
+
     Row(
+        modifier = Modifier.fillMaxWidth().testTag(FloatingPanelTestTags.REPLY_BAR),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         TextField(
             value = text,
             onValueChange = { text = it },
-            modifier = Modifier.weight(1f),
+            modifier = Modifier
+                .weight(1f)
+                .testTag(FloatingPanelTestTags.REPLY_INPUT)
+                .then(focusModifier),
             // 生成中发送的消息会排队，等这一轮结束后再发
             placeholder = {
                 Text(
@@ -494,11 +591,18 @@ private fun ReplyBar(
             keyboardActions = KeyboardActions(onSend = { send() }),
         )
         if (generating) {
-            FilledTonalIconButton(onClick = onStop) {
+            FilledTonalIconButton(
+                onClick = onStop,
+                modifier = Modifier.testTag(FloatingPanelTestTags.REPLY_STOP),
+            ) {
                 Icon(HugeIcons.Stop, contentDescription = stringResource(R.string.stop))
             }
         }
-        FilledIconButton(onClick = ::send, enabled = text.isNotBlank()) {
+        FilledIconButton(
+            onClick = ::send,
+            enabled = text.isNotBlank(),
+            modifier = Modifier.testTag(FloatingPanelTestTags.REPLY_SEND),
+        ) {
             Icon(HugeIcons.ArrowUp02, contentDescription = stringResource(R.string.send))
         }
     }

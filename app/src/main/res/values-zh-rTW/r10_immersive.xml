@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r10_immersive_chat_title">沉浸聊天</string>
+    <string name="r10_immersive_chat_desc">有桌布時：移除訊息外的整塊厚卡片，內文只留一層輕薄文字底，頂部列與輸入區變成薄玻璃。關掉即恢復卡片。</string>
+    <string name="r10_immersive_panel_desc">沉浸模式下這一項決定文字底有多厚；對比保護會自動補上，桌布照樣看得到。</string>
+    <string name="r10_immersive_state_on">沉浸聊天已開啟</string>
+    <string name="r10_immersive_state_off">沉浸聊天已關閉</string>
+</resources>

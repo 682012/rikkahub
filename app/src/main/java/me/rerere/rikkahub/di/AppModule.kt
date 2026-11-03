@@ -99,6 +99,17 @@ val appModule = module {
             tracker = get(),
             settingsStore = get(),
             lazyChatService = lazy { get() },
+            companionSource = lazy { get() },
+        )
+    }
+
+    // 悬浮窗小助手的辅助请求：复用 ProviderManager / UsageRecorder，单独记 COMPANION 用量
+    single<me.rerere.rikkahub.data.companion.CompanionReplySource> {
+        me.rerere.rikkahub.data.ai.CompanionReplyGenerator(
+            settingsStore = get(),
+            providerManager = get(),
+            usageRecorder = get(),
+            lazyChatService = lazy { get() },
         )
     }
 

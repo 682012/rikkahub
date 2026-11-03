@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r10_speed_coverage">Measured %1$d/%2$d steps</string>
+    <string name="r10_speed_coverage_short">%1$d/%2$d steps</string>
+    <string name="r10_speed_reason_non_stream">Non-streaming step: no generation window to measure</string>
+    <string name="r10_speed_reason_no_tokens">The provider reported no output tokens for this step</string>
+    <string name="r10_speed_reason_single_packet">Step arrived as a single buffered packet</string>
+    <string name="r10_speed_reason_short_window">Generation window shorter than 200 ms</string>
+    <string name="r10_speed_reason_server_wait">Server tool or internal continuation wait mixed into the window</string>
+    <string name="r10_speed_reason_legacy">This reply has no timing record (older message)</string>
+    <string name="r10_speed_reason_unknown">No credible stream timing for this reply</string>
+    <string name="r10_speed_partial_note">Speed covers the measured steps only; unmeasured steps are excluded</string>
+</resources>

@@ -63,6 +63,16 @@ data class AppearanceSettings(
      * 展开后才显示详细 TPS 与上下文面板。写入统一走 ChatStyleHeader 的回调 + 设置仓库。
      */
     val chatHeaderExpanded: Boolean = false,
+    /**
+     * 有壁纸时的沉浸聊天（r10）：消息不再垫一整块厚卡片，正文只留一层轻薄文字底，
+     * 顶部栏与输入区改成半透明薄面板，缺的对比度由整层壁纸压暗补上。
+     *
+     * 默认开，但只在真的画着壁纸/渐变时才有区别——没有壁纸时这条开关完全不影响观感，
+     * 保持原来的默认外观。关掉就是“恢复卡片”，回到 r9 的厚卡片观感。
+     *
+     * 强度不新增滑块：沿用 [surfaceOpacity]（设置里叫“面板强度”），沉浸模式下它决定文字底有多厚。
+     */
+    val immersiveChat: Boolean = true,
 ) {
     /**
      * 把可能存在的坏值收敛成一份能直接拿去画的设置。
@@ -87,6 +97,12 @@ data class AppearanceSettings(
 
     /** 是否真的有一张壁纸可画（空字符串也算没有）。 */
     fun hasWallpaper(): Boolean = !wallpaper.isNullOrBlank()
+
+    /**
+     * 这一刻该不该按沉浸模式画：既要开关开着，也要底下真的有一层背景（壁纸或助手渐变）。
+     * 没背景时一律按原来的默认外观走。
+     */
+    fun immersiveChatActive(backgroundActive: Boolean): Boolean = immersiveChat && backgroundActive
 
     companion object {
         /** 面板不透明度的下限：再低消息会被壁纸吃掉。 */

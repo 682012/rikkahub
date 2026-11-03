@@ -41,6 +41,8 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.companion.CompanionAiPhase
+import me.rerere.rikkahub.data.companion.CompanionAiState
 import me.rerere.rikkahub.data.datastore.FloatingCompanionPreset
 import me.rerere.rikkahub.data.datastore.FloatingCompanionSettings
 import me.rerere.hugeicons.HugeIcons
@@ -56,6 +58,8 @@ fun PortraitCompanionBubble(
     onClick: () -> Unit,
     onMinimizedChange: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier,
+    aiState: CompanionAiState = CompanionAiState(),
+    onAiTrigger: (() -> Unit)? = null,
 ) {
     val settings=companion.normalized()
     val context=LocalContext.current
@@ -64,6 +68,7 @@ fun PortraitCompanionBubble(
     val animate=active && settings.animationEnabled
     val scope=rememberCoroutineScope()
     val latestClick by rememberUpdatedState(onClick)
+    val latestAiTrigger by rememberUpdatedState(onAiTrigger)
     val nextTap=remember { AtomicLong(0) }
     val breath=remember { Animatable(0f) }
     val greeting=remember { Animatable(0f) }
@@ -90,7 +95,12 @@ fun PortraitCompanionBubble(
         val now=System.nanoTime();val prior=nextTap.get()
         if(now<prior || !nextTap.compareAndSet(prior,now+1100_000_000L)) return
         responding=true
-        speech=settings.tapLinesOr(defaultLines).firstOrNull() ?: defaultLines.first()
+        // AI 回应开着时不再读静态台词：说什么由真实模型决定，气泡只显示控制器写进去的状态。
+        if (settings.aiEnabled && latestAiTrigger != null) {
+            latestAiTrigger?.invoke()
+        } else {
+            speech=settings.tapLinesOr(defaultLines).firstOrNull() ?: defaultLines.first()
+        }
         if(animate) scope.launch {
             greeting.snapTo(0f);greeting.animateTo(1f,spring(.55f,700f));greeting.animateTo(0f,spring(.8f,350f))
         }
@@ -104,7 +114,24 @@ fun PortraitCompanionBubble(
         if(!minimized) Box(
             Modifier.widthIn(max=180.dp).height(42.dp).padding(horizontal=2.dp),contentAlignment=Alignment.BottomCenter,
         ) {
-            val line=speech ?: when {state.pendingTools.isNotEmpty()->stringResource(R.string.portrait_approval);state.failed->stringResource(R.string.portrait_error);else->""}
+            // 状态直接来自控制器：思考中/生成中的是真实进度，完成显示模型真的说的话，失败/停止也照实写
+            val aiLine=when(aiState.phase) {
+                CompanionAiPhase.THINKING -> "…"
+                CompanionAiPhase.GENERATING -> aiState.text.takeLast(48)
+                CompanionAiPhase.COMPLETED -> aiState.text
+                CompanionAiPhase.FAILED -> context.getString(R.string.companion_bubble_failed)
+                CompanionAiPhase.CANCELLED -> context.getString(R.string.companion_bubble_stopped)
+                CompanionAiPhase.IDLE -> ""
+            }
+            // AI 开着但这一句其实没生成出来（没发出去/模型不能用）时照实说一句，
+            // 不拿静态台词冒充"模型刚说的"；AI 关着时下面照旧走固定台词
+            val aiHint = if (settings.aiEnabled && latestAiTrigger != null && aiState.phase == CompanionAiPhase.IDLE) {
+                aiState.model.failure?.let { companionFailureLabel(it) }
+                    ?: aiState.skipped?.let {
+                        context.getString(R.string.companion_status_skipped, companionSkipLabel(it.reason))
+                    }
+            } else null
+            val line=aiLine.ifEmpty { aiHint ?: speech ?: when {state.pendingTools.isNotEmpty()->stringResource(R.string.portrait_approval);state.failed->stringResource(R.string.portrait_error);else->""} }
             if(line.isNotEmpty()) Text(line,style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurface,
                 maxLines=2,overflow=TextOverflow.Ellipsis,modifier=Modifier.clip(RoundedCornerShape(10.dp))
                     .background(MaterialTheme.colorScheme.surface).padding(horizontal=8.dp,vertical=4.dp))

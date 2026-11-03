@@ -40,13 +40,14 @@ fun WallpaperBackdrop(
     modifier: Modifier = Modifier,
     onLoaded: (Boolean) -> Unit = {},
     onTone: (Color?) -> Unit = {},
+    onSample: (WallpaperSample?) -> Unit = {},
 ) {
     val options = appearance.normalized()
     val context = LocalContext.current
     val request = remember(context, source) { ImageRequest.Builder(context).data(source).allowHardware(false).build() }
     val scope = rememberCoroutineScope()
     var sampled by remember(source) { mutableStateOf(false) }
-    DisposableEffect(source) { onTone(null); onDispose {} }
+    DisposableEffect(source) { onTone(null); onSample(null); onDispose {} }
     var loaded by remember(source) { mutableStateOf(false) }
     Box(modifier.fillMaxSize()) {
         val blur = if (Build.VERSION.SDK_INT >= 31 && options.wallpaperBlur > 0f)
@@ -62,35 +63,47 @@ fun WallpaperBackdrop(
                 if (!sampled) {
                     sampled = true
                     scope.launch {
-                        val tone = withContext(Dispatchers.Default) {
+                        // 同一张小图同时给出主色调与明暗两端：沉浸模式的对比预算要用后者。
+                        val sample = withContext(Dispatchers.Default) {
                             runCatching {
                                 val bitmap = result.result.image.toBitmap(width = 24, height = 24, config = android.graphics.Bitmap.Config.ARGB_8888)
                                 val pixels = IntArray(bitmap.width * bitmap.height)
                                 bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-                                wallpaperTone(pixels)
+                                wallpaperSample(pixels)
                             }.onFailure { android.util.Log.w("WallpaperTone", "sample failed", it) }.getOrNull()
                         }
                         android.util.Log.d("WallpaperTone", "sample completed")
-                        onTone(tone)
+                        onSample(sample)
+                        onTone(sample?.tone)
                     }
                 }
             },
-            onError = { loaded = false; sampled = false; onLoaded(false); onTone(null) },
+            onError = { loaded = false; sampled = false; onLoaded(false); onTone(null); onSample(null) },
         )
         if (loaded) WallpaperProtection(options)
     }
 }
 
-/** Theme-colored endcaps keep both system bars readable even over white, black or busy images. */
+/**
+ * 壁纸遮罩。
+ *
+ * 默认（r9 观感）上下两端压到 0.96，保证状态栏/导航栏在任何图上都读得清。
+ * 沉浸模式换成“整片均匀压一格 + 上下一条很窄的加强带”：顶部栏、输入区能透出壁纸，
+ * 又不会在屏幕上下各留一大块黑边。
+ */
 @Composable
 fun WallpaperProtection(appearance: AppearanceSettings, modifier: Modifier = Modifier) {
-    val color = MaterialTheme.colorScheme.background
-    val scrim = appearance.normalized().wallpaperScrim
-    Box(modifier.fillMaxSize().background(Brush.verticalGradient(
-        0f to color.copy(alpha = 0.96f),
-        0.10f to color.copy(alpha = maxOf(scrim, 0.35f)),
-        0.32f to color.copy(alpha = scrim),
-        0.78f to color.copy(alpha = scrim),
-        1f to color.copy(alpha = 0.96f),
-    )))
+    val normalized = appearance.normalized()
+    val plan = LocalImmersiveContrast.current
+    val immersive = LocalImmersiveChat.current && plan != null
+    // 沉浸模式下压暗色必须和预算里那份一致，否则实际画面会比算出来的更亮/更暗。
+    val color = if (immersive && plan != null) plan.scrimColor else MaterialTheme.colorScheme.background
+    // 整层压暗不许比对比预算更亮，否则薄文字底会读不清。
+    val scrim = if (immersive) {
+        maxOf(normalized.wallpaperScrim, plan?.scrim ?: 0f)
+    } else {
+        normalized.wallpaperScrim
+    }
+    val stops = remember(color, scrim, immersive) { wallpaperProtectionStops(scrim, immersive, color) }
+    Box(modifier.fillMaxSize().background(Brush.verticalGradient(*stops.toTypedArray())))
 }

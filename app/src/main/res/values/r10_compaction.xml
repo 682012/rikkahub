@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r10: 上下文压缩把附件换成文本说明，assistant 图片不再上行 -->
+    <string name="r10_compaction_auto_status">Compressing context…</string>
+</resources>

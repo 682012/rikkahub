@@ -111,8 +111,10 @@ import me.rerere.rikkahub.ui.context.LocalASRState
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.hooks.ChatInputState
+import me.rerere.rikkahub.ui.theme.LocalImmersiveChat
 import me.rerere.rikkahub.ui.theme.chatPanelStrong
 import me.rerere.rikkahub.ui.theme.chatWallpaperActive
+import me.rerere.rikkahub.ui.theme.immersiveInputScrim
 import me.rerere.rikkahub.ui.theme.rememberChatStyleSpec
 import me.rerere.rikkahub.utils.SoundEffectPlayer
 import org.koin.compose.koinInject
@@ -221,7 +223,12 @@ fun ChatInput(
     // 底部渐变遮罩：从输入区顶部一直过渡到屏幕底部（键盘弹出时到键盘上沿），避免消息透到系统导航栏。
     // 有壁纸时不能铺满不透明的 background，否则会把壁纸挡住；改成按风格强度压一层半透明。
     val scrimColor = MaterialTheme.colorScheme.background
-    val scrimStrength = (styleSpec.inputScrimStrength * if (hasWallpaper) 0.6f else 1f).coerceIn(0f, 1f)
+    // 沉浸模式下这条底部渐变要收薄：否则输入区上方又是一条压住壁纸的深色带。
+    val scrimStrength = immersiveInputScrim(
+        styleStrength = styleSpec.inputScrimStrength,
+        hasWallpaper = hasWallpaper,
+        immersive = LocalImmersiveChat.current,
+    )
     val imeInsets = WindowInsets.ime
     Surface(
         color = Color.Transparent,

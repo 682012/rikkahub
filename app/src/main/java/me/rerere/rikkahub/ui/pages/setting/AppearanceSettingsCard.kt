@@ -267,6 +267,14 @@ fun AppearanceSettingsCard(
                 supportingContent = { Text(stringResource(R.string.appearance_wallpaper_immersive_desc)) },
                 headlineContent = { Text(stringResource(R.string.appearance_wallpaper_immersive_title)) },
             )
+            // r10 沉浸聊天：默认开，只在真的有壁纸时生效；关掉就是“恢复卡片”。
+            // 强度不另开滑块，沿用下面“面板强度”那一项，避免两套透明度互相打架。
+            switchItem(
+                checked = current.immersiveChat,
+                onCheckedChange = { immersive -> update { it.copy(immersiveChat = immersive) } },
+                headlineContent = { Text(stringResource(R.string.r10_immersive_chat_title)) },
+                supportingContent = { Text(stringResource(R.string.r10_immersive_chat_desc)) },
+            )
         }
 
         CardGroup(title = { Text(stringResource(R.string.appearance_wallpaper_display_section)) }) {
@@ -323,7 +331,12 @@ fun AppearanceSettingsCard(
                 value = current.surfaceOpacity,
                 valueRange = AppearanceSettings.MIN_SURFACE_OPACITY..1f,
                 steps = 3,
-                supportingContent = R.string.appearance_surface_opacity_desc,
+                // 沉浸模式下同一个滑块表示“文字底多厚”，语义变了，说明也跟着换。
+                supportingContent = if (current.immersiveChat) {
+                    R.string.r10_immersive_panel_desc
+                } else {
+                    R.string.appearance_surface_opacity_desc
+                },
                 onCommit = { value -> update { it.copy(surfaceOpacity = value) } },
             )
         }

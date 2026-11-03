@@ -4,6 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.io.File
 import java.net.URI
+import kotlin.uuid.Uuid
 
 /**
  * 悬浮窗收起时的角色。
@@ -36,9 +37,28 @@ enum class FloatingCompanionPreset {
 }
 
 /**
+ * 小助手用哪个模型生成台词（r10）。
+ *
+ * [OFF] 是默认值：不发任何请求，只显示设置里的静态台词；点了角色也只是打开面板。
+ * 用户挑一次模型之后（或者显式选"跟随当前会话"）点击、输入和自动互动才有真实模型参与。
+ * 选 [FIXED] 但模型被删掉时不会悄悄换成别的模型，而是明确报"没有配置模型"。
+ */
+@Serializable
+enum class CompanionModelMode {
+    @SerialName("off")
+    OFF,
+
+    @SerialName("follow_conversation")
+    FOLLOW_CONVERSATION,
+
+    @SerialName("fixed")
+    FIXED,
+}
+
+/**
  * 悬浮窗角色设置。
  *
- * 只描述"画什么、叫什么、说什么"，怎么画在 `ui/floating/FloatingCompanion.kt`。
+ * 只描述"画什么、叫什么、说什么、谁来想台词"，怎么画在 `ui/floating/FloatingCompanion.kt`。
  * 和 [AppearanceSettings] 一样，字段可能被手改 JSON 写坏（越界大小、空台词、乱七八糟的路径），
  * 读出来先过 [normalized] 再用。
  *
@@ -63,7 +83,24 @@ data class FloatingCompanionSettings(
     val minimized: Boolean = true,
     /** The preview inside the quick-reply panel is opt-in, not another permanent card. */
     val panelPreviewExpanded: Boolean = false,
+
+    // ---- r10：AI 小助手 ----
+
+    /** 台词由谁想：默认 [CompanionModelMode.OFF]，即不发请求、沿用静态台词。 */
+    val aiModelMode: CompanionModelMode = CompanionModelMode.OFF,
+    /** [CompanionModelMode.FIXED] 时用的模型；模型被删掉时报错，不自动换别的模型。 */
+    val aiModelId: Uuid? = null,
+    /** 自定义个性提示；空表示用内置角色提示（每个立绘一份，默认即用）。 */
+    val aiPersonaPrompt: String = "",
+    /** 自动互动（生成开始/结束、出错、等审批时主动说一句）需要显式打开。 */
+    val autoEventsEnabled: Boolean = false,
+    /** 面板里的小助手状态卡是否展开；和预览开关一样只是显示状态。 */
+    val companionStatusExpanded: Boolean = false,
 ) {
+    /** AI 回应是否开启；关着时点击、输入都不发请求。 */
+    val aiEnabled: Boolean
+        get() = aiModelMode != CompanionModelMode.OFF
+
     /** 真正要画的：选了自定义但没图时退回应用 logo，不留空白。 */
     val effectivePreset: FloatingCompanionPreset
         get() = when {
@@ -95,6 +132,9 @@ data class FloatingCompanionSettings(
             .take(FloatingCompanionLimits.MAX_TAP_LINES),
         sizeDp = safeSizeDp,
         animationEnabled = animationEnabled,
+        aiPersonaPrompt = aiPersonaPrompt.trim().take(FloatingCompanionLimits.MAX_PERSONA_LENGTH),
+        // 自动互动依赖 AI 回应：关掉 AI 后残留的 true 不应该在下次打开时凭空开始花钱
+        autoEventsEnabled = autoEventsEnabled && aiModelMode != CompanionModelMode.OFF,
     )
 }
 
@@ -122,6 +162,9 @@ object FloatingCompanionLimits {
     const val MAX_NAME_LENGTH = 24
     const val MAX_TAP_LINES = 8
     const val MAX_TAP_LINE_LENGTH = 80
+
+    /** 个性提示的字符上限：够写清楚人设，也不会把设置文件撑大。 */
+    const val MAX_PERSONA_LENGTH = 800
 
     /** 手指位移超过 touchSlop 的这么多倍就当成拖窗口，不触发点击。 */
     const val DRAG_SLOP_FACTOR = 1.0f

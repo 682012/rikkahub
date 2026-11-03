@@ -1,7 +1,7 @@
 package me.rerere.rikkahub.data.ai.prompts
 
 /**
- * 压缩指令，作为一条 user 消息追加在对话末尾，模型直接总结上方的对话历史。
+ * 压缩指令，写在压缩请求那条 user 消息里、排在角色标记的历史记录之后，模型直接总结上方的记录。
  * 摘要会替代之前的全部历史，按固定的结构输出，避免遗漏继续对话需要的信息。
  */
 internal fun buildCompressPrompt(

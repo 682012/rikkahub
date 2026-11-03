@@ -726,6 +726,7 @@ private fun sourceLabel(source: SourceUsage): String {
             UsageSource.MEMORY -> R.string.stats_page_source_memory
             UsageSource.OCR -> R.string.stats_page_source_ocr
             UsageSource.SUBAGENT -> R.string.stats_page_source_subagent
+            UsageSource.COMPANION -> R.string.stats_page_source_companion
         }
     )
 }

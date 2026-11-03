@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r10_immersive_chat_title">Immersive chat</string>
+    <string name="r10_immersive_chat_desc">With a wallpaper: drop the big message cards, keep a thin text base, and let the top bar and input turn into light glass. Turn off to bring the cards back.</string>
+    <string name="r10_immersive_panel_desc">Immersive: sets how thick the text base is. Contrast protection is added automatically, so the wallpaper still shows.</string>
+    <string name="r10_immersive_state_on">Immersive chat on</string>
+    <string name="r10_immersive_state_off">Immersive chat off</string>
+</resources>

@@ -52,15 +52,22 @@ import coil3.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import me.rerere.ai.provider.ModelType
+import me.rerere.ai.provider.ProviderSetting
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Delete02
 import me.rerere.hugeicons.stroke.Image02
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.companion.CompanionPersonas
+import me.rerere.rikkahub.data.datastore.CompanionModelMode
 import me.rerere.rikkahub.data.datastore.FloatingCompanionLimits
 import me.rerere.rikkahub.data.datastore.FloatingCompanionPreset
 import me.rerere.rikkahub.data.datastore.FloatingCompanionSettings
+import me.rerere.rikkahub.ui.components.ai.ModelSelector
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.CardGroupValue
+import me.rerere.rikkahub.ui.components.ui.ConnectedChoiceButtons
+import me.rerere.rikkahub.ui.components.ui.ConnectedChoiceLabel
 import me.rerere.rikkahub.ui.components.ui.switchItem
 import me.rerere.rikkahub.ui.floating.ChatFloatingBubble
 import me.rerere.rikkahub.ui.floating.FloatingCompanionFiles
@@ -81,6 +88,7 @@ fun FloatingCompanionSettingsCard(
     modifier: Modifier = Modifier,
     scrollable: Boolean = false,
     persistChange: (suspend (FloatingCompanionSettings) -> Unit)? = null,
+    providers: List<ProviderSetting> = emptyList(),
 ) {
     val current = remember(companion) { companion.normalized() }
     val latest by rememberUpdatedState(current)
@@ -331,6 +339,127 @@ fun FloatingCompanionSettingsCard(
             }
         }
 
+        CardGroup(title = { Text(stringResource(R.string.floating_companion_section_ai)) }) {
+            switchItem(
+                checked = current.aiEnabled,
+                onCheckedChange = { enabled ->
+                    update {
+                        it.copy(
+                            // 打开就用"跟随当前会话"，这是最省事的一种；想固定某个模型再切
+                            aiModelMode = if (!enabled) {
+                                CompanionModelMode.OFF
+                            } else if (it.aiModelMode == CompanionModelMode.OFF) {
+                                CompanionModelMode.FOLLOW_CONVERSATION
+                            } else {
+                                it.aiModelMode
+                            },
+                            autoEventsEnabled = if (enabled) it.autoEventsEnabled else false,
+                        )
+                    }
+                },
+                headlineContent = { Text(stringResource(R.string.companion_ai_title)) },
+                supportingContent = { Text(stringResource(R.string.companion_ai_desc)) },
+            )
+            if (current.aiEnabled) {
+                formItem(
+                    headlineContent = { Text(stringResource(R.string.companion_ai_mode_title)) },
+                    supportingContent = { Text(stringResource(R.string.companion_ai_mode_desc)) },
+                ) {
+                    ConnectedChoiceButtons(
+                        options = listOf(CompanionModelMode.FOLLOW_CONVERSATION, CompanionModelMode.FIXED),
+                        selected = current.aiModelMode,
+                        onSelect = { mode -> update { it.copy(aiModelMode = mode) } },
+                    ) { option, selected ->
+                        ConnectedChoiceLabel(
+                            text = stringResource(
+                                if (option == CompanionModelMode.FOLLOW_CONVERSATION) {
+                                    R.string.companion_ai_mode_follow
+                                } else {
+                                    R.string.companion_ai_mode_fixed
+                                }
+                            ),
+                            selected = selected,
+                        )
+                    }
+                }
+                when (current.aiModelMode) {
+                    // 跟随会话只借用模型，不把聊天内容发出去，这一点写在界面上
+                    CompanionModelMode.FOLLOW_CONVERSATION -> formItem(
+                        headlineContent = { Text(stringResource(R.string.companion_ai_follow_title)) },
+                        supportingContent = { Text(stringResource(R.string.companion_ai_follow_privacy)) },
+                    ) {
+                        Text(
+                            text = stringResource(R.string.companion_ai_follow_note),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    CompanionModelMode.FIXED -> formItem(
+                        headlineContent = { Text(stringResource(R.string.companion_ai_model_title)) },
+                        supportingContent = { Text(stringResource(R.string.companion_ai_model_desc)) },
+                    ) {
+                        ModelSelector(
+                            modelId = current.aiModelId,
+                            providers = providers,
+                            type = ModelType.CHAT,
+                            onSelect = { model -> update { it.copy(aiModelId = model.id) } },
+                        )
+                        if (current.aiModelId == null) {
+                            Text(
+                                text = stringResource(R.string.companion_ai_model_missing),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
+                        }
+                    }
+
+                    CompanionModelMode.OFF -> Unit
+                }
+                switchItem(
+                    checked = current.autoEventsEnabled,
+                    onCheckedChange = { enabled -> update { it.copy(autoEventsEnabled = enabled) } },
+                    headlineContent = { Text(stringResource(R.string.companion_auto_title)) },
+                    supportingContent = { Text(stringResource(R.string.companion_auto_desc)) },
+                )
+                formItem(
+                    headlineContent = { Text(stringResource(R.string.companion_persona_title)) },
+                    supportingContent = {
+                        Text(
+                            stringResource(
+                                R.string.companion_persona_desc,
+                                builtInPersonaSummary(current.effectivePreset),
+                            )
+                        )
+                    },
+                ) {
+                    OutlinedTextField(
+                        value = current.aiPersonaPrompt,
+                        onValueChange = { value ->
+                            update {
+                                it.copy(aiPersonaPrompt = value.take(FloatingCompanionLimits.MAX_PERSONA_LENGTH))
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 2,
+                        maxLines = 5,
+                        placeholder = { Text(builtInPersonaSummary(current.effectivePreset)) },
+                    )
+                    if (current.aiPersonaPrompt.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                        ) {
+                            TextButton(onClick = { update { it.copy(aiPersonaPrompt = "") } }) {
+                                Text(stringResource(R.string.companion_persona_reset))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         CardGroup(title = { Text(stringResource(R.string.floating_companion_section_behavior)) }) {
             formItem(
                 headlineContent = { Text(stringResource(R.string.floating_companion_size_title)) },
@@ -467,6 +596,19 @@ private fun CompanionImageRow(
     }
 }
 
+/** 内置人设的一句话说明；个性输入框留空时就是它在起作用。 */
+@Composable
+private fun builtInPersonaSummary(preset: FloatingCompanionPreset): String = stringResource(
+    when (CompanionPersonas.summaryKey(preset)) {
+        "dragon_girl" -> R.string.companion_persona_builtin_dragon_girl
+        "sun_reader" -> R.string.companion_persona_builtin_sun_reader
+        "whale_maid" -> R.string.companion_persona_builtin_whale_maid
+        "cat" -> R.string.companion_persona_builtin_cat
+        "logo" -> R.string.companion_persona_builtin_logo
+        else -> R.string.companion_persona_builtin_custom
+    }
+)
+
 /**
  * 放进设置页 LazyColumn 用：
  * ```
@@ -480,12 +622,14 @@ fun LazyListScope.floatingCompanionSettingsItem(
     companion: FloatingCompanionSettings,
     onChange: (FloatingCompanionSettings) -> Unit,
     persistChange: (suspend (FloatingCompanionSettings) -> Unit)? = null,
+    providers: List<ProviderSetting> = emptyList(),
 ) {
     item {
         FloatingCompanionSettingsCard(
             companion = companion,
             onChange = onChange,
             persistChange = persistChange,
+            providers = providers,
         )
     }
 }

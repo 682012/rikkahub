@@ -34,6 +34,8 @@ internal class AgentLoop(
     private val request: AgentRequest,
     private val hooks: AgentHooks,
     private val events: FlowCollector<AgentEvent>,
+    // 单调时钟来源：生产用 System.nanoTime，测试可注入才能覆盖重试/多步窗口这类时间行为
+    private val nanoTime: () -> Long = System::nanoTime,
 ) {
     private val history: List<UIMessage>
 
@@ -135,7 +137,9 @@ internal class AgentLoop(
                 // 各次尝试共用同一个消息 id，调用方直接覆盖即可。
                 val handler = StreamChunkHandler(params.model)
                 var attempt = stepStart
-                val timer = GenerationTimer()
+                // 计时器必须每次尝试重建：上一次失败的半截内容不能算进这一次的生成窗口，
+                // 否则窗口里会混进重试的网络等待，速度被算低。
+                val timer = GenerationTimer(nanoTime)
                 previews.beginAttempt()
                 request.provider.streamText(request.providerSetting, messages, params).collect { chunk ->
                     try {
@@ -168,9 +172,9 @@ internal class AgentLoop(
         base: UIMessage,
     ): UIMessage {
         // 非流式拿不到首 token 时间，只能统计最后一次尝试的整个请求耗时
-        var timer = GenerationTimer()
+        var timer = GenerationTimer(nanoTime)
         val result = withRetry(request.retry, onRetry = { events.emit(AgentEvent.Retrying(it)) }) {
-            timer = GenerationTimer()
+            timer = GenerationTimer(nanoTime)
             request.provider.generateText(request.providerSetting, messages, params)
         }
         val timing = timer.finish(result.usage?.completionTokens, streaming = false)
@@ -435,8 +439,15 @@ private fun errorOutput(error: String): List<UIMessagePart> =
 
 // 把本步的 usage 和生成耗时累加到之前步骤的统计上；接收者只带本步的 usage
 private fun UIMessage.withStepStats(stepBase: UIMessage, timing: GenerationTiming): UIMessage {
+    val knownSteps = stepBase.stepCount ?: if (stepBase.usage != null || stepBase.parts.isNotEmpty()) 1 else 0
     val previous = stepBase.generationTiming ?: GenerationTiming(
-        totalSteps = stepBase.stepCount ?: if (stepBase.usage != null) 1 else 0,
+        totalSteps = knownSteps,
+        // 旧消息本来就没有计时记录：这些步骤要算进覆盖范围，但只能注明「不知道」而不是当成已测
+        skippedReasons = if (knownSteps > 0) {
+            mapOf(GenerationSkipReason.LEGACY_UNKNOWN to knownSteps)
+        } else {
+            emptyMap()
+        },
     )
     val combined = previous.add(timing)
     return copy(

@@ -192,6 +192,7 @@ fun SettingPreferencesNotificationPage(vm: SettingVM = koinViewModel()) {
                     displaySetting = displaySetting.copy(floatingCompanion = companion)
                 },
                 persistChange = vm::persistFloatingCompanion,
+                providers = settings.providers,
             )
         }
     }

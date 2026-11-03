@@ -971,7 +971,7 @@ class ChatService(
         if (!plan.exceedsThreshold(chatModel.contextLength, config.thresholdPercent)) return
         val compressionModel = config.modelId?.let { settings.findModelById(it) }
         val turn = requestFactory.createContext(settings, snapshot, compressionModel?.takeUnless { it.id == chatModel.id })
-        session.processingStatus.value = "正在压缩上下文…"
+        session.processingStatus.value = context.getString(R.string.r10_compaction_auto_status)
         try {
             val summary = requestFactory.generateCompressionSummary(
                 turn = turn,
@@ -998,8 +998,9 @@ class ChatService(
     /**
      * 把上一个检查点之后的消息压缩成摘要检查点。
      *
-     * [keepRecentMessages] 为 0 时压缩全部消息，请求和上一轮对话前缀一致，缓存命中最好；
-     * 大于 0 时最近的这些消息不参与压缩、留在检查点之后，对话已经超出模型上下文、整段发不出去时用来缩小压缩请求。
+     * [keepRecentMessages] 为 0 时压缩全部消息；大于 0 时最近的这些消息不参与压缩、留在检查点之后，
+     * 对话已经超出模型上下文时用来缩小压缩请求。
+     * 压缩请求本身是纯文本摘要输入（见 CompactionRequestMessages），历史里的图片不会原样上传。
      */
     suspend fun compressConversation(
         conversationId: Uuid,

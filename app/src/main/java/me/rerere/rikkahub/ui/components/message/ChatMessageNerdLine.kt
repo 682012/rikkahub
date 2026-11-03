@@ -37,6 +37,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -50,6 +51,12 @@ import me.rerere.hugeicons.stroke.Zap
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.ui.context.LocalSettings
+import me.rerere.rikkahub.ui.pages.chat.ChatSpeedCoverageTag
+import me.rerere.rikkahub.ui.pages.chat.ChatSpeedUi
+import me.rerere.rikkahub.ui.pages.chat.chatSpeedCoverageShortText
+import me.rerere.rikkahub.ui.pages.chat.chatSpeedCoverageText
+import me.rerere.rikkahub.ui.pages.chat.chatSpeedReasonText
+import me.rerere.rikkahub.ui.pages.chat.chatSpeedUi
 import me.rerere.rikkahub.utils.formatNumber
 import me.rerere.rikkahub.utils.toFixed
 import java.text.NumberFormat
@@ -110,7 +117,13 @@ fun ChatMessageNerdLine(
                     }
                     StatsItem(
                         icon = { StatsIcon(HugeIcons.Zap, stringResource(R.string.chat_message_usage_speed)) },
-                        content = { Text(text = if (stats.tps != null) "${stats.tps.toFixed(1)} tok/s" else "— tok/s") }
+                        content = {
+                            // 与顶部标题栏同一份文本：部分步骤测不准时也显示加权值，不再整条变占位符
+                            Text(text = stats.speed.valueText)
+                            chatSpeedCoverageShortText(stats.speed)?.let { coverage ->
+                                Text(text = coverage, modifier = Modifier.testTag(ChatSpeedCoverageTag))
+                            }
+                        }
                     )
                     StatsItem(
                         icon = { StatsIcon(HugeIcons.Layers01, stringResource(R.string.chat_message_usage_context)) },
@@ -152,7 +165,19 @@ private fun UsageDetails(stats: NerdStats, contextLength: Int?) {
             if (total.cachedTokens > 0) UsageDetailRow(stringResource(R.string.chat_message_usage_total_cached), total.cachedTokens.exact())
             UsageDetailRow(stringResource(R.string.chat_message_usage_total_output), total.completionTokens.exact())
         }
-        if (stats.tps != null) UsageDetailRow("流式吞吐", "${stats.tps.toFixed(1)} tok/s")
+        if (stats.speed.speed != null) UsageDetailRow("流式吞吐", stats.speed.valueText)
+        // 部分可信时把覆盖步数和原因写清楚：数值只统计这几步，缺的步骤不再无声消失
+        chatSpeedCoverageText(stats.speed)?.let { UsageDetailRow("已测步骤", it) }
+        if (stats.speed.speed != null && stats.speed.hasCoverage) {
+            Text(
+                stringResource(R.string.r10_speed_partial_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        chatSpeedReasonText(stats.speed)?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         if (stats.durationMillis != null) UsageDetailRow(if (stats.legacy) "全程耗时（旧记录）" else "已记录请求耗时", "${(stats.durationMillis / 1000f).toFixed(1)}s")
     }
 }
@@ -302,7 +327,8 @@ private data class NerdStats(
     val steps: Int,
     val contextTokens: Int?,
     val durationMillis: Long?,
-    val tps: Float?,
+    /** 与顶部标题栏同一份速度口径：数值、覆盖步数、缺测原因都在这里。 */
+    val speed: ChatSpeedUi,
     val firstContentMs: Long?,
     val legacy: Boolean,
 )
@@ -322,7 +348,8 @@ private fun UIMessage.nerdStats(usage: TokenUsage): NerdStats {
         steps = stepCount ?: 1,
         contextTokens = contextTokens(),
         durationMillis = durationMillis,
-        tps = if (finishedAt != null) generationTiming?.speedTokensPerSecond?.toFloat() else null,
+        // 还没生成完就先不报数：这时候的窗口没结束，报出来只会跳变
+        speed = generationTiming.chatSpeedUi(finished = finishedAt != null),
         firstContentMs = generationTiming?.firstContentMs,
         legacy = generationTiming == null,
     )

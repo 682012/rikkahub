@@ -80,6 +80,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalScrollCaptureInProgress
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -107,6 +108,8 @@ import me.rerere.rikkahub.ui.components.message.ChatMessage
 import me.rerere.rikkahub.ui.components.ui.ErrorCardsDisplay
 import me.rerere.rikkahub.ui.hooks.ImeLazyListAutoScroller
 import me.rerere.rikkahub.ui.theme.ChatFontProvider
+import me.rerere.rikkahub.ui.theme.LocalImmersiveChat
+import me.rerere.rikkahub.ui.theme.chatPanel
 import me.rerere.rikkahub.ui.theme.rememberChatStyleSpec
 import me.rerere.rikkahub.utils.plus
 import me.rerere.ui.components.ListSelectableItem
@@ -117,6 +120,9 @@ import kotlin.uuid.Uuid
 private const val TAG = "ChatList"
 private const val LoadingIndicatorKey = "LoadingIndicator"
 private const val ScrollBottomKey = "ScrollBottomKey"
+
+/** 聊天列表根节点：像素/语义测试用它定位“消息画布”本身（沉浸模式下这块必须透出壁纸）。 */
+internal const val ChatListRootTag = "chat_list_root"
 
 @Composable
 fun ChatList(
@@ -299,7 +305,9 @@ private fun ChatListNormal(
 
     Box(
         modifier = Modifier
-            .fillMaxSize(),
+            .fillMaxSize()
+            // 沉浸模式下这块必须是透明的：壁纸直接铺到消息之间，而不是再垫一层页面底。
+            .testTag(ChatListRootTag),
     ) {
         // 自动滚动到底部
         if (settings.displaySetting.enableAutoScroll) {
@@ -765,13 +773,20 @@ private fun ChatSuggestionsRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         items(conversation.chatSuggestions) { suggestion ->
+            val immersive = LocalImmersiveChat.current
+            // 沉浸模式下建议条也跟着变薄，不然底下一排不透明小胶囊又成了“黑块”。
+            val chipColor = if (immersive) {
+                chatPanel(MaterialTheme.colorScheme.surfaceContainerHigh)
+            } else {
+                MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
+            }
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .clickable {
                         onClickSuggestion(suggestion)
                     }
-                    .background(MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp))
+                    .background(chipColor)
                     .padding(vertical = 4.dp, horizontal = 8.dp),
             ) {
                 Text(

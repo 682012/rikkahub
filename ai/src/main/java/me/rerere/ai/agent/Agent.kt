@@ -93,7 +93,12 @@ sealed interface AgentFinishReason {
  * 返回的 Flow 不切换调度器，Provider 请求和工具执行都在收集方的上下文里运行，需要时由调用方 flowOn。
  * 取消时直接抛出，最后一个 [AgentEvent.MessageUpdated] 就是取消前的状态，已经执行完的工具结果都在里面。
  */
-fun runAgent(request: AgentRequest, hooks: AgentHooks): Flow<AgentEvent> = flow {
+fun runAgent(
+    request: AgentRequest,
+    hooks: AgentHooks,
+    // 计时用的单调时钟；默认生产时钟，测试可注入固定时钟来验证窗口/重试口径
+    nanoTime: () -> Long = System::nanoTime,
+): Flow<AgentEvent> = flow {
     require(request.maxSteps > 0) { "maxSteps must be positive" }
-    AgentLoop(request, hooks, this).run()
+    AgentLoop(request, hooks, this, nanoTime).run()
 }

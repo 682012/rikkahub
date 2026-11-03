@@ -9,6 +9,7 @@ import me.rerere.ai.agent.RetryDelay
 import me.rerere.ai.agent.RetryPolicy
 import me.rerere.ai.agent.StepRequest
 import me.rerere.ai.agent.withRetry
+import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.Model
@@ -60,8 +61,8 @@ private const val TAG = "ChatRequestFactory"
 /**
  * 一轮对话的请求上下文，按会话固定的配置解析一次。
  *
- * 正常对话和压缩用同一份上下文组装请求，系统提示词、工具定义、参数和 sessionId 都相同，
- * 压缩请求的前缀才能和上一轮对话一致，命中提示词缓存。
+ * 正常对话和压缩用同一份上下文组装请求，系统提示词、工具定义、参数和 sessionId 都相同；
+ * 压缩请求的历史部分会压成纯文本（见 [CompactionRequestMessages]），因此只有 system 前缀一致。
  */
 class ChatTurnContext(
     val settings: Settings,
@@ -100,6 +101,11 @@ class ChatRequestFactory(
         Base64ImageToLocalFileTransformer,
         RegexOutputTransformer,
     )
+
+    // 压缩请求不走 OCR：OCR 是另一次视觉请求，压缩只需要知道"这里有张图片"，
+    // 为了看图新增一次对外请求（可能还换来未授权的外传）不值得
+    private val compactionInputTransformers: List<InputMessageTransformer> =
+        inputTransformers.filterNot { it === OcrTransformer }
 
     /** 解析本轮的助手、模型、记忆和工具；MCP 服务名不合法时抛出 InvalidMcpServerNamesException */
     suspend fun createContext(
@@ -187,10 +193,14 @@ class ChatRequestFactory(
     /**
      * 生成压缩摘要。
      *
-     * 请求按正常对话组装（系统提示词、参数和 sessionId 都相同），只在末尾追加压缩指令，
-     * 前缀与上一轮对话一致；历史里的工具调用和结果仍然随消息发出去，模型能看到。
-     * OpenAI/Claude 保留工具定义但强制 tool_choice=none，使 tools/system 前缀可复用；
-     * 其余协议仍移除工具。压缩后历史本身改变，会自然重建消息缓存，不声称百分百命中。
+     * 系统提示词、参数和 sessionId 与正常对话相同，历史部分则交给 [CompactionRequestMessages]
+     * 压成带角色标记的纯文本：assistant 图片、内联 base64 和超长工具输出都不会进入压缩请求。
+     * OpenAI 兼容的转发层（LiteLLM 等）会直接拒绝 assistant 消息里的图片，历史里有一条就会
+     * 400 `Images in assistant messages are not supported`，压缩只需要文字，没必要冒这个险。
+     *
+     * 纯文本历史继续沿用正常对话的角色结构与缓存前缀；只有包含附件的压缩范围
+     * 才走文本转写，兼容不接受 assistant 图片或非视觉模型的上游。
+     * OpenAI/Claude 保留工具定义但强制 tool_choice=none，其余协议移除工具。
      */
     suspend fun generateCompressionSummary(
         turn: ChatTurnContext,
@@ -201,7 +211,13 @@ class ChatRequestFactory(
         // still drop definitions. Never trade summary correctness for cache hits.
         val preserveDefinitions = turn.providerSetting.canDisableToolCallsWithDefinitions
         suspend fun generate(keepDefinitions: Boolean): UIMessage {
-            val (requestMessages, params) = buildStep(turn, messages, includeTools = keepDefinitions)
+            val step = if (CompactionRequestMessages.requiresAdaptation(messages)) {
+                buildCompactionStep(turn, messages, compressPrompt, includeTools = keepDefinitions)
+            } else {
+                // Text-only history retains the existing role structure and cache prefix.
+                buildStep(turn, messages + UIMessage.user(compressPrompt), includeTools = keepDefinitions)
+            }
+            val params = step.params
             return withRetry(
                 policy = turn.settings.retryPolicy().copy(networkHandover = providerManager.networkHandover),
                 onRetry = { Log.w(TAG, "Compression request failed, retrying in ${it.delay}", it.cause) },
@@ -211,7 +227,7 @@ class ChatRequestFactory(
                     UsageTag(UsageSource.COMPRESSION, turn.assistant.id, turn.conversationId),
                 ).generateText(
                     providerSetting = turn.providerSetting,
-                    messages = requestMessages + UIMessage.user(compressPrompt),
+                    messages = step.messages,
                     params = params.copy(
                         maxTokens = null,
                         disableToolCalls = keepDefinitions,
@@ -235,7 +251,7 @@ class ChatRequestFactory(
         return summary.ifBlank { error("Failed to generate compressed summary") }
     }
 
-    /** 一步请求实际发出的消息和参数；正常对话和压缩共用，二者的请求前缀必须一致才能命中提示词缓存 */
+    /** 一步对话请求实际发出的消息和参数 */
     private suspend fun buildStep(
         turn: ChatTurnContext,
         messages: List<UIMessage>,
@@ -246,31 +262,7 @@ class ChatRequestFactory(
         // 压缩/摘要这类后台请求把工具摘掉，避免模型抢着调工具
         val tools = if (includeTools) turn.tools else emptyList()
         val requestMessages = buildList {
-            val system = buildString {
-                val effectiveSystemPrompt =
-                    if (assistant.allowConversationSystemPrompt && !turn.conversationSystemPrompt.isNullOrBlank()) {
-                        turn.conversationSystemPrompt
-                    } else {
-                        assistant.systemPrompt
-                    }
-                if (effectiveSystemPrompt.isNotBlank()) {
-                    append(effectiveSystemPrompt)
-                }
-
-                // 记忆
-                if (assistant.enableMemory) {
-                    appendLine()
-                    append(buildMemoryPrompt(turn.memories))
-                }
-                // 工具prompt
-                tools.forEach { tool ->
-                    appendLine()
-                    append(tool.systemPrompt(turn.model, messages))
-                }
-            }
-            if (system.isNotBlank()) {
-                add(UIMessage.system(prompt = system).copy(isSynthetic = true))
-            }
+            buildSystemMessage(turn, tools, messages)?.let { add(it) }
             addAll(messages.limitContext(assistant.contextMessageLimit))
         }.transforms(
             transformers = inputTransformers,
@@ -281,25 +273,95 @@ class ChatRequestFactory(
             processingStatus = processingStatus,
             workspaceCwd = turn.workspaceCwd,
         ).expandNotices()
-        val params = TextGenerationParams(
-            model = turn.model,
-            temperature = assistant.temperature,
-            topP = assistant.topP,
-            maxTokens = assistant.maxTokens,
-            tools = tools,
-            reasoningLevel = assistant.reasoningLevel,
-            customHeaders = buildList {
-                addAll(assistant.customHeaders)
-                addAll(turn.model.customHeaders)
-            },
-            customBody = buildList {
-                addAll(assistant.customBodies)
-                addAll(turn.model.customBodies)
-            },
-            sessionId = turn.conversationId.toString(),
-        )
-        return StepRequest(requestMessages, params)
+        return StepRequest(requestMessages, buildParams(turn, tools))
     }
+
+    /**
+     * 压缩请求的消息和参数。
+     *
+     * 历史照常裁剪、文档照常转文本，但不走 OCR：为了看图再发一次视觉请求，等于凭空多一次对外传输。
+     * 转换后的历史交给 [CompactionRequestMessages] 压成带角色标记的纯文本，
+     * assistant 图片、内联 base64、超长工具输出都不会出现在要发的消息里。
+     */
+    private suspend fun buildCompactionStep(
+        turn: ChatTurnContext,
+        messages: List<UIMessage>,
+        compressPrompt: String,
+        includeTools: Boolean,
+    ): StepRequest {
+        val tools = if (includeTools) turn.tools else emptyList()
+        // 系统提示同样要走输入转换：占位符、提示词注入和工作区规则在压缩请求里也要生效
+        val transformed = buildList {
+            buildSystemMessage(turn, tools, messages)?.let { add(it) }
+            addAll(messages.limitContext(turn.assistant.contextMessageLimit))
+        }.transforms(
+            transformers = compactionInputTransformers,
+            context = context,
+            model = turn.model,
+            assistant = turn.assistant,
+            settings = turn.settings,
+            workspaceCwd = turn.workspaceCwd,
+        )
+        val system = transformed.firstOrNull { it.role == MessageRole.SYSTEM }
+        return StepRequest(
+            messages = CompactionRequestMessages.build(
+                system = system,
+                history = if (system == null) transformed else transformed.filterNot { it === system },
+                compressPrompt = compressPrompt,
+            ),
+            params = buildParams(turn, tools),
+        )
+    }
+
+    /** 系统提示词：助手提示词（或会话级提示词）+ 记忆 + 工具说明，正常对话和压缩共用 */
+    private fun buildSystemMessage(
+        turn: ChatTurnContext,
+        tools: List<Tool>,
+        messages: List<UIMessage>,
+    ): UIMessage? {
+        val assistant = turn.assistant
+        val system = buildString {
+            val effectiveSystemPrompt =
+                if (assistant.allowConversationSystemPrompt && !turn.conversationSystemPrompt.isNullOrBlank()) {
+                    turn.conversationSystemPrompt
+                } else {
+                    assistant.systemPrompt
+                }
+            if (effectiveSystemPrompt.isNotBlank()) {
+                append(effectiveSystemPrompt)
+            }
+
+            // 记忆
+            if (assistant.enableMemory) {
+                appendLine()
+                append(buildMemoryPrompt(turn.memories))
+            }
+            // 工具prompt
+            tools.forEach { tool ->
+                appendLine()
+                append(tool.systemPrompt(turn.model, messages))
+            }
+        }
+        return if (system.isNotBlank()) UIMessage.system(prompt = system).copy(isSynthetic = true) else null
+    }
+
+    private fun buildParams(turn: ChatTurnContext, tools: List<Tool>) = TextGenerationParams(
+        model = turn.model,
+        temperature = turn.assistant.temperature,
+        topP = turn.assistant.topP,
+        maxTokens = turn.assistant.maxTokens,
+        tools = tools,
+        reasoningLevel = turn.assistant.reasoningLevel,
+        customHeaders = buildList {
+            addAll(turn.assistant.customHeaders)
+            addAll(turn.model.customHeaders)
+        },
+        customBody = buildList {
+            addAll(turn.assistant.customBodies)
+            addAll(turn.model.customBodies)
+        },
+        sessionId = turn.conversationId.toString(),
+    )
 }
 
 /**

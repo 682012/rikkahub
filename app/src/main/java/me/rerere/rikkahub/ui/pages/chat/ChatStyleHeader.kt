@@ -127,7 +127,7 @@ internal fun ChatStyleHeader(
             unselectedLabel = unselectedModelLabel,
         )
     }
-    val speed = conversationSpeed(conversation)
+    val speed = conversationSpeedUi(conversation)
 
     // 有回调就是受控组件（持久化在设置里）；没有回调时按会话保存。
     // key 用会话 id 的字符串：换会话就是新状态，不会把上一个会话的展开状态带过来。
@@ -188,7 +188,7 @@ private fun StudioHeader(
     title: String,
     meta: String?,
     providerInfo: ChatHeaderProviderInfo,
-    speed: Double?,
+    speed: ChatSpeedUi,
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
     bigScreen: Boolean,
@@ -309,7 +309,7 @@ private fun PlainHeader(
     title: String,
     meta: String?,
     providerInfo: ChatHeaderProviderInfo,
-    speed: Double?,
+    speed: ChatSpeedUi,
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
     bigScreen: Boolean,
@@ -460,7 +460,7 @@ private fun HeaderTitle(
 @Composable
 private fun HeaderSummaryRow(
     info: ChatHeaderProviderInfo,
-    speed: Double?,
+    speed: ChatSpeedUi,
     expanded: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
@@ -472,7 +472,14 @@ private fun HeaderSummaryRow(
     val toggleState = stringResource(
         if (expanded) R.string.chat_header_state_expanded else R.string.chat_header_state_collapsed
     )
-    val speedText = conversationSpeedText(speed)
+    // 折叠行只有一行位置，可见数值仍是同一个 valueText；覆盖步数与缺测原因挂在无障碍描述里，
+    // 与消息底部、展开详情用的是同一份 ChatSpeedUi。
+    val speedText = speed.valueText
+    val speedA11y = listOfNotNull(
+        speedText,
+        chatSpeedCoverageText(speed),
+        chatSpeedReasonText(speed),
+    ).joinToString(" · ")
     val summaryText = chatHeaderSummaryText(info, speedText)
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -526,7 +533,14 @@ private fun HeaderSummaryRow(
                 text = speedText,
                 modifier = Modifier
                     .padding(start = 6.dp)
-                    .testTag(ChatHeaderSpeedTag),
+                    .testTag(ChatHeaderSpeedTag)
+                    .then(
+                        if (speedA11y != speedText) {
+                            Modifier.semantics { contentDescription = speedA11y }
+                        } else {
+                            Modifier
+                        }
+                    ),
                 maxLines = 1,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -149,7 +149,8 @@ fun ChatMessage(
     val navController = LocalNavController.current
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
-    val wallpaperPanel = if (me.rerere.rikkahub.ui.theme.LocalWallpaperActive.current) {
+    val wallpaperPanel = if (me.rerere.rikkahub.ui.theme.LocalWallpaperActive.current &&
+        !me.rerere.rikkahub.ui.theme.LocalImmersiveChat.current) {
         Modifier.background(chatPanel(colorScheme.surfaceContainerLow), RoundedCornerShape(rememberChatStyleSpec().bubbleCorner))
             .padding(8.dp)
     } else Modifier
@@ -426,6 +427,10 @@ private fun MessagePartsBlock(
                     streaming = streamingText,
                     onClickCitation = handleClickCitation,
                     modifier = Modifier
+                        .then(if (me.rerere.rikkahub.ui.theme.LocalImmersiveChat.current) {
+                            Modifier.background(chatPanel(MaterialTheme.colorScheme.surface), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        } else Modifier)
                         .animateContentSize()
                 )
             }

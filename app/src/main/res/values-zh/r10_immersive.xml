@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r10_immersive_chat_title">沉浸聊天</string>
+    <string name="r10_immersive_chat_desc">有壁纸时：去掉消息外的整块厚卡片，正文只留一层轻薄文字底，顶部栏和输入区变成薄玻璃。关掉就恢复卡片。</string>
+    <string name="r10_immersive_panel_desc">沉浸模式下这一项决定文字底有多厚；对比度保护会自动补上，壁纸照样露得出来。</string>
+    <string name="r10_immersive_state_on">沉浸聊天已开启</string>
+    <string name="r10_immersive_state_off">沉浸聊天已关闭</string>
+</resources>

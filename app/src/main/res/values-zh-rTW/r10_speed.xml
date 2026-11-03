@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r10_speed_coverage">已測 %1$d/%2$d 步</string>
+    <string name="r10_speed_coverage_short">%1$d/%2$d 步</string>
+    <string name="r10_speed_reason_non_stream">非串流步驟沒有可測的生成視窗</string>
+    <string name="r10_speed_reason_no_tokens">上游沒有回報這一步的輸出 token</string>
+    <string name="r10_speed_reason_single_packet">這一步是整包緩衝，只有單一資料封包</string>
+    <string name="r10_speed_reason_short_window">生成視窗不足 200ms</string>
+    <string name="r10_speed_reason_server_wait">伺服器工具或內部續寫的等待混進了視窗</string>
+    <string name="r10_speed_reason_legacy">這則回覆沒有計時紀錄（舊版本訊息）</string>
+    <string name="r10_speed_reason_unknown">這則回覆沒有可信的串流計時</string>
+    <string name="r10_speed_partial_note">速度只按已測步驟加權，未測步驟不參與計算</string>
+</resources>

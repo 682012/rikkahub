@@ -177,7 +177,7 @@ class GenerationTimingTest {
     }
 
     @Test
-    fun testPartialMeasurementsSuppressTps() {
+    fun partialMeasurementKeepsWeightedSpeedAndCoverage() {
         val clock1 = FakeClock(0L)
         val timer1 = GenerationTimer(clock1::nanoTime)
         clock1.advanceMs(100L)
@@ -193,10 +193,105 @@ class GenerationTimingTest {
         val unmeasuredStep = timer2.finish(outputTokens = 20, streaming = true)
 
         val merged = measuredStep.add(unmeasuredStep)
+        // 一步测不到不再把整条消息的速度藏起来，但要标出覆盖范围
         assertEquals(1, merged.measuredSteps)
         assertEquals(2, merged.totalSteps)
+        assertEquals(1, merged.skippedSteps)
+        assertTrue(merged.isPartial)
+        // 全部 token 仍然计入消耗，但只有可测步骤的 token 进分子，未测步骤不会把速度抬高
         assertEquals(35L, merged.outputTokens)
+        assertEquals(15L, merged.measuredTokens)
+        assertEquals(75.0, merged.speedTokensPerSecond!!, 1e-6)
+        assertEquals(mapOf(GenerationSkipReason.SINGLE_PACKET to 1), merged.skippedReasons)
+    }
+
+    @Test
+    fun allStepsUnmeasuredKeepReasonsInsteadOfSpeed() {
+        val serverWaitClock = FakeClock(0L)
+        val serverWaitTimer = GenerationTimer(serverWaitClock::nanoTime)
+        serverWaitClock.advanceMs(100L)
+        serverWaitTimer.onChunk(StreamChunk.TextDelta(id = "msg_1", text = "Calling tool..."))
+        serverWaitClock.advanceMs(4000L)
+        serverWaitTimer.onChunk(StreamChunk.ServerToolStart(id = "call_1", toolName = "search"))
+        serverWaitClock.advanceMs(100L)
+        serverWaitTimer.onChunk(StreamChunk.TextDelta(id = "msg_1", text = "Result"))
+        val serverWait = serverWaitTimer.finish(outputTokens = 30, streaming = true)
+
+        val burstClock = FakeClock(0L)
+        val burstTimer = GenerationTimer(burstClock::nanoTime)
+        burstTimer.onChunk(StreamChunk.TextDelta(id = "msg_2", text = "one packet only"))
+        val burst = burstTimer.finish(outputTokens = 40, streaming = true)
+
+        val merged = serverWait.add(burst)
         assertNull(merged.speedTokensPerSecond)
+        assertEquals(0, merged.measuredSteps)
+        assertEquals(2, merged.totalSteps)
+        assertEquals(2, merged.skippedSteps)
+        // 全部缺测时也要能说清原因，按原因分组
+        assertEquals(
+            mapOf(GenerationSkipReason.SERVER_WAIT to 1, GenerationSkipReason.SINGLE_PACKET to 1),
+            merged.skippedReasons,
+        )
+    }
+
+    @Test
+    fun finishExplainsUnmeasurableSteps() {
+        val nonStreamClock = FakeClock(0L)
+        nonStreamClock.advanceMs(300L)
+        val nonStream = GenerationTimer(nonStreamClock::nanoTime).finish(outputTokens = 20, streaming = false)
+        assertEquals(mapOf(GenerationSkipReason.NON_STREAM to 1), nonStream.skippedReasons)
+        assertEquals(0, nonStream.measuredSteps)
+
+        val usageOnlyClock = FakeClock(0L)
+        val usageOnlyTimer = GenerationTimer(usageOnlyClock::nanoTime)
+        usageOnlyTimer.onChunk(StreamChunk.Usage(TokenUsage(promptTokens = 10, completionTokens = 5)))
+        val usageOnly = usageOnlyTimer.finish(outputTokens = null, streaming = true)
+        assertEquals(mapOf(GenerationSkipReason.NO_OUTPUT_TOKENS to 1), usageOnly.skippedReasons)
+        assertEquals(0L, usageOnly.measuredOutputTokens)
+
+        val shortClock = FakeClock(0L)
+        val shortTimer = GenerationTimer(shortClock::nanoTime)
+        shortTimer.onChunk(StreamChunk.TextDelta(id = "msg_1", text = "a"))
+        shortClock.advanceMs(20L)
+        shortTimer.onChunk(StreamChunk.TextDelta(id = "msg_1", text = "b"))
+        val shortWindow = shortTimer.finish(outputTokens = 5, streaming = true)
+        assertEquals(mapOf(GenerationSkipReason.SHORT_WINDOW to 1), shortWindow.skippedReasons)
+    }
+
+    @Test
+    fun legacyAllMeasuredRecordStillHasSpeed() {
+        // r9 及更早的记录没有 measuredOutputTokens：全部步骤都测到时分子就是 outputTokens
+        val legacy = GenerationTiming(generationMs = 2000, outputTokens = 100, measuredSteps = 1, totalSteps = 1)
+        assertEquals(100L, legacy.measuredTokens)
+        assertEquals(50.0, legacy.speedTokensPerSecond!!, 1e-6)
+    }
+
+    @Test
+    fun legacyPartiallyMeasuredRecordIsNotGuessed() {
+        // 部分测到的老记录无法判断分子里有多少 token 属于已测步骤，宁可没有数
+        val legacy = GenerationTiming(generationMs = 2000, outputTokens = 100, measuredSteps = 1, totalSteps = 2)
+        assertEquals(0L, legacy.measuredTokens)
+        assertNull(legacy.speedTokensPerSecond)
+    }
+
+    @Test
+    fun mergingLegacyAllMeasuredKeepsTokensInNumerator() {
+        val legacy = GenerationTiming(generationMs = 1000, outputTokens = 50, measuredSteps = 1, totalSteps = 1)
+        val fresh = GenerationTiming(
+            firstContentMs = 50,
+            generationMs = 500,
+            requestMs = 600,
+            outputTokens = 10,
+            measuredSteps = 1,
+            totalSteps = 1,
+            measuredOutputTokens = 10,
+        )
+        val merged = legacy.add(fresh)
+        assertEquals(60L, merged.measuredTokens)
+        assertEquals(2, merged.totalSteps)
+        assertEquals(2, merged.measuredSteps)
+        assertEquals(40.0, merged.speedTokensPerSecond!!, 1e-6)
+        assertTrue(merged.skippedReasons.isEmpty())
     }
 
     @Test
