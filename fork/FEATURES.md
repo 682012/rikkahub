@@ -1,6 +1,8 @@
 # 相比官方 3.1.1：新增工作流、功能增强与限制
 
-当前预发布 **3.1.1-r7 / 3000054**，见 [r7验收](RELEASE-r7.md)、[互动角色与预览](COMPANION-r7.md) 和 [verification/r7.json](verification/r7.json)。下方 r6 与 stable r3 是历史基线，不代表本轮测试。
+本版 **3.1.1-r8 / 3000055**（生产提交 `2def5785cf259023b56ca607f704426c6aa4f3ec`）：三处可折叠信息与三张透明立绘，见 [r8 验收](RELEASE-r8.md)、[素材来源](PORTRAIT-r8.md)、[verification/r8.json](verification/r8.json)。**r8 不改变功能组数：折叠是呈现增强，立绘替换 r7 角色形象，不是新增一套 Live2D。**
+
+上一预发布 **3.1.1-r7 / 3000054**，见 [r7验收](RELEASE-r7.md)、[互动角色与预览](COMPANION-r7.md) 和 [verification/r7.json](verification/r7.json)。下方 r6 与 stable r3 是历史基线，不代表本轮测试。
 
 前一实验代码 **3.1.1-r6 / 3000053** 合并已发布 r5 的全部统计修复与工作区访问权限分支，另增加[可切换布局与沉浸壁纸](APPEARANCE-r6.md)、[主动授权与挂载](WORKSPACE-ACCESS.md)。稳定 latest 保持 r3，r4/r5 不撤回。验收只以 [r6 发布说明](RELEASE-r6.md) 与 [verification/r6.json](verification/r6.json) 为准；r6 提供 App / 用户授权 Shizuku / 已有 su Root 入口，Shizuku 正向与 App su Root 正向本轮未完成真机验证，不声称已通过，PRoot 不是 Root。下面保留历史基线。
 
@@ -12,7 +14,7 @@
 
 **5 组新增工作流 + 2 项主要功能增强；兼容与稳定性修复单列，不计入新增数。**
 
-一组按独立使用目的计数，不按按钮、端点或提交数凑数。旧版说明的“6 组新增”把单会话用量面板也计入了新增；此处明确将它归为官方统计功能的增强。ZIP 导入与导出合为一组文件迁移流程，不拆成两个数字。这是计数更准确，不是删掉功能。
+一组按独立使用目的计数，不按按钮、端点或提交数凑数。旧版说明的“6 组新增”把单会话用量面板也计入了新增；此处明确将它归为官方统计功能的增强。ZIP 导入与导出合为一组文件迁移流程，不拆成两个数字。这是计数更准确，不是删掉功能。**r8 的折叠与立绘同样不计入：前者是呈现调整，后者是 r7 角色的形象替换。**
 
 **fork.43 的工具调用层重做不计入组数。** 它没有新的使用目的，改的是已有工作流的调用方式（并发、去重、大输出读回、子代理结果分页、代码模式），因此单列一节，见下面的「fork.43：工具调用层重做」。`workspace_grep`/`workspace_glob`/`run_script` 这些新工具服务于同一个“在设备上做文件与会话工作”的目的，也不为了凑数拆成新组。
 
@@ -99,6 +101,22 @@ fork.40 起另带官方预览的后台命令（`workspace_shell` 的 `run_in_bac
 
 源码：[重试设置](../app/src/main/java/me/rerere/rikkahub/ui/pages/setting/RetryDelaySettings.kt)、[重试策略](../ai/src/main/java/me/rerere/ai/agent/Retry.kt)、[UsageSheet](../app/src/main/java/me/rerere/rikkahub/ui/pages/chat/UsageSheet.kt)、[UsageRecordDAO](../app/src/main/java/me/rerere/rikkahub/data/db/dao/UsageRecordDAO.kt)。
 
+## r8：三处折叠与立绘形象（增强，不改变组数）
+
+r8 没有新增使用目的：折叠改的是已有信息的呈现方式，立绘替换的是 r7 已上线的悬浮角色形象。因此它不计入上面的 5 组 + 2 项，也不把原生 Compose 动效说成完整 Live2D。
+
+| 项 | 官方 3.1.1 | r7（已发布预发布） | r8（预发布） |
+|---|---|---|---|
+| 顶部信息 | 会话标题栏内混排 | 三布局常显提供商/模型与可靠 TPS | 默认压成一条提供商／模型／TPS 摘要，箭头展开详细计时与上下文；展开偏好随设置保存，三布局一致，抽屉/统计/预览/新会话入口不丢 |
+| 长消息 | 全文直接铺开 | 全文直接铺开 | 超阈值默认折成约 280dp 预览，可展开/收起；正文字符不剪断，媒体、附件与待审批工具在裁切区外 |
+| 悬浮角色 | 应用图标 + 快速回复 | 原创猫/小龙与自定义待机/点击图 | 三张用户提供的透明立绘：鲸鱼女仆（半身）、白龙、橙发坐姿全身；旧 `cat`/`dragon` 自动映射到女仆/龙少女，默认不再显示几何小动物 |
+| 角色入口 | 图标常显 | 可拖动、点击给动作与台词 | 默认收成 48dp×56dp 边缘入口，点开显示立绘，再点给轻微姿态与台词并开快速回复，可一键缩回 |
+| 角色面板 | — | 回复预览直接铺开 | 预览默认隐藏、按需展开，待审批内容始终可见；高度限 62% 可用屏幕、最多 440dp |
+
+边界：折叠是界面层状态，长正文的展开/收起按 messageId 记在本次进程内，滚动回收不丢、App 重启回到默认折叠；只有头部摘要展开与角色开关持久化。立绘是静态 WebP 加原生 Compose 的轻微呼吸/位移，没有骨骼、表情切换、口型同步或 3D，也不含用户可编辑的图层。素材三张合计约 1.0MB，分割模型只在构建时用 CPU 跑一次、不进 APK，App 内没有新增推理运行时、Node 或浏览器引擎。r7 的多格式预览、工作区权限、统计与压缩能力全部保留，本轮不撤任何 r7 功能。
+
+源码：[ChatStyleHeader](../app/src/main/java/me/rerere/rikkahub/ui/pages/chat/ChatStyleHeader.kt)、[MessageCollapsePolicy](../app/src/main/java/me/rerere/rikkahub/ui/components/message/MessageCollapsePolicy.kt)、[CollapsibleMessageText](../app/src/main/java/me/rerere/rikkahub/ui/components/message/CollapsibleMessageText.kt)、[PortraitCompanionBubble](../app/src/main/java/me/rerere/rikkahub/ui/floating/PortraitCompanionBubble.kt)、[PortraitCompanionAssets](../app/src/main/java/me/rerere/rikkahub/ui/floating/PortraitCompanionAssets.kt)、[FloatingCompanionSettings](../app/src/main/java/me/rerere/rikkahub/data/datastore/FloatingCompanionSettings.kt)。
+
 ## fork.43：工具调用层重做
 
 **这部分改的是“怎么调用、怎么读回”，不是新的使用目的，所以不计入上面的 5 组 + 2 项。** 数字为代码里的阈值与上限；[受控工具测量](verification/fork43-benchmark.md)单列，不等于端到端模型加速或 token 收益。
@@ -140,7 +158,7 @@ fork.38 还用真实 Android 原生窗口发现了 requery 的特殊错误文本
 
 ## 验证与取舍
 
-稳定基线 r3 的完整构建、测试与覆盖升级结果见 [r3 验收](RELEASE-r3.md#验证)；r6 的本轮结果、SHA 与边界见 [r6 发布说明](RELEASE-r6.md) 和 [verification/r6.json](verification/r6.json)。下列为历史版本的已验范围。
+稳定基线 r3 的完整构建、测试与覆盖升级结果见 [r3 验收](RELEASE-r3.md#验证)；r6 的本轮结果、SHA 与边界见 [r6 发布说明](RELEASE-r6.md) 和 [verification/r6.json](verification/r6.json)。r8 正式签名构建、2025 个生产输入核对、r7→r8 覆盖与 21 张界面复核通过；最终 JVM 2103 项零失败／1 项跳过、Android 139 项全过。一次早期 Compose 测试宿主失败及 3 次隔离复跑/最终完整重跑如实记录，不宣称查明根因，见 [verification/r8.json](verification/r8.json)。下列为历史版本的已验范围。
 
 fork.43（[GitHub Actions run 41325551257](https://github.com/682012/rikkahub/actions/runs/41325551257)）：JVM **1561 项，1560 通过，0 失败、0 错误，1 项跳过**；Android API34 x86_64 **54 项全部通过**；R8 + lintVital、签名与版本核对通过。用户真机升级与端到端模型性能未测量。
 

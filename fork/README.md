@@ -1,16 +1,18 @@
 # 个人分支：构建与维护
 
-当前预发布 **3.1.1-r7 / 3000054**，见 [r7验收](RELEASE-r7.md)、[互动角色与预览](COMPANION-r7.md) 和 [verification/r7.json](verification/r7.json)。下方 r6 与 stable r3 是历史基线，不代表本轮测试。
+本版 **3.1.1-r8 / 3000055**，以 r7 为基线的独立预发布，生产提交 `2def5785cf259023b56ca607f704426c6aa4f3ec`。三处折叠和透明立绘替换保留 r7 其他能力；正式包、2025 个生产输入、最终 JVM 2103／Android 139 项及同签名覆盖均已核对。见 [RELEASE-r8.md](RELEASE-r8.md)、[PORTRAIT-r8.md](PORTRAIT-r8.md)、[verification/r8.json](verification/r8.json)；下载与 tag 为 `v3.1.1-r8`，stable latest 仍是 r3。
+
+上一预发布 **3.1.1-r7 / 3000054**，见 [r7验收](RELEASE-r7.md)、[互动角色与预览](COMPANION-r7.md) 和 [verification/r7.json](verification/r7.json)。下方 r6 与 stable r3 是历史基线，不代表本轮测试。
 
 前一实验代码 **3.1.1-r6 / 3000053** 合并已发布 r5 的全部统计修复与工作区访问权限分支，另增加[可切换布局与沉浸壁纸](APPEARANCE-r6.md)、[主动授权与挂载](WORKSPACE-ACCESS.md)。稳定 latest 保持 r3，r4/r5 不撤回。验收只以 [r6 发布说明](RELEASE-r6.md) 与 [verification/r6.json](verification/r6.json) 为准；r6 提供 App / 用户授权 Shizuku / 已有 su Root 入口，Shizuku 正向与 App su Root 正向本轮未完成真机验证，不声称已通过，PRoot 不是 Root。下面保留历史基线。
 
 r4基线代码为**r4 /3000051**，APK 19,118,258字节，SHA256 `17652736e2900f93fa41b1ecc780625b1fc6ec02d478904b191fcaba1965026f`，完整[R4验收](RELEASE-r4.md)。发布在实验分支和独立tag，prerelease不改变r3稳定latest。下面保留稳定r3维护基线。
 
-用户可见功能统一维护在 [仓库首页](../README.md) 与 [官方差异表](FEATURES.md)。本页记录构建、签名与回退；本轮 r6 说明见 [r6 发布说明](RELEASE-r6.md) 与 [verification/r6.json](verification/r6.json)，稳定基线说明见 [r3 更新说明](RELEASE-r3.md)。
+用户可见功能统一维护在 [仓库首页](../README.md) 与 [官方差异表](FEATURES.md)。本页记录构建、签名与回退；r8 说明见 [r8 验收](RELEASE-r8.md)、[立绘与素材](PORTRAIT-r8.md) 与 [verification/r8.json](verification/r8.json)，上一版 r7 见 [r7 发布说明](RELEASE-r7.md)，稳定基线说明见 [r3 更新说明](RELEASE-r3.md)。
 
 ## 稳定基线维护对象（r3 stable latest）
 
-下表是稳定 latest 的 r3 基线；`3.1.1-r6 / 3000053` 是 `experiment/r6-immersive` 上的实验预发布，不改动本表。
+下表是稳定 latest 的 r3 基线；`3.1.1-r6 / 3000053` 是 `experiment/r6-immersive` 上的实验预发布，`3.1.1-r8 / 3000055` 是独立预发布，都不改动本表。r8 的包名、签名与 schema 34 沿用 r7，对应 tag 与资产独立保存，latest 仍保留 r3。
 
 | 项目 | 值 |
 |---|---|

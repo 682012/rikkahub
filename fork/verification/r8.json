@@ -1,0 +1,198 @@
+{
+  "version": "3.1.1-r8",
+  "versionCode": 3000055,
+  "package": "me.rerere.rikkahub.fork",
+  "schema": 34,
+  "generatedAt": "2026-11-03T08:36:37.773433+00:00",
+  "sourceFilesVerified": 2025,
+  "sourceBaseCommit": "48ace34bbfc1b86e21183295c7b896dffe646941",
+  "productionCommit": "2def5785cf259023b56ca607f704426c6aa4f3ec",
+  "releaseChannel": "prerelease; r3 remains stable latest",
+  "apk": {
+    "name": "rikkahub-3.1.1-r8.apk",
+    "bytes": 20414516,
+    "sha256": "72ebaa605c297bf83c3c297094fde666bc45a35d61092133b86662fc74d80423",
+    "signingCertificateSha256": "cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89",
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ]
+  },
+  "tests": {
+    "jvm": {
+      "tests": 2103,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "files": 284
+    },
+    "android": {
+      "tests": 139,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "logSha256": "225f3a8f48bca1011afb00b795fbd6483db5924978da1d4cf27c9e856a90786a"
+    },
+    "shizukuPositive": {
+      "status": "not_verified"
+    },
+    "appSuRootPositive": {
+      "status": "not_verified"
+    }
+  },
+  "upgrade": {
+    "from": "3.1.1-r7",
+    "fromVersionCode": 3000054,
+    "to": "3.1.1-r8",
+    "markerPreserved": true,
+    "coldStartNoFatal": true,
+    "signatureAccepted": true
+  },
+  "screenshots": [
+    "r8-studio-dark.png",
+    "r8-studio-light.png",
+    "r8-focus-dark.png",
+    "r8-classic-light.png",
+    "r8-chat-expanded.png",
+    "r8-message-recollapsed.png",
+    "r8-message-expanded-end.png",
+    "r8-pet-edge.png",
+    "r8-pet-reexpanded.png",
+    "r8-role-dragon-girl-before.png",
+    "r8-role-sun-reader-before.png",
+    "r8-portrait-cards.png",
+    "r8-portrait-cards-next.png",
+    "r8-panel-preview-hidden.png",
+    "r8-panel-preview-visible.png",
+    "r8-panel-preview-recollapsed.png",
+    "r8-pdf-preview.png",
+    "r8-html-preview.png",
+    "r8-docx-preview.png",
+    "r8-archive-preview.png",
+    "r8-audio-preview.png"
+  ],
+  "phases": {
+    "build": "success",
+    "android": "success",
+    "signedRelease": "success",
+    "upgrade": "success",
+    "visualReview": "success",
+    "overlayMockSmoke": "success",
+    "headerCollapse": "success",
+    "messageCollapse": "success",
+    "panelPreviewToggle": "success",
+    "allPortraits": "success",
+    "filePreviews": "success"
+  },
+  "verificationBoundary": "Isolated AOSP API34 x86_64; emulator autojoin restored by bounded external fixture after a real two-second network loss. Synthetic conversation and local fixture files, no user phone installation, no live provider billing. Office is text-only, archives list-only; unsupported codecs not guaranteed. Long-message collapse clips display height, not lazy rendering; manual text-collapse choices are process-local. Portraits use native breathing/translation, not Live2D bones or facial animation. One earlier UI harness run failed and is disclosed under testRerunDisclosure; no root-cause repair is claimed.",
+  "visualReview": {
+    "status": "passed",
+    "reviewedAt": "2026-11-03T08:43:58.254206+00:00",
+    "viewportPixels": [
+      720,
+      1600
+    ],
+    "densityDpi": 320,
+    "sha256": {
+      "r8-studio-dark.png": "62bf4b9d1f3e4423927a6dfabce217c3d80c020ae665cab94865ad64f9c0e8c2",
+      "r8-studio-light.png": "3a3dc7640117f0374425b454b1e2e3af56dcaaaae445dba36a77b018ec2461c9",
+      "r8-focus-dark.png": "2f249c577ae8e91239fe21b07dbec74ef3ad50431b6318898306f64881e0abf5",
+      "r8-classic-light.png": "2132fa74cc5cabe8ae9b52968fd7ac3b5836185705a7e1cc253234e4a5daf431",
+      "r8-chat-expanded.png": "7dfb532a44e529bc4011c26bf05e8adbb42a7e2812089614e9537756dabceaaf",
+      "r8-message-recollapsed.png": "83b030f15fd926581e8e23f987b19ddff9c1f5af689d8fff127a708a962f620f",
+      "r8-message-expanded-end.png": "6767b7c14407208b68dc533b988ec1ee26ea2fdb9d45da223ba370a68bad4f25",
+      "r8-pet-edge.png": "e8fddc54bc7dbea23aaf86d31942e4eba3101b2957991813d6c1eb6d71d2b25c",
+      "r8-pet-reexpanded.png": "d3f625f6a3cc4b5bcd62244b679bdee5f80ad81984d479f2f2dc0ef414bcffc9",
+      "r8-role-dragon-girl-before.png": "9bfada832a46ef0d561f36ee74242c67e561e52ec07a0166dfc93e2e0dacff42",
+      "r8-role-sun-reader-before.png": "bd0e2332e73474e4e90cc98c4ae11ae481cd68e647a6103cb8a8c11105cd2aae",
+      "r8-portrait-cards.png": "0220792c6248c3c2c0264b58e69c9d0ce43f4b68d857baf1db5faf5372d36693",
+      "r8-portrait-cards-next.png": "ed2f406eed400ae9c6285de8ec7363f9962adca9c35e49ff1d6641e82811c01a",
+      "r8-panel-preview-hidden.png": "068da5c45287f57c43628ec404827e7014ac3ef9cafc46096101e80cfc49616c",
+      "r8-panel-preview-visible.png": "88d53455b1d838aa61bd50cfac22655249eb5f018eaccc276f80f2c2218cf68a",
+      "r8-panel-preview-recollapsed.png": "eb9367f75be681d92da0ce29099ceed800dde2d99cf8b2917ed2ccc2b3b818dc",
+      "r8-pdf-preview.png": "b3572c4ecc336f8bfe47ade234437c5c020b30f76d26073f2bef37c12c554b98",
+      "r8-html-preview.png": "eabddf98d7393304162320642110fe7eeb031c025ed83fee48b37a85a39ad54e",
+      "r8-docx-preview.png": "05b89d1aef3d4aadf04da98d86a7acc929e721cec6d71af234f4cc65814fb793",
+      "r8-archive-preview.png": "f4ff06454923871837b75df64efd65fe6fd3d526d929c0ecfde0e628b9ef49ab",
+      "r8-audio-preview.png": "3136722d230059b2d85df82ecf0f829585160b301255038df7516f1712f07da9"
+    },
+    "observations": [
+      "Reviewed actual signed-release screenshots, with detailed native frames and a 21-frame review sheet.",
+      "Collapsed Markdown stops above the full-text toggle and message actions; the input is not covered by the clipped remainder.",
+      "Compact header and its detail toggle, actual full-text expansion/collapse, and panel reply-preview expansion/collapse were operated.",
+      "Whale half-body, dragon full sitting pose, sunlit reader full sitting pose retain original faces and transparent silhouettes. Edge handle and re-expanded portrait were operated.",
+      "PDF/HTML/Office-text/archive-list/audio-preview remain available; screenshots do not prove every codec or complete Office layout."
+    ]
+  },
+  "testRerunDisclosure": {
+    "earlierAndroidRun": {
+      "tests": 139,
+      "failures": 1,
+      "failure": "ModelRuntimeSettingsUiTest.invalidDraftSurvivesStateRestorationAndStillBlocksSaving: No compose hierarchies found before text replacement; root cause not established.",
+      "retainedLog": "android-clipfix-failed.log",
+      "logSha256": "b3bef455a006323ee747dde423a1b89aea88c35d129efae00d454e7032c16508"
+    },
+    "isolatedFollowups": [
+      {
+        "name": "restoration-1.log",
+        "tests": 1,
+        "passed": true,
+        "sha256": "ad078b9fd84d82d51a2c469e285ad348e61e25faf3aaab595cc1e3e14353a3c8"
+      },
+      {
+        "name": "restoration-2.log",
+        "tests": 1,
+        "passed": true,
+        "sha256": "4e417953615764bda8c6b1cb542e174ade6767f0e62d469cff220dade17b0a10"
+      },
+      {
+        "name": "restoration-3.log",
+        "tests": 1,
+        "passed": true,
+        "sha256": "ab62e2bc9fda831c8cf4f20350798b91b707bcd3caa85b571b9a56af7caec0aa"
+      }
+    ],
+    "finalFullRun": {
+      "tests": 139,
+      "failures": 0,
+      "errors": 0,
+      "log": "android-main.log",
+      "logSha256": "225f3a8f48bca1011afb00b795fbd6483db5924978da1d4cf27c9e856a90786a"
+    },
+    "productionCodeChangedForRerun": false,
+    "boundary": "An intermittent Compose test-host symptom was not reproduced in three isolated repeats and the final complete run; this is not a verified root-cause fix."
+  },
+  "portraitAssets": [
+    {
+      "preset": "whale_maid",
+      "name": "whale-maid.webp",
+      "bytes": 337984,
+      "pixels": [
+        560,
+        597
+      ],
+      "sha256": "632b949beb40f5bc6fb6fd0d39e90683b1da773c26e3358b9f00187a59d06f02"
+    },
+    {
+      "preset": "dragon_girl",
+      "name": "dragon-girl.webp",
+      "bytes": 320066,
+      "pixels": [
+        560,
+        577
+      ],
+      "sha256": "a5940615bd92949ab52b74efd69baf7665ca8378a0131b2a5129d04b25bef773"
+    },
+    {
+      "preset": "sun_reader",
+      "name": "sun-reader.webp",
+      "bytes": 378936,
+      "pixels": [
+        560,
+        673
+      ],
+      "sha256": "81dc7b8a0610b5f34d8b3c23974a4fc1174cf5630dbd254d5331c0a974a787cc"
+    }
+  ],
+  "portraitAssetBytes": 1036986
+}
