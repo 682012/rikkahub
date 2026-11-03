@@ -1,5 +1,10 @@
 package me.rerere.rikkahub.ui.pages.chat
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -31,7 +36,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -40,6 +49,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
@@ -47,6 +57,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import me.rerere.ai.provider.Model
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.ArrowDown01
+import me.rerere.hugeicons.stroke.ArrowUp02
 import me.rerere.hugeicons.stroke.Cancel01
 import me.rerere.hugeicons.stroke.ChartColumn
 import me.rerere.hugeicons.stroke.LeftToRightListBullet
@@ -63,6 +75,26 @@ import me.rerere.rikkahub.ui.theme.chatWallpaperActive
 /**
  * 聊天页实际使用的标题栏，三种风格共用同一组数据与回调：
  * 抽屉入口、标题编辑、用量统计、预览切换、新会话一个都不少，只是排布和视觉不同。
+ *
+ * 顶部信息分两层，两种状态都不丢关键入口：
+ * - 主 bar（title + 48dp 命中区图标 / 新会话）始终在位，折叠也不会把 drawer、new 藏起来；
+ * - 摘要行常显一行 `提供商 · 模型 · TPS`，长名省略，点右侧箭头展开；
+ * - 展开态才追加详细 TPS 与上下文面板（[ChatSpeedStatus] + [ChatStudioStatus]）。
+ *
+ * 状态来源：持久值读 [Settings.displaySetting] 里的 `appearance.chatHeaderExpanded`，
+ * 切换一律走 [onHeaderExpandedChange]。ChatPage 接入示例（不在此文件写 globals）：
+ * ```
+ * onHeaderExpandedChange = { expanded ->
+ *     scope.launch {
+ *         store.update { s ->
+ *             s.copy(displaySetting = s.displaySetting.copy(
+ *                 appearance = s.displaySetting.appearance.copy(chatHeaderExpanded = expanded),
+ *             ))
+ *         }
+ *     }
+ * }
+ * ```
+ * 没接回调时（预览 / 测试）退化为按会话保存的本地状态，key 带 `conversation.id`，不跨会话串。
  */
 @Composable
 internal fun ChatStyleHeader(
@@ -79,9 +111,13 @@ internal fun ChatStyleHeader(
     onOpenUsage: () -> Unit,
     onTogglePreview: () -> Unit,
     onNewChat: () -> Unit,
+    /** 由主代理从设置仓库喂进来的持久值；默认直接读当前 settings。 */
+    headerExpanded: Boolean = settings.displaySetting.appearance.chatHeaderExpanded,
+    /** 用户点了展开/收起；null 表示没人接持久化，退化为本地会话内状态。 */
+    onHeaderExpandedChange: ((Boolean) -> Unit)? = null,
 ) {
-    // 上下文状态条还受旧的 useStudioDisplay 开关控制：那个开关管"统计怎么呈现"，风格只管排版
-    val showStatusStrip = spec.headerShowStatusStrip && settings.displaySetting.useStudioDisplay
+    // 顶部信息现在由自己的折叠开关控制：收起只留摘要，展开就是详细 TPS + 上下文，
+    // 三种风格行为一致，不再看旧的 useStudioDisplay 开关脸色
     // 当前请求真正会用的提供商 + 模型，三种风格都常显，不再依赖 usage 开关或消息历史
     val unselectedModelLabel = stringResource(R.string.chat_header_model_unselected)
     val providerInfo = remember(chatModel, settings.providers, unselectedModelLabel) {
@@ -91,6 +127,17 @@ internal fun ChatStyleHeader(
             unselectedLabel = unselectedModelLabel,
         )
     }
+    val speed = conversationSpeed(conversation)
+
+    // 有回调就是受控组件（持久化在设置里）；没有回调时按会话保存。
+    // key 用会话 id 的字符串：换会话就是新状态，不会把上一个会话的展开状态带过来。
+    var localExpanded by rememberSaveable(conversation.id.toString()) { mutableStateOf(headerExpanded) }
+    val expanded = if (onHeaderExpandedChange != null) headerExpanded else localExpanded
+    val onToggleExpanded: () -> Unit = {
+        val next = !expanded
+        if (onHeaderExpandedChange != null) onHeaderExpandedChange(next) else localExpanded = next
+    }
+
     if (spec.headerFloating) {
         StudioHeader(
             spec = spec,
@@ -99,9 +146,11 @@ internal fun ChatStyleHeader(
             title = title,
             meta = meta,
             providerInfo = providerInfo,
+            speed = speed,
+            expanded = expanded,
+            onToggleExpanded = onToggleExpanded,
             bigScreen = bigScreen,
             previewMode = previewMode,
-            showStatusStrip = showStatusStrip,
             onOpenDrawer = onOpenDrawer,
             onEditTitle = onEditTitle,
             onOpenUsage = onOpenUsage,
@@ -116,9 +165,11 @@ internal fun ChatStyleHeader(
             title = title,
             meta = meta,
             providerInfo = providerInfo,
+            speed = speed,
+            expanded = expanded,
+            onToggleExpanded = onToggleExpanded,
             bigScreen = bigScreen,
             previewMode = previewMode,
-            showStatusStrip = showStatusStrip,
             onOpenDrawer = onOpenDrawer,
             onEditTitle = onEditTitle,
             onOpenUsage = onOpenUsage,
@@ -128,7 +179,7 @@ internal fun ChatStyleHeader(
     }
 }
 
-/** STUDIO：浮岛标题栏 + 上下文条，标题、用量、预览、新会话都收在这一块。 */
+/** STUDIO：浮岛标题栏 + 一行摘要 + 按需展开的详情。 */
 @Composable
 private fun StudioHeader(
     spec: ChatStyleSpec,
@@ -137,9 +188,11 @@ private fun StudioHeader(
     title: String,
     meta: String?,
     providerInfo: ChatHeaderProviderInfo,
+    speed: Double?,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
     bigScreen: Boolean,
     previewMode: Boolean,
-    showStatusStrip: Boolean,
     onOpenDrawer: () -> Unit,
     onEditTitle: () -> Unit,
     onOpenUsage: () -> Unit,
@@ -153,11 +206,12 @@ private fun StudioHeader(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .testTag(ChatHeaderRootTag)
             .windowInsetsPadding(
                 WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
             )
             .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -230,16 +284,19 @@ private fun StudioHeader(
                 }
             }
         }
-        HeaderSelectedModelRow(providerInfo)
-        ChatSpeedStatus(conversation)
-        if (showStatusStrip) {
-            ChatStudioStatus(
-                conversation = conversation,
-                settings = settings,
-                style = spec.style,
-                onClick = onOpenUsage,
-            )
-        }
+        HeaderSummaryRow(
+            info = providerInfo,
+            speed = speed,
+            expanded = expanded,
+            onToggle = onToggleExpanded,
+        )
+        HeaderDetail(
+            spec = spec,
+            settings = settings,
+            conversation = conversation,
+            expanded = expanded,
+            onOpenUsage = onOpenUsage,
+        )
     }
 }
 
@@ -252,9 +309,11 @@ private fun PlainHeader(
     title: String,
     meta: String?,
     providerInfo: ChatHeaderProviderInfo,
+    speed: Double?,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
     bigScreen: Boolean,
     previewMode: Boolean,
-    showStatusStrip: Boolean,
     onOpenDrawer: () -> Unit,
     onEditTitle: () -> Unit,
     onOpenUsage: () -> Unit,
@@ -263,7 +322,7 @@ private fun PlainHeader(
 ) {
     val focus = spec.style == ChatUiStyle.FOCUS
     Surface(color = chatPanelStrong(MaterialTheme.colorScheme.background)) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = Modifier.fillMaxWidth().testTag(ChatHeaderRootTag)) {
         if (focus) {
             Row(
                 modifier = Modifier
@@ -344,16 +403,19 @@ private fun PlainHeader(
                 },
             )
         }
-        HeaderSelectedModelRow(providerInfo)
-        ChatSpeedStatus(conversation)
-        if (showStatusStrip) {
-            ChatStudioStatus(
-                conversation = conversation,
-                settings = settings,
-                style = spec.style,
-                onClick = onOpenUsage,
-            )
-        }
+        HeaderSummaryRow(
+            info = providerInfo,
+            speed = speed,
+            expanded = expanded,
+            onToggle = onToggleExpanded,
+        )
+        HeaderDetail(
+            spec = spec,
+            settings = settings,
+            conversation = conversation,
+            expanded = expanded,
+            onOpenUsage = onOpenUsage,
+        )
     }
     }
 }
@@ -387,30 +449,139 @@ private fun HeaderTitle(
     }
 }
 
-/** Full-width row reserves most space for the model, rather than truncating provider+model together. */
+/**
+ * 折叠态就靠这一行：提供商 + 模型 + TPS 在同一条线上。
+ *
+ * - 提供商单独限宽（weight 比例 + 先省略），不会把模型挤没；
+ * - 模型拿剩余宽度，单行省略；展开时放宽到两行，长名点了就能看全；
+ * - 速度固定在右侧，永远是同一份 [conversationSpeedText]；
+ * - 右侧箭头 48dp 命中区，折叠/展开各有 contentDescription + stateDescription + 同一个 testTag。
+ */
 @Composable
-private fun HeaderSelectedModelRow(info: ChatHeaderProviderInfo) {
-    val description = stringResource(R.string.chat_header_current_model)
+private fun HeaderSummaryRow(
+    info: ChatHeaderProviderInfo,
+    speed: Double?,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val summary = stringResource(R.string.chat_header_summary_description)
+    val toggleLabel = stringResource(
+        if (expanded) R.string.chat_header_collapse_details else R.string.chat_header_expand_details
+    )
+    val toggleState = stringResource(
+        if (expanded) R.string.chat_header_state_expanded else R.string.chat_header_state_collapsed
+    )
+    val speedText = conversationSpeedText(speed)
+    val summaryText = chatHeaderSummaryText(info, speedText)
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.small,
         color = chatPanelStrong(MaterialTheme.colorScheme.surfaceContainerLow),
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp)
-                .testTag(ChatHeaderModelTag)
-                .semantics(mergeDescendants = true) { contentDescription = "$description: ${info.text}" },
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(ChatHeaderSummaryTag)
+                .heightIn(min = 40.dp)
+                .padding(start = 12.dp, end = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            info.providerName?.let { provider ->
-                Text(provider, modifier = Modifier.weight(.38f, fill = false), maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag(ChatHeaderModelTag)
+                    .semantics(mergeDescendants = true) {
+                        contentDescription = "$summary: $summaryText"
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                info.providerName?.let { provider ->
+                    Text(
+                        text = provider,
+                        modifier = Modifier.weight(0.45f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = ChatHeaderProviderSeparator.trim(),
+                        maxLines = 1,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    text = info.modelName,
+                    modifier = Modifier.weight(1f),
+                    maxLines = if (expanded) 2 else 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.labelLarge,
+                )
             }
-            Text(info.modelName, modifier = Modifier.weight(1f), maxLines = 1,
-                overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
+            Text(
+                text = speedText,
+                modifier = Modifier
+                    .padding(start = 6.dp)
+                    .testTag(ChatHeaderSpeedTag),
+                maxLines = 1,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            IconButton(
+                onClick = onToggle,
+                modifier = Modifier
+                    .size(48.dp)
+                    .testTag(ChatHeaderToggleTag)
+                    .semantics {
+                        contentDescription = toggleLabel
+                        stateDescription = toggleState
+                    },
+            ) {
+                Icon(
+                    imageVector = if (expanded) HugeIcons.ArrowUp02 else HugeIcons.ArrowDown01,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 展开态详情：详细 TPS + 上下文面板，折叠时整块不进组合（不是隐藏），
+ * 所以收起后高度立刻少两块面板，动画也只是一层轻量 fade + 竖直伸缩。
+ */
+@Composable
+private fun HeaderDetail(
+    spec: ChatStyleSpec,
+    settings: Settings,
+    conversation: Conversation,
+    expanded: Boolean,
+    onOpenUsage: () -> Unit,
+) {
+    AnimatedVisibility(
+        visible = expanded,
+        enter = fadeIn() + expandVertically(),
+        exit = fadeOut() + shrinkVertically(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(ChatHeaderDetailTag),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            ChatSpeedStatus(conversation)
+            // 展开就两种信息都给：详细 TPS + 上下文；三种风格同一套行为
+            ChatStudioStatus(
+                conversation = conversation,
+                settings = settings,
+                style = spec.style,
+                onClick = onOpenUsage,
+            )
         }
     }
 }

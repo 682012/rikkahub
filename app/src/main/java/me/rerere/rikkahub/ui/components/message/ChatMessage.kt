@@ -187,6 +187,8 @@ fun ChatMessage(
             MessagePartsBlock(
                 assistant = assistant,
                 role = message.role,
+                // 折叠状态按节点 id 记，切换分支/回收复用都不会串
+                messageId = node.id.toString(),
                 parts = message.parts,
                 annotations = message.annotations,
                 loading = loading,
@@ -297,6 +299,7 @@ private const val COLLAPSED_VISIBLE_STEPS = 2
 private fun MessagePartsBlock(
     assistant: Assistant?,
     role: MessageRole,
+    messageId: String,
     model: Model?,
     parts: List<UIMessagePart>,
     annotations: List<UIMessageAnnotation>,
@@ -345,9 +348,173 @@ private fun MessagePartsBlock(
 
     // Render parts in original order (group thinking/tool as chain-of-thought)
     val groupedParts = remember(parts) { parts.groupMessageParts() }
-    groupedParts.fastForEach { block ->
-        when (block) {
-            is MessagePartBlock.ThinkingBlock -> {
+    // 连续的 Text part 合成一条，套同一个折叠容器；图片/视频/文件/图表各自独立，永远不会被裁
+    val renderUnits = remember(groupedParts) { groupedParts.toMessageRenderUnits() }
+    // 长消息正文折叠开关（DisplaySetting 字段未落地时按默认 true 走）
+    val collapseLongMessages = settings.displaySetting.collapseLongMessages
+    // 渐隐条要融进正文底色：用户气泡 / 助手气泡 / 无气泡时的面板色
+    val collapseFadeColor = when {
+        role == MessageRole.USER -> chatPanel(
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = settings.displaySetting.bubbleOpacity)
+        )
+
+        settings.displaySetting.showAssistantBubble -> chatPanel(
+            MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = settings.displaySetting.bubbleOpacity)
+        )
+
+        else -> chatPanel(MaterialTheme.colorScheme.surface)
+    }
+
+    // 单个 Text part 的正文渲染。折叠容器只是套在外面：正文照旧整段交给 Markdown，
+    // 不做 substring 截断，选择/复制拿到的还是全文
+    val renderTextPart: @Composable (UIMessagePart.Text, Int) -> Unit = { part, index ->
+        // 只有正在生成的最后一段文字可能停在没写完的语法上
+        val streamingText = loading && index == parts.lastIndex
+        if (role == MessageRole.USER) {
+            ChatMessageBubble(
+                role = role,
+                color = chatPanel(
+                    MaterialTheme.colorScheme.primaryContainer
+                        .copy(alpha = settings.displaySetting.bubbleOpacity),
+                ),
+                restCorner = styleSpec.bubbleCorner,
+                tailCorner = styleSpec.bubbleTailCorner,
+                onClick = { onUserMessageClick?.invoke() },
+                // 用户气泡不占满整行，和助手的回复错开
+                modifier = Modifier
+                    .padding(start = 24.dp)
+                    .animateContentSize(),
+            ) {
+                MarkdownBlock(
+                    content = part.text.replaceRegexes(
+                        assistant = assistant,
+                        scope = AssistantAffectScope.USER,
+                        visual = true,
+                    ),
+                    onClickCitation = handleClickCitation
+                )
+            }
+        } else {
+            if (settings.displaySetting.showAssistantBubble) {
+                ChatMessageBubble(
+                    role = role,
+                    color = chatPanel(
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                            .copy(alpha = settings.displaySetting.bubbleOpacity),
+                    ),
+                    restCorner = styleSpec.bubbleCorner,
+                    tailCorner = styleSpec.bubbleTailCorner,
+                    modifier = Modifier.animateContentSize(),
+                ) {
+                    MarkdownBlock(
+                        content = part.text.replaceRegexes(
+                            assistant = assistant,
+                            scope = AssistantAffectScope.ASSISTANT,
+                            visual = true,
+                        ),
+                        streaming = streamingText,
+                        onClickCitation = handleClickCitation,
+                    )
+                }
+            } else {
+                MarkdownBlock(
+                    content = part.text.replaceRegexes(
+                        assistant = assistant,
+                        scope = AssistantAffectScope.ASSISTANT,
+                        visual = true,
+                    ),
+                    streaming = streamingText,
+                    onClickCitation = handleClickCitation,
+                    modifier = Modifier
+                        .animateContentSize()
+                )
+            }
+        }
+    }
+
+    // 非文字 part：图片/视频/音频/文件。永远在折叠裁切区之外，保持原样可点
+    val renderMediaPart: @Composable (UIMessagePart) -> Unit = { part ->
+        when (part) {
+            is UIMessagePart.Video -> {
+                ChatMessageMediaTile(
+                    icon = HugeIcons.Video01,
+                    onClick = { context.openLocalFile(part.url) },
+                )
+            }
+
+            is UIMessagePart.Audio -> {
+                ChatMessageMediaTile(
+                    icon = HugeIcons.MusicNote03,
+                    onClick = { context.openLocalFile(part.url) },
+                )
+            }
+
+            is UIMessagePart.Image -> {
+                val isImageLoading =
+                    part.url.isBlank() || part.url.matches(Regex("^data:image/[^;]*;base64,\\s*$"))
+                if (isImageLoading) {
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .clip(MaterialTheme.shapes.large)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .shimmer(isLoading = true)
+                    )
+                } else {
+                    ZoomableAsyncImage(
+                        model = part.url,
+                        contentDescription = null,
+                        modifier = Modifier
+                            .clip(MaterialTheme.shapes.large)
+                            .height(72.dp)
+                    )
+                }
+            }
+
+            is UIMessagePart.Document -> {
+                ChatMessageFileChip(
+                    text = part.fileName,
+                    onClick = { context.openLocalFile(part.url) },
+                    icon = {
+                        when (part.mime) {
+                            "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> {
+                                Icon(
+                                    painter = painterResource(R.drawable.docx),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            "application/pdf" -> {
+                                Icon(
+                                    painter = painterResource(R.drawable.pdf),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+
+                            else -> {
+                                Icon(
+                                    imageVector = HugeIcons.File02,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    },
+                )
+            }
+
+            else -> {
+                // Skip unknown part types (e.g., deprecated ToolCall, ToolResult, Search)
+            }
+        }
+    }
+
+    renderUnits.fastForEach { unit ->
+        when (unit) {
+            is MessageRenderUnit.Thinking -> {
+                val block = unit.block
                 if (block.steps.isNotEmpty()) {
                     val isReasoningOnlyBlock = block.steps.fastAll { it is ThinkingStep.ReasoningStep }
                     // 等待审批的工具不能折叠起来，否则用户看不到审批按钮，这一轮会一直卡在等待审批
@@ -405,157 +572,34 @@ private fun MessagePartsBlock(
                 }
             }
 
-            is MessagePartBlock.ChartBlock -> key(block.index) {
-                val spec = remember(block.tool.input) { ChartSpec.fromJson(block.tool.inputAsJson()) }
+            is MessageRenderUnit.Chart -> key(unit.block.index) {
+                val spec = remember(unit.block.tool.input) { ChartSpec.fromJson(unit.block.tool.inputAsJson()) }
                 spec?.let { ChartCard(spec = it) }
             }
 
-            is MessagePartBlock.ContentBlock -> key(block.index) {
-                when (val part = block.part) {
-                    is UIMessagePart.Text -> {
-                        // 只有正在生成的最后一段文字可能停在没写完的语法上
-                        val streamingText = loading && block.index == parts.lastIndex
-                        val textContent = @Composable {
-                            if (role == MessageRole.USER) {
-                                ChatMessageBubble(
-                                    role = role,
-                                    color = chatPanel(
-                                        MaterialTheme.colorScheme.primaryContainer
-                                            .copy(alpha = settings.displaySetting.bubbleOpacity),
-                                    ),
-                                    restCorner = styleSpec.bubbleCorner,
-                                    tailCorner = styleSpec.bubbleTailCorner,
-                                    onClick = { onUserMessageClick?.invoke() },
-                                    // 用户气泡不占满整行，和助手的回复错开
-                                    modifier = Modifier
-                                        .padding(start = 24.dp)
-                                        .animateContentSize(),
-                                ) {
-                                    MarkdownBlock(
-                                        content = part.text.replaceRegexes(
-                                            assistant = assistant,
-                                            scope = AssistantAffectScope.USER,
-                                            visual = true,
-                                        ),
-                                        onClickCitation = handleClickCitation
-                                    )
-                                }
-                            } else {
-                                if (settings.displaySetting.showAssistantBubble) {
-                                    ChatMessageBubble(
-                                        role = role,
-                                        color = chatPanel(
-                                            MaterialTheme.colorScheme.surfaceContainerHigh
-                                                .copy(alpha = settings.displaySetting.bubbleOpacity),
-                                        ),
-                                        restCorner = styleSpec.bubbleCorner,
-                                        tailCorner = styleSpec.bubbleTailCorner,
-                                        modifier = Modifier.animateContentSize(),
-                                    ) {
-                                        MarkdownBlock(
-                                            content = part.text.replaceRegexes(
-                                                assistant = assistant,
-                                                scope = AssistantAffectScope.ASSISTANT,
-                                                visual = true,
-                                            ),
-                                            streaming = streamingText,
-                                            onClickCitation = handleClickCitation,
-                                        )
-                                    }
-                                } else {
-                                    MarkdownBlock(
-                                        content = part.text.replaceRegexes(
-                                            assistant = assistant,
-                                            scope = AssistantAffectScope.ASSISTANT,
-                                            visual = true,
-                                        ),
-                                        streaming = streamingText,
-                                        onClickCitation = handleClickCitation,
-                                        modifier = Modifier
-                                            .animateContentSize()
-                                    )
-                                }
-                            }
-                        }
+            is MessageRenderUnit.Single -> key(unit.index) {
+                // Markdown 由 BetterText 渲染时要用它自己的选择容器；图片/文件不需要
+                if (unit.part is UIMessagePart.Text) {
+                    SelectableContent { renderTextPart(unit.part as UIMessagePart.Text, unit.index) }
+                } else {
+                    renderMediaPart(unit.part)
+                }
+            }
 
-                        // Markdown 由 BetterText 渲染，要用它自己的选择容器；生成中也可以选择
+            is MessageRenderUnit.TextRun -> key(unit.firstIndex) {
+                CollapsibleMessageText(
+                    messageId = messageId,
+                    textParts = unit.texts,
+                    isAssistant = role != MessageRole.USER,
+                    // 流式生成中不折（也不显示按钮），等这一轮结束再判断
+                    streaming = loading,
+                    enabled = collapseLongMessages,
+                    fadeColor = collapseFadeColor,
+                ) {
+                    unit.entries.fastForEach { entry ->
                         SelectableContent {
-                            textContent()
+                            renderTextPart(entry.part, entry.index)
                         }
-                    }
-
-                    is UIMessagePart.Video -> {
-                        ChatMessageMediaTile(
-                            icon = HugeIcons.Video01,
-                            onClick = { context.openLocalFile(part.url) },
-                        )
-                    }
-
-                    is UIMessagePart.Audio -> {
-                        ChatMessageMediaTile(
-                            icon = HugeIcons.MusicNote03,
-                            onClick = { context.openLocalFile(part.url) },
-                        )
-                    }
-
-                    is UIMessagePart.Image -> {
-                        val isImageLoading =
-                            part.url.isBlank() || part.url.matches(Regex("^data:image/[^;]*;base64,\\s*$"))
-                        if (isImageLoading) {
-                            Box(
-                                modifier = Modifier
-                                    .size(72.dp)
-                                    .clip(MaterialTheme.shapes.large)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .shimmer(isLoading = true)
-                            )
-                        } else {
-                            ZoomableAsyncImage(
-                                model = part.url,
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .clip(MaterialTheme.shapes.large)
-                                    .height(72.dp)
-                            )
-                        }
-                    }
-
-                    is UIMessagePart.Document -> {
-                        ChatMessageFileChip(
-                            text = part.fileName,
-                            onClick = { context.openLocalFile(part.url) },
-                            icon = {
-                                when (part.mime) {
-                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> {
-                                        Icon(
-                                            painter = painterResource(R.drawable.docx),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-
-                                    "application/pdf" -> {
-                                        Icon(
-                                            painter = painterResource(R.drawable.pdf),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-
-                                    else -> {
-                                        Icon(
-                                            imageVector = HugeIcons.File02,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-                            },
-                        )
-                    }
-
-                    else -> {
-                        // Skip unknown part types (e.g., deprecated ToolCall, ToolResult, Search)
                     }
                 }
             }
@@ -683,4 +727,59 @@ private fun ChatMessageCitations(annotations: List<UIMessageAnnotation>) {
             }
         }
     }
+}
+
+/**
+ * 渲染单元：把相邻的 Text part 聚成一条 [TextRun]，这样一个折叠容器就能包住多段正文，
+ * 而图片/视频/文件/图表始终各自独立，不会被裁切或挡住。
+ */
+private sealed interface MessageRenderUnit {
+    data class Thinking(val block: MessagePartBlock.ThinkingBlock) : MessageRenderUnit
+    data class Chart(val block: MessagePartBlock.ChartBlock) : MessageRenderUnit
+    data class Single(val index: Int, val part: UIMessagePart) : MessageRenderUnit
+
+    data class TextRun(val entries: List<IndexedTextPart>) : MessageRenderUnit {
+        val texts: List<String> get() = entries.map { it.part.text }
+        val firstIndex: Int get() = entries.first().index
+    }
+}
+
+private data class IndexedTextPart(val index: Int, val part: UIMessagePart.Text)
+
+private fun List<MessagePartBlock>.toMessageRenderUnits(): List<MessageRenderUnit> {
+    val units = mutableListOf<MessageRenderUnit>()
+    var textRun = mutableListOf<IndexedTextPart>()
+
+    fun flushTextRun() {
+        if (textRun.isNotEmpty()) {
+            units += MessageRenderUnit.TextRun(textRun.toList())
+            textRun = mutableListOf()
+        }
+    }
+
+    fastForEach { block ->
+        when (block) {
+            is MessagePartBlock.ThinkingBlock -> {
+                flushTextRun()
+                units += MessageRenderUnit.Thinking(block)
+            }
+
+            is MessagePartBlock.ChartBlock -> {
+                flushTextRun()
+                units += MessageRenderUnit.Chart(block)
+            }
+
+            is MessagePartBlock.ContentBlock -> {
+                val part = block.part
+                if (part is UIMessagePart.Text) {
+                    textRun += IndexedTextPart(block.index, part)
+                } else {
+                    flushTextRun()
+                    units += MessageRenderUnit.Single(block.index, part)
+                }
+            }
+        }
+    }
+    flushTextRun()
+    return units
 }

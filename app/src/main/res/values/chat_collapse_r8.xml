@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r8: 顶部信息栏折叠 -->
+    <string name="chat_header_summary_description">Provider, model and speed</string>
+    <string name="chat_header_expand_details">Show speed and context details</string>
+    <string name="chat_header_collapse_details">Collapse speed and context details</string>
+    <string name="chat_header_state_expanded">Expanded</string>
+    <string name="chat_header_state_collapsed">Collapsed</string>
+</resources>

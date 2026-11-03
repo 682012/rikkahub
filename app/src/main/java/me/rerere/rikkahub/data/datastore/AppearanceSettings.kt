@@ -58,6 +58,11 @@ data class AppearanceSettings(
     val wallpaperAlignmentY: Float = 0.5f,
     /** Preserve light/dark mode while coordinating panels with the visible wallpaper hue. */
     val wallpaperAdaptiveTint: Boolean = true,
+    /**
+     * 聊天页顶部信息栏是否展开：默认 false 只留一行“提供商 · 模型 · TPS”摘要，
+     * 展开后才显示详细 TPS 与上下文面板。写入统一走 ChatStyleHeader 的回调 + 设置仓库。
+     */
+    val chatHeaderExpanded: Boolean = false,
 ) {
     /**
      * 把可能存在的坏值收敛成一份能直接拿去画的设置。

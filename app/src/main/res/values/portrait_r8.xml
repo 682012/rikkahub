@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="portrait_whale_maid">Whale maid</string>
+    <string name="portrait_dragon_girl">Dragon girl</string>
+    <string name="portrait_sun_reader">Sunlit reader</string>
+    <string name="portrait_preset_desc">Transparent character illustration; preserves the face, hair and clothing.</string>
+    <string name="portrait_custom_desc">Use your own transparent illustration or animated image.</string>
+    <string name="portrait_minimized_title">Keep the character at the edge</string>
+    <string name="portrait_minimized_desc">Tap the small handle to show the portrait. Collapse it when you need the space.</string>
+    <string name="portrait_preview_toggle">Tap to preview the response</string>
+    <string name="portrait_expand">Show character</string>
+    <string name="portrait_minimize">Collapse to the edge</string>
+    <string name="portrait_line_1">Here with you.</string>
+    <string name="portrait_line_2">I’m listening.</string>
+    <string name="portrait_approval">Your confirmation is needed</string>
+    <string name="portrait_error">The request needs attention</string>
+    <string name="portrait_panel_expand">Show reply preview</string>
+    <string name="portrait_panel_collapse">Hide reply preview</string>
+</resources>

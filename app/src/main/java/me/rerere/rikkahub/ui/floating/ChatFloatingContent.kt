@@ -131,12 +131,13 @@ fun ChatFloatingBubble(
     state: FloatingChatUiState,
     onClick: () -> Unit,
     companion: FloatingCompanionSettings = FloatingCompanionSettings(),
+    onMinimizedChange: ((Boolean) -> Unit)? = null,
 ) {
     val settings = remember(companion) { companion.normalized() }
     if (settings.effectivePreset == FloatingCompanionPreset.LOGO) {
         LogoChatFloatingBubble(state = state, onClick = onClick)
     } else {
-        FloatingCompanionBubble(state = state, companion = settings, onClick = onClick)
+        PortraitCompanionBubble(state = state, companion = settings, onClick = onClick, onMinimizedChange = onMinimizedChange)
     }
 }
 
@@ -220,8 +221,12 @@ fun ChatFloatingPanel(
     onStop: () -> Unit,
     onSend: (String) -> Unit,
     onResumeQueue: () -> Unit,
+    previewExpanded: Boolean = false,
+    onPreviewExpandedChange: ((Boolean) -> Unit)? = null,
 ) {
-    // 窗口和屏幕一样宽，大屏上限制宽度并居中
+    var localPreviewExpanded by rememberSaveable(state.conversationId.toString()) { mutableStateOf(previewExpanded) }
+    val showPreview = if(onPreviewExpandedChange == null) localPreviewExpanded else previewExpanded
+    // Compact by default. Preview and pending approvals can scroll; the reply bar stays reachable.
     Box(modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight), contentAlignment = Alignment.TopCenter) {
         Surface(
             modifier = Modifier
@@ -251,7 +256,13 @@ fun ChatFloatingPanel(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         if (state.preview.isNotEmpty()) {
-                            MessagePreview(
+                            TextButton(onClick = {
+                                if(onPreviewExpandedChange != null) onPreviewExpandedChange(!showPreview)
+                                else localPreviewExpanded = !showPreview
+                            },modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                Text(stringResource(if(showPreview) R.string.portrait_panel_collapse else R.string.portrait_panel_expand))
+                            }
+                            if(showPreview) MessagePreview(
                                 text = state.preview,
                                 isReasoning = state.previewIsReasoning,
                                 generating = state.generating,

@@ -13,6 +13,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
@@ -116,7 +118,14 @@ class ChatStyleRuntimeTest {
             rule.waitForIdle()
             val modelLine = rule.onAllNodesWithTag(ChatHeaderModelTag, useUnmergedTree = true).onFirst()
             modelLine.assertIsDisplayed()
-            rule.onNodeWithText("Claude Sonnet 4.5", substring = true).assertIsDisplayed()
+            // r8 默认折叠：长模型名允许省略，完整名字保留在合并的无障碍描述里，别用像素级文字断言
+            modelLine.assert(
+                SemanticsMatcher("折叠摘要仍带完整模型名") { node ->
+                    node.config.getOrNull(SemanticsProperties.ContentDescription)
+                        ?.any { it.contains("Claude Sonnet 4.5") } == true
+                }
+            )
+            rule.onNodeWithTag(ChatHeaderSpeedTag, useUnmergedTree = true).assertIsDisplayed()
             for ((resource, action) in listOf(
                 R.string.chat_style_open_drawer to "drawer", R.string.chat_style_usage to "usage",
                 R.string.chat_style_toggle_preview to "preview", R.string.chat_style_new_chat to "new")) {

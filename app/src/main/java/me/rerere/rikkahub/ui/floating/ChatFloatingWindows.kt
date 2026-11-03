@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
@@ -143,7 +144,12 @@ class ChatFloatingWindows(
         compose {
             WindowContent { state ->
                 val settings by settingsStore.settingsFlow.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
-                ChatFloatingBubble(state = state, onClick = tracker::expand, companion = settings.displaySetting.floatingCompanion)
+                ChatFloatingBubble(state = state, onClick = tracker::expand, companion = settings.displaySetting.floatingCompanion,
+                    onMinimizedChange = { minimized -> appScope.launch {
+                        settingsStore.update { latest -> latest.copy(displaySetting = latest.displaySetting.copy(
+                            floatingCompanion = latest.displaySetting.floatingCompanion.copy(minimized = minimized))) }
+                    } },
+                )
             }
         }
         anchor(FxGravity.CENTER_END, dy = -dp(96f))
@@ -158,6 +164,7 @@ class ChatFloatingWindows(
         compose {
             WindowContent { state ->
                 val conversationId = state.conversationId
+                val currentSettings by settingsStore.settingsFlow.collectAsStateWithLifecycle(minActiveState = Lifecycle.State.RESUMED)
                 ChatFloatingPanel(
                     state = state,
                     maxHeight = rememberPanelMaxHeight(),
@@ -170,6 +177,11 @@ class ChatFloatingWindows(
                     onStop = { appScope.launch { chatService.stopGeneration(conversationId) } },
                     onSend = { text -> chatService.sendMessage(conversationId, listOf(UIMessagePart.Text(text))) },
                     onResumeQueue = { chatService.resumeInbox(conversationId) },
+                    previewExpanded = currentSettings.displaySetting.floatingCompanion.panelPreviewExpanded,
+                    onPreviewExpandedChange = { expanded -> appScope.launch {
+                        settingsStore.update { latest -> latest.copy(displaySetting = latest.displaySetting.copy(
+                            floatingCompanion = latest.displaySetting.floatingCompanion.copy(panelPreviewExpanded = expanded))) }
+                    } },
                 )
             }
         }
@@ -223,7 +235,7 @@ class ChatFloatingWindows(
         val configuration = LocalConfiguration.current
         val density = LocalDensity.current
         return remember(configuration, density) {
-            with(density) { (safeScreenHeight() - dp(PANEL_TOP_OFFSET_DP)).toDp() }
+            with(density) { ((safeScreenHeight() - dp(PANEL_TOP_OFFSET_DP)) * .62f).toDp().coerceAtMost(440.dp) }
         }
     }
 

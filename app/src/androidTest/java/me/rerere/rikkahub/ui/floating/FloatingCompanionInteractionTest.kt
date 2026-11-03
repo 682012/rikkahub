@@ -382,10 +382,10 @@ class FloatingCompanionInteractionTest {
 
     /** 数据级兜底：自定义没图时 effectivePreset 就是 LOGO（那条路径由 ChatFloatingBubble 渲染）。 */
     @Test
-    fun customPresetWithoutImageFallsBackToLogo() {
-        assertEquals(FloatingCompanionPreset.LOGO, FloatingCompanionSettings(preset = FloatingCompanionPreset.CUSTOM).effectivePreset)
+    fun customPresetWithoutImageFallsBackToPortrait() {
+        assertEquals(FloatingCompanionPreset.WHALE_MAID, FloatingCompanionSettings(preset = FloatingCompanionPreset.CUSTOM).effectivePreset)
         assertEquals(
-            FloatingCompanionPreset.LOGO,
+            FloatingCompanionPreset.WHALE_MAID,
             FloatingCompanionSettings(preset = FloatingCompanionPreset.CUSTOM, customImagePath = "   ").effectivePreset,
         )
         assertEquals(

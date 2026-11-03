@@ -177,6 +177,7 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
             if (nodeId != null) {
                 val index = conversation.messageNodes.indexOfFirst { it.id == nodeId }
                 if (index >= 0) {
+                    me.rerere.rikkahub.ui.components.message.MessageCollapseStateHolder.requestExpand(nodeId.toString())
                     chatListState.scrollToItem(index)
                 }
             } else {
@@ -336,7 +337,11 @@ private fun ChatPageContent(
                     },
                     onUpdateTitle = {
                         vm.updateTitle(it)
-                    }
+                    },
+                    onHeaderExpandedChange = { expanded -> vm.updateSettings { latest ->
+                        latest.copy(displaySetting = latest.displaySetting.copy(
+                            appearance = latest.displaySetting.appearance.copy(chatHeaderExpanded = expanded)))
+                    } },
                 )
             },
             bottomBar = {
@@ -568,7 +573,8 @@ private fun TopBar(
     previewMode: Boolean,
     onClickMenu: () -> Unit,
     onNewChat: () -> Unit,
-    onUpdateTitle: (String) -> Unit
+    onUpdateTitle: (String) -> Unit,
+    onHeaderExpandedChange: (Boolean) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
@@ -603,6 +609,8 @@ private fun TopBar(
         onOpenUsage = { showUsage = true },
         onTogglePreview = onClickMenu,
         onNewChat = onNewChat,
+        headerExpanded = settings.displaySetting.appearance.chatHeaderExpanded,
+        onHeaderExpandedChange = onHeaderExpandedChange,
     )
 
     if (showUsage) {

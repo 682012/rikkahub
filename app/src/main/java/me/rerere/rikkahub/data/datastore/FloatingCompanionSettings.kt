@@ -24,6 +24,15 @@ enum class FloatingCompanionPreset {
 
     @SerialName("custom")
     CUSTOM,
+
+    @SerialName("whale_maid")
+    WHALE_MAID,
+
+    @SerialName("dragon_girl")
+    DRAGON_GIRL,
+
+    @SerialName("sun_reader")
+    SUN_READER,
 }
 
 /**
@@ -38,7 +47,7 @@ enum class FloatingCompanionPreset {
  */
 @Serializable
 data class FloatingCompanionSettings(
-    val preset: FloatingCompanionPreset = FloatingCompanionPreset.LOGO,
+    val preset: FloatingCompanionPreset = FloatingCompanionPreset.WHALE_MAID,
     /** 待机图片，`file://` 指向私有目录 [FloatingCompanionLimits.DIRECTORY]；null 表示没选。 */
     val customImagePath: String? = null,
     /** 点一下时临时换的图片，可选；null 时沿用待机图片。 */
@@ -50,13 +59,18 @@ data class FloatingCompanionSettings(
     val sizeDp: Int = FloatingCompanionLimits.SIZE_DEFAULT_DP,
     /** 关掉后角色不眨眼、不摆尾、没有粒子；状态徽标照常。 */
     val animationEnabled: Boolean = true,
+    /** Edge mode keeps only a narrow handle and tiny portrait visible over other apps. */
+    val minimized: Boolean = true,
+    /** The preview inside the quick-reply panel is opt-in, not another permanent card. */
+    val panelPreviewExpanded: Boolean = false,
 ) {
     /** 真正要画的：选了自定义但没图时退回应用 logo，不留空白。 */
     val effectivePreset: FloatingCompanionPreset
-        get() = if (preset == FloatingCompanionPreset.CUSTOM && customImagePath.isNullOrBlank()) {
-            FloatingCompanionPreset.LOGO
-        } else {
-            preset
+        get() = when {
+            preset == FloatingCompanionPreset.CUSTOM && customImagePath.isNullOrBlank() -> FloatingCompanionPreset.WHALE_MAID
+            preset == FloatingCompanionPreset.CAT -> FloatingCompanionPreset.WHALE_MAID
+            preset == FloatingCompanionPreset.DRAGON -> FloatingCompanionPreset.DRAGON_GIRL
+            else -> preset
         }
 
     /** 大小限制在 56..112dp：太小点不中，太大挡聊天。 */

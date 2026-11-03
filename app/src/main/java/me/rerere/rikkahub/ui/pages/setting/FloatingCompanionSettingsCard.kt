@@ -61,8 +61,6 @@ import me.rerere.rikkahub.data.datastore.FloatingCompanionPreset
 import me.rerere.rikkahub.data.datastore.FloatingCompanionSettings
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.CardGroupValue
-import me.rerere.rikkahub.ui.components.ui.ConnectedChoiceButtons
-import me.rerere.rikkahub.ui.components.ui.ConnectedChoiceLabel
 import me.rerere.rikkahub.ui.components.ui.switchItem
 import me.rerere.rikkahub.ui.floating.ChatFloatingBubble
 import me.rerere.rikkahub.ui.floating.FloatingCompanionFiles
@@ -72,24 +70,9 @@ import me.rerere.rikkahub.ui.floating.previewCompanionState
 import kotlin.math.roundToInt
 
 /**
- * 悬浮窗角色设置卡片：预设角色（应用图标/猫咪/小龙/自定义图片）、相册图片、名字、点击台词、大小、动效。
+ * 悬浮窗角色设置卡片：立绘预设、相册图片、名字、台词、大小、动效、边缘收起。
  *
- * 和 [AppearanceSettingsCard] 一样只负责界面，数据通过 [onChange] 交回调用方，自己不存设置。
- * 相册选到的图片先拷进应用私有目录再把路径写进设置；旧图要等新的值持久化完成后再删，
- * 半路失败不会把当前还在用的图删掉。
- *
- * 放进设置页 LazyColumn 时不用传 [scrollable]：
- * ```
- * item {
- *     FloatingCompanionSettingsCard(
- *         companion = settings.displaySetting.floatingCompanion,
- *         onChange = { vm.updateSettings { s -> s.copy(displaySetting = s.displaySetting.copy(floatingCompanion = it)) } },
- *     )
- * }
- * ```
- * 如果调用方能提供真正的落盘动作，传给 [persistChange]，删旧图会等它返回。
- *
- * 预览用一个假的空闲状态，不需要 Koin、不需要真实会话，点一下就能看到抬手和台词。
+ * 只负责界面，状态通过 [onChange] 交给调用方；给了 [persistChange] 时删旧图等它落盘之后再做。
  */
 @Composable
 fun FloatingCompanionSettingsCard(
@@ -193,11 +176,12 @@ fun FloatingCompanionSettingsCard(
                         .heightIn(min = 120.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    // 和系统悬浮窗里是同一个 composable，所以预览就等于是真实效果
+                    // 同一个 composable，但只画角色本身：这里按展开态显示，系统悬浮窗的
+                    // 边缘收起、窗口拖拽等行为预览里不模拟。
                     ChatFloatingBubble(
                         state = remember { previewCompanionState() },
                         onClick = {},
-                        companion = current,
+                        companion = current.copy(minimized = false),
                     )
                 }
             }
@@ -205,16 +189,18 @@ fun FloatingCompanionSettingsCard(
 
         CardGroup(title = { Text(stringResource(R.string.floating_companion_section_preset)) }) {
             formItem(
-                supportingContent = { Text(stringResource(current.preset.descRes())) },
+                supportingContent = { Text(stringResource(R.string.portrait_preset_desc)) },
             ) {
-                ConnectedChoiceButtons(
-                    options = FloatingCompanionPreset.entries,
-                    selected = current.preset,
+                PortraitCompanionSelector(
+                    companion = current,
                     onSelect = { preset -> update { it.copy(preset = preset) } },
-                ) { option, selected ->
-                    ConnectedChoiceLabel(
-                        text = stringResource(option.labelRes()),
-                        selected = selected,
+                )
+                if (highlightPreset(current.preset) == FloatingCompanionPreset.CUSTOM) {
+                    Text(
+                        text = stringResource(R.string.portrait_custom_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
                     )
                 }
             }
@@ -373,6 +359,18 @@ fun FloatingCompanionSettingsCard(
                 headlineContent = { Text(stringResource(R.string.floating_companion_animation_title)) },
                 supportingContent = { Text(stringResource(R.string.floating_companion_animation_desc)) },
             )
+            // 换角色、改大小都不动这两个值，收起状态是独立开关
+            switchItem(
+                checked = current.minimized,
+                onCheckedChange = { minimized -> update { it.copy(minimized = minimized) } },
+                headlineContent = { Text(stringResource(R.string.portrait_minimized_title)) },
+                supportingContent = { Text(stringResource(R.string.portrait_minimized_desc)) },
+            )
+            switchItem(
+                checked = current.panelPreviewExpanded,
+                onCheckedChange = { expanded -> update { it.copy(panelPreviewExpanded = expanded) } },
+                headlineContent = { Text(stringResource(R.string.portrait_preview_toggle)) },
+            )
         }
     }
 
@@ -467,20 +465,6 @@ private fun CompanionImageRow(
             modifier = Modifier.padding(top = 4.dp),
         )
     }
-}
-
-private fun FloatingCompanionPreset.labelRes(): Int = when (this) {
-    FloatingCompanionPreset.LOGO -> R.string.floating_companion_preset_logo
-    FloatingCompanionPreset.CAT -> R.string.floating_companion_preset_cat
-    FloatingCompanionPreset.DRAGON -> R.string.floating_companion_preset_dragon
-    FloatingCompanionPreset.CUSTOM -> R.string.floating_companion_preset_custom
-}
-
-private fun FloatingCompanionPreset.descRes(): Int = when (this) {
-    FloatingCompanionPreset.LOGO -> R.string.floating_companion_preset_logo_desc
-    FloatingCompanionPreset.CAT -> R.string.floating_companion_preset_cat_desc
-    FloatingCompanionPreset.DRAGON -> R.string.floating_companion_preset_dragon_desc
-    FloatingCompanionPreset.CUSTOM -> R.string.floating_companion_preset_custom_desc
 }
 
 /**

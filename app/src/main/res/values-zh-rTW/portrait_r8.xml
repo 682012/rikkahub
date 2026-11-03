@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="portrait_whale_maid">鯨魚女僕</string>
+    <string name="portrait_dragon_girl">白龍少女</string>
+    <string name="portrait_sun_reader">暖陽書姬</string>
+    <string name="portrait_preset_desc">透明角色立繪，保留五官、髮絲與衣裝。</string>
+    <string name="portrait_custom_desc">使用你自己的透明立繪或動態圖。</string>
+    <string name="portrait_minimized_title">角色收在邊緣</string>
+    <string name="portrait_minimized_desc">點小入口展開立繪；需要空間時再收起。</string>
+    <string name="portrait_preview_toggle">點擊試看回應</string>
+    <string name="portrait_expand">展開角色</string>
+    <string name="portrait_minimize">收至邊緣</string>
+    <string name="portrait_line_1">在呢。</string>
+    <string name="portrait_line_2">我聽著呢。</string>
+    <string name="portrait_approval">需要你確認</string>
+    <string name="portrait_error">這次請求需要處理</string>
+    <string name="portrait_panel_expand">展開回覆預覽</string>
+    <string name="portrait_panel_collapse">收起回覆預覽</string>
+</resources>

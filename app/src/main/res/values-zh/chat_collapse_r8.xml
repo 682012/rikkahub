@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r8: 顶部信息栏折叠 -->
+    <string name="chat_header_summary_description">提供商、模型与生成速度</string>
+    <string name="chat_header_expand_details">展开速度与上下文详情</string>
+    <string name="chat_header_collapse_details">收起速度与上下文详情</string>
+    <string name="chat_header_state_expanded">已展开</string>
+    <string name="chat_header_state_collapsed">已收起</string>
+</resources>

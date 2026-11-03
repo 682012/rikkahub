@@ -251,8 +251,8 @@ fun FloatingCompanionBubble(
     var customBroken by remember(idleUri) { mutableStateOf(false) }
     var showTapImage by remember { mutableStateOf(false) }
 
-    val defaultLines = stringArrayResourceFor(settings.effectivePreset)
-    val fallbackName = presetName(settings.effectivePreset)
+    val defaultLines = stringArrayResourceFor(settings.preset)
+    val fallbackName = presetName(settings.preset)
     val description = stringResource(R.string.floating_companion_bubble_desc)
     val currentOnClick by rememberUpdatedState(onClick)
 
@@ -979,6 +979,9 @@ private fun presetName(preset: FloatingCompanionPreset): String = stringResource
         FloatingCompanionPreset.CAT -> R.string.floating_companion_default_name_cat
         FloatingCompanionPreset.DRAGON -> R.string.floating_companion_default_name_dragon
         FloatingCompanionPreset.CUSTOM -> R.string.floating_companion_default_name_custom
+        FloatingCompanionPreset.WHALE_MAID -> R.string.portrait_whale_maid
+        FloatingCompanionPreset.DRAGON_GIRL -> R.string.portrait_dragon_girl
+        FloatingCompanionPreset.SUN_READER -> R.string.portrait_sun_reader
     }
 )
 
@@ -991,6 +994,9 @@ private fun stringArrayResourceFor(preset: FloatingCompanionPreset): List<String
     FloatingCompanionPreset.CAT -> listOf(
         stringResource(R.string.floating_companion_default_line_cat_1),
         stringResource(R.string.floating_companion_default_line_cat_2),
+    )
+    FloatingCompanionPreset.WHALE_MAID, FloatingCompanionPreset.DRAGON_GIRL, FloatingCompanionPreset.SUN_READER -> listOf(
+        stringResource(R.string.portrait_line_1), stringResource(R.string.portrait_line_2),
     )
     else -> listOf(stringResource(R.string.floating_companion_default_line_cat_1))
 }

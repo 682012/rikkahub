@@ -22,8 +22,8 @@ class FloatingCompanionSettingsTest {
     @Test
     fun `default keeps the original app logo bubble`() {
         val settings = FloatingCompanionSettings()
-        assertEquals(FloatingCompanionPreset.LOGO, settings.preset)
-        assertEquals(FloatingCompanionPreset.LOGO, settings.effectivePreset)
+        assertEquals(FloatingCompanionPreset.WHALE_MAID, settings.preset)
+        assertEquals(FloatingCompanionPreset.WHALE_MAID, settings.effectivePreset)
         assertEquals(FloatingCompanionLimits.SIZE_DEFAULT_DP, settings.sizeDp)
         assertTrue(settings.animationEnabled)
         assertNull(settings.customImagePath)
@@ -76,7 +76,7 @@ class FloatingCompanionSettingsTest {
     @Test
     fun `custom preset without image falls back to logo instead of blank`() {
         val noImage = FloatingCompanionSettings(preset = FloatingCompanionPreset.CUSTOM)
-        assertEquals(FloatingCompanionPreset.LOGO, noImage.effectivePreset)
+        assertEquals(FloatingCompanionPreset.WHALE_MAID, noImage.effectivePreset)
 
         val withImage = noImage.copy(customImagePath = "file:///data/user/0/app/files/x.png")
         assertEquals(FloatingCompanionPreset.CUSTOM, withImage.effectivePreset)
@@ -173,7 +173,7 @@ class FloatingCompanionSettingsTest {
 
         // 老配置里完全没有这个字段时，读出来还是原来的 logo 气泡
         val absent = json.decodeFromString<FloatingCompanionSettings>("{}")
-        assertEquals(FloatingCompanionPreset.LOGO, absent.preset)
+        assertEquals(FloatingCompanionPreset.WHALE_MAID, absent.preset)
         assertTrue(absent.animationEnabled)
     }
 
