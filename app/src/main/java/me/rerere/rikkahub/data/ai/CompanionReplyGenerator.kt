@@ -73,7 +73,7 @@ class CompanionReplyGenerator(
                     ?: CompanionFailure.ProviderMissing(labelOf(model, null)),
             )
         val expected = request.expectedModel
-        if (expected != null && expected != resolution.snapshot) {
+        if (expected != null && expected != resolution.description.snapshot) {
             // 描述和实际请求必须是同一个模型：两次读取之间设置变了（换/删模型、换会话），
             // 这次请求就作废，绝不拿另一个模型把旧请求发出去
             throw CompanionModelUnavailableException(CompanionFailure.ModelMissing)
