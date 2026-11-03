@@ -1,0 +1,104 @@
+{
+  "version": "3.1.1-r7",
+  "versionCode": 3000054,
+  "package": "me.rerere.rikkahub.fork",
+  "schema": 34,
+  "generatedAt": "2026-11-03T03:39:11.018474+00:00",
+  "sourceFilesVerified": 2002,
+  "sourceBaseCommit": "27deaba5875a6e925f420c5eb089ffad5fdf2e9f",
+  "productionCommit": "97a61a0f68db29d3feb8883e721e2ba68e06aa02",
+  "releaseChannel": "prerelease; r3 remains stable latest",
+  "apk": {
+    "name": "rikkahub-3.1.1-r7.apk",
+    "bytes": 19368366,
+    "sha256": "0f82618325b9e2bfba789fea6f7791af56aeb15c6d924327b566951e03d412c2",
+    "signingCertificateSha256": "cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89",
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ]
+  },
+  "tests": {
+    "jvm": {
+      "tests": 2067,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 1,
+      "files": 280
+    },
+    "android": {
+      "tests": 126,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "logSha256": "e7519677758836d4047a503ce2a6a0adc1685f476a7e4581acb7c4aa7b927189"
+    },
+    "shizukuPositive": {
+      "status": "not_verified"
+    },
+    "appSuRootPositive": {
+      "status": "not_verified"
+    }
+  },
+  "upgrade": {
+    "from": "3.1.1-r6",
+    "fromVersionCode": 3000053,
+    "to": "3.1.1-r7",
+    "markerPreserved": true,
+    "coldStartNoFatal": true,
+    "signatureAccepted": true
+  },
+  "screenshots": [
+    "r7-studio-dark.png",
+    "r7-studio-light.png",
+    "r7-focus-dark.png",
+    "r7-classic-light.png",
+    "r7-pdf-preview.png",
+    "r7-html-preview.png",
+    "r7-docx-preview.png",
+    "r7-archive-preview.png",
+    "r7-audio-preview.png",
+    "r7-companion-before.png",
+    "r7-companion-tap.png",
+    "r7-companion-panel.png"
+  ],
+  "phases": {
+    "build": "success",
+    "android": "success",
+    "signedRelease": "success",
+    "upgrade": "success",
+    "visualReview": "success",
+    "overlayMockSmoke": "success"
+  },
+  "verificationBoundary": "Isolated AOSP API34 x86_64; emulator autojoin restored by bounded external fixture after a real two-second network loss. Synthetic conversation and local fixture files, no user phone installation, no live provider billing. Office is text-only, archives list-only; unsupported codecs not guaranteed.",
+  "visualReview": {
+    "status": "passed",
+    "reviewedAt": "2026-11-03T03:42:05.307955+00:00",
+    "viewportPixels": [
+      720,
+      1600
+    ],
+    "densityDpi": 320,
+    "sha256": {
+      "r7-studio-dark.png": "645610eb5f8d9c52a5ffc5e0a99f0d85004f781dba7ea5aa1e49b76d15b4d202",
+      "r7-studio-light.png": "a291e635f6d9057bb56f9bf580214cf15bbfb883e37b15bcba41d30a9e22dd45",
+      "r7-focus-dark.png": "89affebee4032174bbda774012a73c88f2a6cf9f0fcb4d583cfd9a9a1359573c",
+      "r7-classic-light.png": "9183a963022680552ec548e476e46fc90ab895e7f5a56129781e57f9b3f60035",
+      "r7-pdf-preview.png": "5580dd34c0443a469b8d17d158ec2067c46eca9bf4cc52cc68a83e3efe03c136",
+      "r7-html-preview.png": "3c0243c0ac297ce4e46201ed199eb9afa87407206df80dae3ed8ab3ff0b3ebc2",
+      "r7-docx-preview.png": "4831236e638e60ff9b7b04032c2fe9371d72c61ff33492d309f9fc37bdbc1e83",
+      "r7-archive-preview.png": "1edf5842fed5f36e0551a728bd2d3e0a2ca1b3071de20799717828a178c51047",
+      "r7-audio-preview.png": "e676e606c97fd4d6424c6eed418a7f030ead96edef9eea39247adeb2aacefa13",
+      "r7-companion-before.png": "42b9838ec5f1497ff770efa710e30e839048098d4fc57a0e2d62297108b28526",
+      "r7-companion-tap.png": "11afb608e6f651a3bd5b2acddaea710aef40b2e683df0f22a46200143011fce8",
+      "r7-companion-panel.png": "258556af541a6247e790c41dbb3decf103192fa5a023342b482658302cf9b62e"
+    },
+    "checks": [
+      "current provider/model and synthetic TPS visible in all three layouts",
+      "light/dark wallpaper panel readability",
+      "actual PDF pages, static HTML, DOCX text, ZIP entries and WAV controls",
+      "background native dragon visible, click expression/speech before progress/quick-reply panel"
+    ],
+    "limitations": "Screenshots show individual frames; interaction cases verify tap/drag/debounce, not performance on every OEM."
+  }
+}

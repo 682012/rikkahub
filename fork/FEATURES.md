@@ -1,6 +1,8 @@
 # 相比官方 3.1.1：新增工作流、功能增强与限制
 
-当前实验代码 **3.1.1-r6 / 3000053** 合并已发布 r5 的全部统计修复与工作区访问权限分支，另增加[可切换布局与沉浸壁纸](APPEARANCE-r6.md)、[主动授权与挂载](WORKSPACE-ACCESS.md)。稳定 latest 保持 r3，r4/r5 不撤回。验收只以 [r6 发布说明](RELEASE-r6.md) 与 [verification/r6.json](verification/r6.json) 为准；r6 提供 App / 用户授权 Shizuku / 已有 su Root 入口，Shizuku 正向与 App su Root 正向本轮未完成真机验证，不声称已通过，PRoot 不是 Root。下面保留历史基线。
+当前预发布 **3.1.1-r7 / 3000054**，见 [r7验收](RELEASE-r7.md)、[互动角色与预览](COMPANION-r7.md) 和 [verification/r7.json](verification/r7.json)。下方 r6 与 stable r3 是历史基线，不代表本轮测试。
+
+前一实验代码 **3.1.1-r6 / 3000053** 合并已发布 r5 的全部统计修复与工作区访问权限分支，另增加[可切换布局与沉浸壁纸](APPEARANCE-r6.md)、[主动授权与挂载](WORKSPACE-ACCESS.md)。稳定 latest 保持 r3，r4/r5 不撤回。验收只以 [r6 发布说明](RELEASE-r6.md) 与 [verification/r6.json](verification/r6.json) 为准；r6 提供 App / 用户授权 Shizuku / 已有 su Root 入口，Shizuku 正向与 App su Root 正向本轮未完成真机验证，不声称已通过，PRoot 不是 Root。下面保留历史基线。
 
 本实验分支额外加入[Gemini/Claude网页会话](WEB-ACCOUNTS.md)与[缓存/窗口计数修复](CACHE-r4.md)，见[r4验收与限制](RELEASE-r4.md)。以下分组保留稳定版r3基线；网页工具是需确认的提示词协议，账号兼容性未实测，不能算原生function calling。
 
