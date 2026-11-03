@@ -147,6 +147,9 @@ internal fun CollapsibleMessageText(
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
+                // Alignment is not inherited through the full-width clipping wrapper.
+                // Keep each natural-width user bubble at End, including short/streaming text.
+                horizontalAlignment = if (isAssistant) Alignment.Start else Alignment.End,
                 // 和消息列 4dp 的间距保持一致（多段正文不再被合成一个紧贴的块）
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
