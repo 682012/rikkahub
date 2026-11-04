@@ -65,6 +65,9 @@ internal enum class MessageCollapseReason {
 
     /** 默认折叠 */
     AUTO_COLLAPSED,
+
+    /** 默认展开，仍可手动收起 */
+    DEFAULT_EXPANDED,
 }
 
 internal data class MessageCollapseInput(
@@ -76,6 +79,8 @@ internal data class MessageCollapseInput(
     val streaming: Boolean = false,
     /** DisplaySetting.collapseLongMessages */
     val enabled: Boolean = MessageCollapseThresholds.DEFAULT_ENABLED,
+    /** Default state; a visible toggle is still available when initially expanded. */
+    val collapsedByDefault: Boolean = true,
     /** 本次会话里用户手动展开过这条消息 */
     val manualOpen: Boolean = false,
     /** 本次会话里用户手动收起过这条消息 */
@@ -163,7 +168,7 @@ internal fun decideMessageCollapse(input: MessageCollapseInput): MessageCollapse
             showToggle = false,
             reason = MessageCollapseReason.STREAMING,
             metrics = metrics,
-            collapseWhenComplete = longEnough,
+            collapseWhenComplete = longEnough && input.collapsedByDefault,
         )
     }
     if (!longEnough) {
@@ -176,9 +181,10 @@ internal fun decideMessageCollapse(input: MessageCollapseInput): MessageCollapse
         )
     }
     return MessageCollapseDecision(
-        collapsed = true,
+        collapsed = input.collapsedByDefault,
         showToggle = true,
-        reason = MessageCollapseReason.AUTO_COLLAPSED,
+        reason = if (input.collapsedByDefault) MessageCollapseReason.AUTO_COLLAPSED
+            else MessageCollapseReason.DEFAULT_EXPANDED,
         metrics = metrics,
         collapseWhenComplete = false,
     )

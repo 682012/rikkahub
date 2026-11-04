@@ -22,6 +22,11 @@ data class QueuedMessage(
     val isEditing: Boolean = false,
     // Optional in-memory observer; null result means the queued message was withdrawn.
     val reply: CompletableDeferred<String?>? = null,
+    /**
+     * 落库确认：用户消息写进会话后 complete(true)，初始化失败/任务取消/被撤回时 complete(false)。
+     * 调用方据此决定什么时候可以安全清掉输入草稿，不影响语音的 [reply]。
+     */
+    val persisted: CompletableDeferred<Boolean>? = null,
 ) : InboxItem
 
 /**
@@ -75,9 +80,15 @@ class ConversationInbox {
     val state = mutableState.asStateFlow()
 
     @Synchronized
-    fun enqueue(parts: List<UIMessagePart>, answer: Boolean = true, reply: CompletableDeferred<String?>? = null) {
+    fun enqueue(
+        parts: List<UIMessagePart>,
+        answer: Boolean = true,
+        reply: CompletableDeferred<String?>? = null,
+        persisted: CompletableDeferred<Boolean>? = null,
+    ) {
         if (parts.isEmptyInputMessage()) {
             reply?.complete(null)
+            persisted?.complete(false)
             return
         }
         mutableState.value = state.value.copy(
@@ -85,6 +96,7 @@ class ConversationInbox {
                 parts = parts.toList(),
                 answer = answer,
                 reply = reply,
+                persisted = persisted,
             ),
         )
     }
@@ -142,6 +154,8 @@ class ConversationInbox {
         val removed = state.value.items.find { it.id == id } ?: return null
         mutableState.value = state.value.copy(items = state.value.items.filterNot { it.id == id })
         (removed as? QueuedMessage)?.reply?.complete(null)
+        // 从队列里撤回的输入不会被落库了，草稿要还给用户
+        (removed as? QueuedMessage)?.persisted?.complete(false)
         return removed
     }
 
@@ -174,12 +188,16 @@ class ConversationInbox {
     @Synchronized
     fun pause() {
         mutableState.value = state.value.copy(paused = true)
-        state.value.messages.forEach { it.reply?.completeExceptionally(MessageQueuePausedException()) }
+        state.value.messages.forEach {
+            it.reply?.completeExceptionally(MessageQueuePausedException())
+            // Input stays queued. Keep its persistence receipt alive for a later resume.
+        }
     }
 
     fun failReplyWaiters(message: String) {
         state.value.messages.forEach {
             it.reply?.completeExceptionally(IllegalStateException(message))
+            // Approval pauses the turn, not the queued message's eventual persistence.
         }
     }
 

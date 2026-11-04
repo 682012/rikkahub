@@ -101,6 +101,7 @@ private val MEMORY_SYSTEM_RULES = """
     - Exception: when the user explicitly asks you to remember / save / update / forget something, do it with the tools in this turn.
       - Before modifying an existing file, call memory_read and pass the returned version as if_version.
       - Use memory_str_replace or memory_append for small changes; create a file with memory_write and if_version="new".
+      - memory_append skips a line that is already in the file and returns unchanged: true; that means it is recorded, do not retry.
       - "Forget" means deleting the whole line (pass an empty new_str), not rewriting it as "used to like X". Also delete other lines that were derived from the deleted fact.
       - Use memory_delete only when the user asks to forget an entire topic. If the scope is unclear, ask first.
     - Do not announce "saved" after writing (the interface shows it). If a write fails, or the user asks, say so honestly.
@@ -209,12 +210,15 @@ internal fun buildMemoryConsolidationInput(
 }.trimEnd()
 
 private fun StringBuilder.appendMemoryState(files: List<MemoryFile>) {
-    appendPinnedFile("profile", files.find { it.path == MemoryFile.PROFILE_PATH })
+    // 清单顺序必须只取决于内容: 这里按 path 再排一次, 数据库行序、恢复顺序或调用方传入顺序
+    // 变了也不会改变系统提示的前缀。同一路径重复出现时保留内容较小的那份, 结果同样确定。
+    val ordered = files.sortedWith(compareBy({ it.path }, { it.content })).distinctBy { it.path }
+    appendPinnedFile("profile", ordered.find { it.path == MemoryFile.PROFILE_PATH })
     appendLine()
-    appendPinnedFile("preferences", files.find { it.path == MemoryFile.PREFERENCES_PATH })
+    appendPinnedFile("preferences", ordered.find { it.path == MemoryFile.PREFERENCES_PATH })
     appendLine()
     appendLine("<memory_listing>")
-    val listed = files.filter { it.path != MemoryFile.PROFILE_PATH && it.path != MemoryFile.PREFERENCES_PATH }
+    val listed = ordered.filter { it.path != MemoryFile.PROFILE_PATH && it.path != MemoryFile.PREFERENCES_PATH }
     if (listed.isEmpty()) {
         appendLine("(no files yet)")
     } else {

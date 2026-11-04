@@ -87,6 +87,7 @@ data class Settings(
     val workspaceRuntime: WorkspaceRuntimeSettings = WorkspaceRuntimeSettings(),
     val subagent: SubagentSettings = SubagentSettings(),
     val autoCompress: AutoCompressSettings = AutoCompressSettings(),
+    val backgroundToolSettings: BackgroundToolSettings = BackgroundToolSettings(),
 ) {
     companion object {
         // 构造一个用于初始化的settings, 但它不能用于保存，防止使用初始值存储
@@ -217,9 +218,12 @@ data class DisplaySetting(
     val enableMessageGenerationHapticEffect: Boolean = false,
     val skipCropImage: Boolean = true,
     val enableNotificationOnMessageGeneration: Boolean = false,
+    val enableNotificationOnCompression: Boolean = true,
     val enableLiveUpdateNotification: Boolean = false,
     val enableFloatingChatWindow: Boolean = false,
     val collapseLongMessages: Boolean = true,
+    /** Initial state only; an explicit per-message choice still wins. */
+    val collapseLongMessagesByDefault: Boolean = true,
     val floatingCompanion: FloatingCompanionSettings = FloatingCompanionSettings(),
     val codeBlockAutoWrap: Boolean = false,
     val codeBlockAutoCollapse: Boolean = false,

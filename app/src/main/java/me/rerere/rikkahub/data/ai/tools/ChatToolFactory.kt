@@ -10,8 +10,14 @@ import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.ai.mcp.McpManager
+import me.rerere.rikkahub.data.ai.tools.background.BackgroundToolManager
+import me.rerere.rikkahub.data.ai.tools.background.BackgroundToolOwner
+import me.rerere.rikkahub.data.ai.tools.background.BACKGROUND_TOOLS_DIR
+import me.rerere.rikkahub.data.ai.tools.background.createBackgroundControlTools
+import me.rerere.rikkahub.data.ai.tools.background.wrapToolWithBackground
 import me.rerere.rikkahub.data.ai.tools.local.LocalToolOption
 import me.rerere.rikkahub.data.ai.tools.local.LocalTools
+import me.rerere.rikkahub.data.datastore.BackgroundToolSettings
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.files.FileFolders
@@ -54,6 +60,12 @@ class ChatToolFactory(
     private val workspaceRepository: WorkspaceRepository,
     private val subagentRunner: me.rerere.rikkahub.data.ai.subagent.SubagentRunner,
     private val backgroundShellManager: BackgroundShellManager,
+    // 通用工具转后台：Koin 里应传同一个实例（见 BACKGROUND-WIRING.md），
+    // 默认自建一份保证未接线时也能编译/运行（只是不共享完成提醒的收件箱）。
+    private val backgroundToolManager: BackgroundToolManager = BackgroundToolManager(
+        File(context.filesDir, BACKGROUND_TOOLS_DIR),
+        lease = me.rerere.rikkahub.data.ai.tools.background.AndroidBackgroundForegroundLease(context),
+    ),
 ) {
     suspend fun createTools(
         settings: Settings,
@@ -150,21 +162,43 @@ class ChatToolFactory(
                 conversationId = conversationId,
             )
         } else baseTools
-        return prepareEfficientTools(parentTools, outputStore, assistant.localTools)
+        // fork r11: 通用工具转后台。只在**父**工具集上生效——子代理的工具集不递归后台，
+        // 否则子代理自己的 write 调用会把父会话的后台任务表当自己家。
+        // 资格按耗时判断（SERIAL/PARALLEL/PARALLEL_DEDUPLICATED 都可能），"超时会转后台"这条提示
+        // 只在 background_tool 的 systemPrompt 里出现一次，不往每个工具上追加。
+        val background = BackgroundRuntime(
+            backgroundToolManager, BackgroundToolOwner.of(conversationId), settings.backgroundToolSettings.normalized(),
+        )
+        return prepareEfficientTools(parentTools, outputStore, assistant.localTools, background)
+    }
+
+    /** 一次生成里的后台配置：conversation 归属 + 前台等待上限。 */
+    private class BackgroundRuntime(
+        val manager: BackgroundToolManager,
+        val owner: BackgroundToolOwner,
+        val settings: BackgroundToolSettings,
+    ) {
+        fun wrap(tool: Tool): Tool = wrapToolWithBackground(tool, manager, owner, settings)
+
+        fun controlTools(catalog: List<Tool>): List<Tool> =
+            createBackgroundControlTools(manager, owner, settings, catalog)
     }
 
     private fun prepareEfficientTools(
         tools: List<Tool>,
         outputStore: ToolOutputStore,
         localToolOptions: List<LocalToolOption> = emptyList(),
+        background: BackgroundRuntime? = null,
     ): List<Tool> {
         val compact = compactMcpTools(tools)
         val readerName = uniqueToolName(TOOL_OUTPUT_READ_TOOL_NAME, compact.map { it.name }.toSet())
         val readerTool = outputStore.createReaderTool(readerName)
-        // 工作区读/搜工具自己分页并控制了输出量, 外置只会让模型多花一轮去读回全文 (同 ToolOutputStore 里 search_web 的豁免)
-        val readable = compact.map { tool ->
+        // Large output is offloaded once before background retention; task pages keep its durable output_id.
+        val outputAware = compact.map { tool ->
             if (tool.name in SELF_PAGED_TOOL_NAMES) tool else outputStore.wrap(tool)
-        } + readerTool
+        }
+        val scheduled = if (background == null) outputAware else outputAware.map { background.wrap(it) }
+        val readable = scheduled + readerTool
         // Code Mode 的工具必须最后组装：它要拿到已经拼好的完整清单（工作区工具加入得晚），
         // 且只注入只读白名单。传进去的是**未包装**的 compact，嵌套调用自己调 execute，
         // 免得回执套回执；它自己则照常被 outputStore 包一层。
@@ -174,8 +208,12 @@ class ChatToolFactory(
             catalog = compact + readerTool,
             outputStore = outputStore,
         )?.let { listOf(outputStore.wrap(it)) } ?: emptyList<Tool>()
+        // 显式后台入口的 catalog 用本轮**未包装**的 compact：start 由 manager 自己 detach，
+        // 不会再套一层；这个工具自己也不参与自动转后台（见 BackgroundToolWrapping.kt）。
+        val backgroundTools = background?.controlTools(outputAware) ?: emptyList()
         // A single structured call can execute an already planned set without extra model round trips.
-        return (readable + outputStore.wrap(createToolBatch(readable)) + scriptTools).sortedBy { it.name }
+        return (readable + outputStore.wrap(createToolBatch(readable)) + scriptTools + backgroundTools)
+            .sortedBy { it.name }
     }
 
     private suspend fun createWorkspaceToolsIfReady(

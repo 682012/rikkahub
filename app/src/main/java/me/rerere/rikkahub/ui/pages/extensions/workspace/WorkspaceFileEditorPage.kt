@@ -35,8 +35,6 @@ import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.theme.CustomColors
 import me.rerere.rikkahub.ui.theme.JetbrainsMono
-import me.rerere.ui.webview.WebView
-import me.rerere.ui.webview.rememberWebViewState
 import me.rerere.workspace.WorkspaceStorageArea
 import org.koin.compose.koinInject
 
@@ -57,7 +55,7 @@ fun WorkspaceFileEditorPage(
     val editable = area == WorkspaceStorageArea.FILES
     val fileName = path.substringAfterLast('/').ifBlank { path }
     val extension = fileName.substringAfterLast('.', "").lowercase()
-    val supportsPreview = extension in setOf("html", "htm", "svg")
+    val supportsPreview = textArtifactFormat(fileName) != TextArtifactFormat.SOURCE
     var showPreview by rememberSaveable(id, area, path) { mutableStateOf(supportsPreview) }
 
     // 不能用 rememberTextFieldState: 它会把全文存进 saved state Bundle, 大文件切后台时触发 TransactionTooLargeException (#1953).
@@ -152,10 +150,16 @@ fun WorkspaceFileEditorPage(
                 )
             }
 
-            showPreview -> WorkspaceWebPreview(
+            showPreview -> TextArtifactPreview(
                 content = textState.text.toString(),
-                isSvg = extension == "svg",
+                fileName = fileName,
                 modifier = Modifier.fillMaxSize().padding(innerPadding),
+                resourceReader = { relative ->
+                    val layout = repository.layout(id)
+                        ?: throw IllegalStateException("工作区不存在，无法读取网页资源")
+                    val parent = layout.absolutePath(area, path).substringBeforeLast('/')
+                    repository.readHtmlPreviewResource(id, parent, relative)
+                },
             )
 
             else -> TextField(
@@ -174,26 +178,4 @@ fun WorkspaceFileEditorPage(
             )
         }
     }
-}
-
-@Composable
-private fun WorkspaceWebPreview(
-    content: String,
-    isSvg: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val state = rememberWebViewState(
-        data = content,
-        baseUrl = "https://workspace-preview.invalid/",
-        mimeType = if (isSvg) "image/svg+xml" else "text/html",
-        settings = {
-            allowFileAccess = false
-            allowContentAccess = false
-            builtInZoomControls = true
-            displayZoomControls = false
-            useWideViewPort = true
-            loadWithOverviewMode = true
-        },
-    )
-    WebView(state = state, modifier = modifier)
 }

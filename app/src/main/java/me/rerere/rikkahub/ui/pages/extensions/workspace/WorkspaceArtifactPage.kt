@@ -46,8 +46,6 @@ import me.rerere.rikkahub.utils.mimeTypeOf
 import me.rerere.rikkahub.utils.openWorkspaceArtifactExternally
 import me.rerere.rikkahub.utils.shareWorkspaceArtifact
 import me.rerere.ui.toast.ToastType
-import me.rerere.ui.webview.WebView
-import me.rerere.ui.webview.rememberWebViewState
 import org.koin.compose.koinInject
 import java.io.File
 
@@ -58,8 +56,9 @@ private const val MAX_ARTIFACT_EXPORT_BYTES = 256L * 1024 * 1024
 /**
  * 打开 Markdown 里指向当前对话工作区文件（`sandbox:/workspace/...`）的链接。
  *
- * 只读预览：文本只读显示、图片可缩放、HTML 走受限 WebView（禁脚本/禁本地与网络访问），
- * PDF 和其它二进制不在应用内渲染，交给用户在页面上主动点“用其他应用打开”。
+ * 只读预览：文本/源码只读显示、图片可缩放、Markdown/CSV/JSON 用 Compose 原生渲染、
+ * HTML/SVG 走随机 origin 的 [InteractiveHtmlPreview]（JS 开、本地文件访问关、外网默认关），
+ * PDF/Office/EPUB 等文档交给 [ArtifactDocumentPreview]，实在不行再让用户点“打开”跳外部应用。
  *
  * 所有文件读写都走 [WorkspaceRepository] 已有的本地/SSH/DSH 接口
  * （absoluteFileSize / resolveAbsoluteFile / exportAbsoluteFile），
@@ -76,7 +75,12 @@ fun WorkspaceArtifactPage(
     val context = LocalContext.current
     val toaster = LocalToaster.current
     val fileName = path.substringAfterLast('/').ifBlank { path }
-    val kind = remember(path) { WorkspaceArtifactLink.kindOf(path) }
+    val kind = remember(path) {
+        if (textArtifactFormat(fileName) == TextArtifactFormat.SVG) WorkspaceArtifactKind.HTML
+        else WorkspaceArtifactLink.kindOf(path)
+    }
+    var showSource by remember(id, path) { mutableStateOf(false) }
+    var assetParent by remember(id, path) { mutableStateOf<String?>(null) }
 
     var loading by remember(id, path) { mutableStateOf(true) }
     var errorMessage by remember(id, path) { mutableStateOf<String?>(null) }
@@ -101,9 +105,11 @@ fun WorkspaceArtifactPage(
                 val file = exportArtifactToCache(repository, id, actualPath, context.cacheDir, artifactLink = area == null)
                 val previewText = if ((kind == WorkspaceArtifactKind.TEXT || kind == WorkspaceArtifactKind.HTML) && size <= MAX_ARTIFACT_PREVIEW_BYTES)
                     file.readText() else null
-                Triple(size, file, previewText)
+                Pair(Triple(size, file, previewText), actualPath.substringBeforeLast('/'))
             }
-        }.onSuccess { (size, file, previewText) ->
+        }.onSuccess { (loaded, parent) ->
+            val (size, file, previewText) = loaded
+            assetParent = parent
             sizeBytes = size
             artifactFile = file
             text = previewText
@@ -154,6 +160,9 @@ fun WorkspaceArtifactPage(
                 navigationIcon = { BackButton() },
                 actions = {
                     if (!loading && errorMessage == null) {
+                        if (text != null && textArtifactFormat(fileName) != TextArtifactFormat.SOURCE) {
+                            TextButton(onClick = { showSource = !showSource }) { Text(if (showSource) "预览" else "源码") }
+                        }
                         TextButton(onClick = { openExternally() }) { Text("打开") }
                         TextButton(onClick = { exporter.launch(fileName) }) { Text("导出") }
                         TextButton(onClick = { share() }) { Text("分享") }
@@ -193,21 +202,24 @@ fun WorkspaceArtifactPage(
                 modifier = contentModifier,
             )
 
-            kind == WorkspaceArtifactKind.TEXT && text != null -> SelectionContainer {
+            text != null && showSource -> SelectionContainer {
                 Text(
-                    text = text ?: "",
-                    modifier = contentModifier
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
+                    text = text.orEmpty(),
+                    modifier = contentModifier.verticalScroll(rememberScrollState()).padding(16.dp),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 13.sp,
                     lineHeight = 18.sp,
                 )
             }
 
-            kind == WorkspaceArtifactKind.HTML && text != null -> HtmlArtifactPreview(
-                html = text ?: "",
+            text != null -> TextArtifactPreview(
+                content = text.orEmpty(),
+                fileName = fileName,
                 modifier = contentModifier,
+                fragment = fragment,
+                resourceReader = assetParent?.let { parent ->
+                    { relative -> repository.readHtmlPreviewResource(id, parent, relative) }
+                },
             )
 
             else -> artifactFile?.let { file ->
@@ -218,33 +230,10 @@ fun WorkspaceArtifactPage(
 }
 
 /**
- * 工作区文件内容的受限预览。
+ * 旧的“空壳 HTML 预览”设置：禁脚本、禁本地文件、禁网络。
  *
- * 安全约束（对应“危险 HTML 不许访问私有文件或 JS 接口、不自动跑脚本”）：
- * - `javaScriptEnabled = false`：不执行脚本，也不注册任何 addJavascriptInterface 通道；
- * - `allowFileAccess / allowContentAccess = false`：页面拿不到 file:// 和 content://；
- * - `blockNetworkLoads = true`：页面里的外链资源不会自动请求；
- * - `baseUrl` 用不可解析的假域名，相对链接不会落回本地目录。
- *
- * 锚点（`#foo`）不在这里自动滚动：禁用脚本后无法安全触发定位，片段只作为链接信息保留。
- */
-@Composable
-private fun HtmlArtifactPreview(html: String, modifier: Modifier = Modifier) {
-    val state = rememberWebViewState(
-        data = html,
-        baseUrl = "https://workspace-artifact.invalid/",
-        mimeType = "text/html",
-        settings = { applyWorkspaceArtifactPreviewSettings() },
-    )
-    state.javaScriptEnabled = false
-    WebView(state = state, modifier = modifier)
-}
-
-/**
- * 预览 HTML 产物时收紧的 WebSettings。
- *
- * 单独拆出来是为了能在 instrumented 测试里对真实 WebSettings 断言，
- * 避免以后有人为了“让预览好看点”顺手把脚本或本地文件访问打开。
+ * 现在应用内 HTML 预览走 [InteractiveHtmlPreview]（随机 origin + 本地 scoped reader + 可关闭的外网开关），
+ * 这里只剩 instrumented 回归测试在用，用来钉住“本地文件和 JS bridge 永远不开”这条底线。
  */
 fun WebSettings.applyWorkspaceArtifactPreviewSettings() {
     javaScriptEnabled = false

@@ -7,16 +7,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.analytics.FirebaseAnalytics
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
@@ -24,6 +32,9 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.yield
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
@@ -32,12 +43,17 @@ import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.draft.ChatDraftStore
+import me.rerere.rikkahub.data.draft.ChatDraftStores
+import me.rerere.rikkahub.data.draft.isDraftKeyMigration
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Avatar
+import me.rerere.rikkahub.data.model.ChatDraft
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.data.model.NodeFavoriteTarget
+import me.rerere.rikkahub.data.model.chatDraftKey
 import me.rerere.rikkahub.data.model.getAssistantOf
 import me.rerere.rikkahub.data.model.getChatModelOf
 import me.rerere.rikkahub.data.repository.FavoriteRepository
@@ -53,6 +69,10 @@ import kotlin.uuid.Uuid
 
 private const val TAG = "ChatVM"
 
+// 排队等着的输入可能等很久才轮到自己落库，所以收尾不设超时门槛：
+// 超时后把草稿「退回」会让输入框里多出一份还在队列里的重复内容，宁可等真正的结果。
+
+
 class ChatVM(
     id: String,
     private val context: Application,
@@ -62,6 +82,11 @@ class ChatVM(
     private val analytics: FirebaseAnalytics,
     private val filesManager: FilesManager,
     private val favoriteRepository: FavoriteRepository,
+    // 主代理接 DI 时传 Koin 单例即可；默认取进程内共享实例，多个聊天页共用一份草稿缓存
+    private val draftStore: ChatDraftStore = ChatDraftStores.of(context),
+    // 草稿的写盘和「发送确认」都不能挂在页面 ViewModel 上：切页会取消 viewModelScope，
+    // 那样用户消息已经落库了，输入框里的旧稿却永远清不掉。主代理接 Koin 的 AppScope 即可。
+    private val draftScope: CoroutineScope = ChatDraftStores.appScope,
 ) : ViewModel() {
     private val _conversationId: Uuid = Uuid.parse(id)
     val conversation: StateFlow<Conversation> = chatService.getConversationFlow(_conversationId)
@@ -88,24 +113,121 @@ class ChatVM(
         .getConversationJobs()
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
-    init {
-        // 添加对话引用
-        chatService.addConversationReference(_conversationId)
-
-        // 初始化对话
-        viewModelScope.launch {
-            chatService.initializeConversation(_conversationId)
-        }
-
-        // 记住对话ID, 方便下次启动恢复
-        context.writeStringPreference("lastConversationId", _conversationId.toString())
-    }
 
     override fun onCleared() {
         voiceSession.stop()
         super.onCleared()
+        // 页面走了：先把最后一份输入记下来，再让草稿存储自己把没写完的落盘（不受 viewModelScope 取消影响）
+        persistDraftNow()
+        draftSyncJob?.cancel()
+        draftStore.flushAll()
         // 移除对话引用
         chatService.removeConversationReference(_conversationId)
+    }
+
+    // ---- 输入草稿 ----
+
+    /** 草稿首次恢复完成之前，聊天页不要把分享进来的内容塞进输入框，免得冲掉恢复出来的草稿 */
+    private val _draftReady = MutableStateFlow(false)
+    val draftReady: StateFlow<Boolean> = _draftReady.asStateFlow()
+
+    private val draftLock = Any()
+    private var draftKey: String? = null
+    private var draftSyncJob: Job? = null
+
+    // 正在等落库确认的内容：连点同一份输入时只发一次，期间新输入的别的草稿照常能发
+    private val sendingDrafts = HashSet<ChatDraft>()
+
+    /** 会话有内容就按会话存，还没开始的新会话按助手存（换助手就是另一个输入框） */
+    private val draftKeyFlow: Flow<String> by lazy {
+        combine(conversation, assistant) { current, currentAssistant ->
+            chatDraftKey(current.id, currentAssistant.id, current.messageNodes.isNotEmpty())
+        }.distinctUntilChanged()
+    }
+
+    /** Start only after the conversation and all input state fields have been initialized. */
+    private fun startDraftSync() {
+        draftSyncJob = viewModelScope.launch {
+            yield()
+            // 设置还没加载时 `assistant` 是 dummy 助手，这时的 key 是错的，先等它加载完
+            withTimeoutOrNull(5_000) { settingsStore.awaitLoaded() }
+            draftKeyFlow.collectLatest { key -> syncDraft(key) }
+        }
+    }
+
+    private suspend fun syncDraft(key: String) {
+        val wasReady = _draftReady.value
+        _draftReady.value = false
+        val previousKey = synchronized(draftLock) { draftKey }
+        val previousInput = inputState.snapshotDraft()
+        // Commit ownership before suspending, but never carry old assistant text into a new key.
+        if (previousKey != null && previousKey != key && !isDraftKeyMigration(previousKey, key)) {
+            if (wasReady || !previousInput.isEmpty) draftStore.saveNow(previousKey, previousInput)
+            inputState.clearInput()
+        }
+        synchronized(draftLock) { draftKey = key }
+        when {
+            previousKey == null || previousKey == key ->
+                restoreDraft(key, replaceInput = false)
+
+            // 刚发出第一条消息：key 从助手挪到会话。输入框里剩下的字属于这个会话，
+            // 直接存到新 key 上，不能在切换时被当成「上一个 key 的残留」清掉。
+            isDraftKeyMigration(previousKey, key) -> {
+                draftStore.save(key, inputState.snapshotDraft())
+                draftStore.flush(previousKey)
+                restoreDraft(key, replaceInput = false)
+            }
+
+            // 切助手（或者别的原因换了 key）：旧输入先按旧 key 写下来（刚打的字可能还停在
+            // debounce 里），再读新 key。旧内容不会被写到新 key 上，也不会因为切换丢掉。
+            else -> {
+                draftStore.flush(previousKey)
+                restoreDraft(key, replaceInput = false)
+            }
+        }
+        _draftReady.value = true
+        snapshotFlow { inputState.snapshotDraft() }
+            .distinctUntilChanged()
+            .collect { draft -> draftStore.save(key, draft) }
+    }
+
+    /**
+     * 恢复草稿。[replaceInput] 为 true 表示这是切换 key，新 key 没有草稿时要把输入清掉，
+     * 不能把上一个助手/会话的字留在新 key 的输入框里。
+     *
+     * [replaceInput] 为 false（首次恢复、key 迁移）时只有输入框还是空的时候才填草稿：
+     * 读盘期间用户可能已经打了字，那份内容不能让位给磁盘上的旧稿。
+     */
+    private suspend fun restoreDraft(key: String, replaceInput: Boolean) {
+        val baseline = inputState.snapshotDraft()
+        val stored = draftStore.load(key)?.takeIf { !it.isEmpty }
+        // 读盘期间用户已经动了输入（或分享内容先到了）：以当前输入为准，迟到的草稿不能覆盖它
+        if (inputState.snapshotDraft() != baseline) return
+        // 读盘期间又切了 key：这份草稿不属于当前的输入框了
+        if (synchronized(draftLock) { draftKey } != key) return
+        when {
+            replaceInput && stored != null && stored != baseline -> applyDraft(stored)
+            replaceInput && stored == null && !baseline.isEmpty -> inputState.clearInput()
+            !replaceInput && stored != null && stored != baseline && baseline.isEmpty -> applyDraft(stored)
+        }
+    }
+
+    private fun applyDraft(draft: ChatDraft) {
+        // 编辑状态只在原消息还在时恢复：那条消息被删了/换分支了，恢复成编辑就发不出去
+        val editingExists = draft.editingMessage?.let { id ->
+            conversation.value.currentMessages.any { it.id == id }
+        } == true
+        inputState.applyDraft(draft, restoreEditing = editingExists)
+    }
+
+    /**
+     * 把现在的输入立刻记下来并落盘（页面暂停/离开用）。
+     * 只是内存入队 + 马上写，不挂起，Compose 生命周期回调里可以放心调。
+     */
+    fun persistDraftNow() {
+        val key = synchronized(draftLock) { draftKey } ?: return
+        val draft = inputState.snapshotDraft()
+        if (_draftReady.value || !draft.isEmpty) draftStore.saveNow(key, draft)
     }
 
     // 用户设置
@@ -127,6 +249,22 @@ class ChatVM(
     val currentChatModel: StateFlow<Model?> = combine(settings, configuredConversation) { settings, conversation ->
         settings.getChatModelOf(conversation)
     }.stateIn(viewModelScope, SharingStarted.Lazily, settings.value.getChatModelOf(conversation.value))
+
+    init {
+        chatService.addConversationReference(_conversationId)
+        context.writeStringPreference("lastConversationId", _conversationId.toString())
+        viewModelScope.launch {
+            try {
+                chatService.initializeConversation(_conversationId)
+                startDraftSync()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                chatService.addError(e, conversationId = _conversationId)
+                startDraftSync()
+            }
+        }
+    }
 
     // 错误状态
     val errors: StateFlow<List<ChatError>> = chatService.errors
@@ -224,31 +362,114 @@ class ChatVM(
     /**
      * 处理消息发送
      *
+     * 返回 true 表示已经交给 [ChatService]；false 表示没发（空内容、连点同一份、或 answer=true
+     * 但没有可用模型），这时输入必须留着。
+     *
+     * 点发送**不清输入框**：先把这份快照持久保存，再等 ChatService 的落库确认。
+     * 确认成功且输入框里仍是发出去的那份（同一 key、同一内容）才清空并存空草稿；
+     * 确认失败或者内容已经变了就什么都不做——用户等确认期间打的新字不会被清掉，
+     * 失败的输入也还在原地，不用重打。
+     *
      * @param content 消息内容
      * @param answer 是否触发消息生成，如果为false，则仅添加消息到消息列表中
      */
-    fun handleMessageSend(content: List<UIMessagePart>,answer: Boolean = true) {
-        if (content.isEmptyInputMessage()) return
-        analytics.logEvent("ai_send_message", null)
+    fun handleMessageSend(content: List<UIMessagePart>, answer: Boolean = true): Boolean {
+        if (content.isEmptyInputMessage() || !_draftReady.value) return false
+        // answer=true 但没有模型时这一轮必然失败，不能先把输入清掉
+        if (answer && currentChatModel.value == null) return false
 
-        chatService.sendMessage(_conversationId, content, answer)
+        val sent = inputState.snapshotDraft()
+        // 连点：同一份内容还在等落库确认，不再发一次；这期间新输入的别的草稿照常能发
+        // （只比内容，连点时光标位置可能已经变了）
+        val duplicated = synchronized(draftLock) {
+            val already = sendingDrafts.any { it.sameContent(sent) }
+            if (!already) sendingDrafts.add(sent)
+            already
+        }
+        if (duplicated) return false
+        val key = synchronized(draftLock) { draftKey }
+
+        // 先把快照写下来（同步入队 + 立刻写盘），进程随时死都能恢复
+        if (key != null) draftStore.saveNow(key, sent)
+
+        analytics.logEvent("ai_send_message", null)
+        val receipt = chatService.sendMessageWithReceipt(_conversationId, content, answer)
+        if (receipt == null || key == null) {
+            synchronized(draftLock) { sendingDrafts.removeAll { it.sameContent(sent) } }
+            return receipt != null
+        }
+
+        // 等确认必须在页面生命周期之外：切页时 viewModelScope 会被取消，
+        // 那时用户消息其实已经落库，草稿却再也清不掉了。
+        draftScope.launch {
+            val persisted = try {
+                receipt.await()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                false
+            }
+            finishSend(key, sent, persisted)
+        }
+        return true
     }
 
-    fun handleMessageEdit(parts: List<UIMessagePart>, messageId: Uuid) {
-        if (parts.isEmptyInputMessage()) return
-        analytics.logEvent("ai_edit_message", null)
+    /** 落库确认回来：成功才清「仍是这一份」的草稿，失败保持原样（输入框本来就没清）。 */
+    private suspend fun finishSend(key: String, sent: ChatDraft, persisted: Boolean) {
+        synchronized(draftLock) { sendingDrafts.removeAll { it.sameContent(sent) } }
+        if (!persisted) return
 
-        viewModelScope.launch {
-            chatService.editMessage(_conversationId, messageId, parts)
+        val currentKey = synchronized(draftLock) { draftKey }
+        // 新会话发第一条消息后 key 会从助手迁到会话：迁移过来的那份也要按「仍是这一份」清掉，
+        // 否则旧助手草稿会一直留着，下次新建会话又恢复出来（重复输入）。
+        val migratedKey = currentKey?.takeIf { it != key && isDraftKeyMigration(key, it) }
+        draftStore.ack(key, sent)
+        if (migratedKey != null) draftStore.ack(migratedKey, sent)
+
+        // 输入框是 Compose 状态，清空必须在主线程，并且只在用户没改过这份内容时做
+        withContext(Dispatchers.Main.immediate) {
+            val keyNow = synchronized(draftLock) { draftKey }
+            val stillSameKey = keyNow == null || keyNow == key || keyNow == migratedKey
+            if (stillSameKey && inputState.snapshotDraft().sameContent(sent)) {
+                inputState.clearInput()
+            }
         }
+    }
+
+    /**
+     * 编辑历史消息。提交前不清输入：清早了编辑失败这条就没了。
+     * 返回 true 表示已经交给 [ChatService]，编辑成功且输入仍是提交的那份时才清。
+     */
+    fun handleMessageEdit(parts: List<UIMessagePart>, messageId: Uuid): Boolean {
+        if (parts.isEmptyInputMessage()) return false
+        analytics.logEvent("ai_edit_message", null)
+        val submitted = inputState.snapshotDraft()
+        val submittedKey = synchronized(draftLock) { draftKey }
+        submittedKey?.let { draftStore.saveNow(it, submitted) }
+
+        draftScope.launch {
+            val edited = try {
+                chatService.editMessage(_conversationId, messageId, parts)
+                true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                false
+            }
+            if (!edited) return@launch
+            submittedKey?.let { draftStore.ack(it, submitted) }
+            withContext(Dispatchers.Main.immediate) {
+                if (synchronized(draftLock) { draftKey } != submittedKey) return@withContext
+                if (!inputState.snapshotDraft().sameContent(submitted)) return@withContext
+                inputState.clearInput()
+                synchronized(draftLock) { draftKey }?.let { key -> draftStore.save(key, ChatDraft()) }
+            }
+        }
+        return true
     }
 
     fun handleCompressContext(additionalPrompt: String, keepRecentMessages: Int): Job {
-        return viewModelScope.launch {
-            chatService.compressConversation(_conversationId, additionalPrompt, keepRecentMessages).onFailure {
-                chatService.addError(it, title = context.getString(R.string.error_title_compress_conversation))
-            }
-        }
+        return chatService.startBackgroundCompression(_conversationId, additionalPrompt, keepRecentMessages)
     }
 
     suspend fun forkMessage(message: UIMessage): Conversation {
@@ -305,6 +526,8 @@ class ChatVM(
 
     fun deleteConversation(conversation: Conversation): Job =
         viewModelScope.launch {
+            // 会话没了，它的输入草稿也没意义了；按会话 key 清掉，免得以后重建同 id 恢复出旧草稿
+            draftStore.forget(chatDraftKey(conversation.id, conversation.assistantId, hasMessages = true))
             chatService.deleteConversation(conversation.id)
         }
 

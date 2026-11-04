@@ -438,6 +438,7 @@ private fun MessagePartsBlock(
     }
 
     // 非文字 part：图片/视频/音频/文件。永远在折叠裁切区之外，保持原样可点
+    var pendingDocumentPreview by remember { mutableStateOf<UIMessagePart.Document?>(null) }
     val renderMediaPart: @Composable (UIMessagePart) -> Unit = { part ->
         when (part) {
             is UIMessagePart.Video -> {
@@ -477,9 +478,16 @@ private fun MessagePartsBlock(
             }
 
             is UIMessagePart.Document -> {
+                val previewable = remember(part.url, part.fileName, part.mime) {
+                    localDocumentPreviewKind(part.fileName, part.mime)
+                }
                 ChatMessageFileChip(
                     text = part.fileName,
-                    onClick = { context.openLocalFile(part.url) },
+                    // 聊天里的 html/pdf/文本附件应用内直接看，其它格式仍交给外部应用
+                    onClick = {
+                        if (previewable != null) pendingDocumentPreview = part
+                        else context.openLocalFile(part.url)
+                    },
                     icon = {
                         when (part.mime) {
                             "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> {
@@ -599,6 +607,7 @@ private fun MessagePartsBlock(
                     // 流式生成中不折（也不显示按钮），等这一轮结束再判断
                     streaming = loading,
                     enabled = collapseLongMessages,
+                    collapsedByDefault = settings.displaySetting.collapseLongMessagesByDefault,
                     fadeColor = collapseFadeColor,
                 ) {
                     unit.entries.fastForEach { entry ->
@@ -614,6 +623,20 @@ private fun MessagePartsBlock(
     // Annotations (always rendered at the end)
     if (annotations.isNotEmpty()) {
         ChatMessageCitations(annotations = annotations)
+    }
+
+    // 文档附件的应用内预览（html/pdf/文本），点开才读文件
+    pendingDocumentPreview?.let { document ->
+        LocalDocumentPreviewDialog(
+            url = document.url,
+            fileName = document.fileName,
+            mime = document.mime,
+            onDismiss = { pendingDocumentPreview = null },
+            onOpenExternally = {
+                pendingDocumentPreview = null
+                runCatching { context.openLocalFile(document.url) }
+            },
+        )
     }
 }
 

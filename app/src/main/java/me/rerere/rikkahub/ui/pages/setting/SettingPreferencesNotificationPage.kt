@@ -153,6 +153,15 @@ fun SettingPreferencesNotificationPage(vm: SettingVM = koinViewModel()) {
                         supportingContent = { Text(stringResource(R.string.setting_display_page_notification_message_generated_desc)) },
                         headlineContent = { Text(stringResource(R.string.setting_display_page_notification_message_generated)) },
                     )
+                    switchItem(
+                        checked = displaySetting.enableNotificationOnCompression,
+                        onCheckedChange = {
+                            if (it && !permissionState.allPermissionsGranted) permissionState.requestPermissions()
+                            updateDisplaySetting(displaySetting.copy(enableNotificationOnCompression = it))
+                        },
+                        headlineContent = { Text(stringResource(R.string.r11_compression_notify_setting)) },
+                        supportingContent = { Text(stringResource(R.string.r11_compression_notify_setting_desc)) },
+                    )
                     if (displaySetting.enableNotificationOnMessageGeneration) {
                         switchItem(
                             checked = displaySetting.enableLiveUpdateNotification,

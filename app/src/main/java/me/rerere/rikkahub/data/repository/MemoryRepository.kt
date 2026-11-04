@@ -10,8 +10,13 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.MemoryFile
 
 sealed interface MemoryWriteResult {
-    /** [file] 为 null 表示文件已被删除 */
-    data class Success(val file: MemoryFile?) : MemoryWriteResult
+    /**
+     * [file] 为 null 表示文件已被删除。
+     *
+     * [unchanged] 表示这次调用没有改动内容（与现有内容相同、或要追加的行已经在文件里）：
+     * 数据库没有重写，updatedAt 与 version 都没动。
+     */
+    data class Success(val file: MemoryFile?, val unchanged: Boolean = false) : MemoryWriteResult
 
     /** 版本对不上；[current] 是最新内容，为 null 表示文件不存在 */
     data class Conflict(val current: MemoryFile?) : MemoryWriteResult
@@ -34,6 +39,8 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
     // 读取、校验版本、写入必须一起完成，否则两个写入方会互相覆盖
     private val writeLock = Mutex()
 
+    // 顺序由 DAO 的 ORDER BY path 决定(二进制比较, 与区域设置无关)，
+    // 系统提示里的记忆清单直接沿用这个顺序，不随插入/恢复顺序变化
     fun getFilesFlow(assistantId: String): Flow<List<MemoryFile>> =
         memoryDAO.getFilesOfAssistantFlow(assistantId).map { entities -> entities.map { it.toMemoryFile() } }
 
@@ -74,15 +81,23 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         }
     }
 
-    /** 在文件末尾追加一行 */
+    /**
+     * 在文件末尾追加一行。
+     *
+     * 整行已经存在时不重复写：整理器重复提交同一条事实是记忆库里最常见的一种膨胀，
+     * 而多出来的重复行会让文件更大、系统提示里的记忆段更早变化。
+     */
     suspend fun appendToFile(
         assistantId: String,
         path: String,
         line: String,
         ifVersion: String?,
     ): MemoryWriteResult = update(assistantId, path, ifVersion) { current ->
+        val addition = line.trimEnd('\n', '\r')
+        if (addition.isBlank()) return@update Edit.Reject("content must not be blank.")
+        if (current.hasLine(addition)) return@update Edit.Unchanged
         val separator = if (current.isEmpty() || current.endsWith("\n")) "" else "\n"
-        Edit.Content(current + separator + line.trimEnd('\n', '\r') + "\n")
+        Edit.Content(current + separator + addition + "\n")
     }
 
     suspend fun deleteFile(
@@ -112,6 +127,9 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
     private sealed interface Edit {
         data class Content(val content: String) : Edit
         data class Reject(val reason: String) : Edit
+
+        /** 想写的内容和文件里已有的内容一样：不写库 */
+        data object Unchanged : Edit
     }
 
     private suspend fun update(
@@ -132,7 +150,17 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
 
         val content = when (val result = edit(current?.content.orEmpty())) {
             is Edit.Reject -> return MemoryWriteResult.Rejected(result.reason)
+            is Edit.Unchanged -> {
+                // 没有 current 时不可能"内容已存在": 不能报成 Success(null), 那在工具输出里会被读成"已删除"
+                if (current == null) return MemoryWriteResult.Conflict(null)
+                return MemoryWriteResult.Success(current, unchanged = true)
+            }
             is Edit.Content -> result.content
+        }
+        // 内容逐字节相同就不写库：updatedAt 不变、不触发 Flow 重发，
+        // 系统提示里的记忆段也不会因为一次没有内容的写入而白变一次
+        if (current != null && content == current.content) {
+            return MemoryWriteResult.Success(current, unchanged = true)
         }
         // 只拦会让文件变大的超限写入：迁移来的旧记忆可能本来就超限，得允许一点点删小
         val size = content.toByteArray().size
@@ -155,6 +183,13 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
     private fun invalidPath(path: String) = MemoryWriteResult.Rejected(
         "Invalid path \"$path\". Use an absolute path ending in .md, e.g. /topics/food.md."
     )
+}
+
+/** 整行匹配：忽略行首行尾空白，但列表符号、`[stated]` 等正文部分要一致 */
+private fun String.hasLine(line: String): Boolean {
+    val target = line.trim()
+    if (target.isEmpty()) return true
+    return lineSequence().any { it.trim() == target }
 }
 
 /** 助手读写的记忆库：开启全局记忆后所有助手共用一份 */

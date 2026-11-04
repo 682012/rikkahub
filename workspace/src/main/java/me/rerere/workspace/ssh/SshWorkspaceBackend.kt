@@ -136,6 +136,21 @@ class SshWorkspaceBackend(
         }
     }
 
+    /** Read a web asset without allowing a symlink to escape the selected preview folder. */
+    fun exportPreviewResource(root: String, relative: String, outputStream: OutputStream) {
+        pool.use(id, config, retry = false) { connection ->
+            connection.sftp { sftp ->
+                val canonicalRoot = sftp.realpath(normalizeAbsolute(root)).trimEnd('/')
+                val actual = sftp.realpath(normalizeAbsolute("$root/$relative"))
+                require(actual.startsWith("$canonicalRoot/")) { "Preview asset escapes selected folder" }
+                require(actual.removePrefix("$canonicalRoot/").split('/').none { it.startsWith('.') }) {
+                    "Hidden files are not web assets"
+                }
+                sftp.export(actual, relative, outputStream)
+            }
+        }
+    }
+
     private fun ChannelSftp.confinedArtifact(path: String): String {
         val root = realpath(workspaceDir).trimEnd('/')
         val actual = realpath(normalizeAbsolute(path))

@@ -113,11 +113,12 @@ internal fun CollapsibleMessageText(
     enabled: Boolean,
     fadeColor: Color,
     modifier: Modifier = Modifier,
+    collapsedByDefault: Boolean = true,
     content: @Composable () -> Unit,
 ) {
     val manual = MessageCollapseStateHolder.manualState(messageId)
     val anchorRequested = MessageCollapseStateHolder.isForcedOpen(messageId)
-    val decision = remember(messageId, textParts, isAssistant, streaming, enabled, manual, anchorRequested) {
+    val decision = remember(messageId, textParts, isAssistant, streaming, enabled, collapsedByDefault, manual, anchorRequested) {
         decideMessageCollapse(
             MessageCollapseInput(
                 messageId = messageId,
@@ -125,6 +126,7 @@ internal fun CollapsibleMessageText(
                 isAssistant = isAssistant,
                 streaming = streaming,
                 enabled = enabled,
+                collapsedByDefault = collapsedByDefault,
                 manualOpen = manual == true,
                 manualCollapsed = manual == false,
                 anchorRequested = anchorRequested,

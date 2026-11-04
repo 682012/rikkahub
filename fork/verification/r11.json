@@ -1,0 +1,46 @@
+{
+  "versionName": "3.1.1-r11",
+  "versionCode": 3000058,
+  "baseCommit": "c2f331dfdfa26dc0bca3cd5246e890f20f3d5fa5",
+  "sourceId": "5f1d6a17bcc032013ea8d148334cbb98aaf7056459584d89869ab66206e478f4",
+  "sourceFilesAndLinksCompared": 2326,
+  "sourceSnapshotSha256": "20e308ac59ed601c7f5ce5bee54561d256faab2df7fa1efee937e020f346f961",
+  "test": {
+    "jobId": "idem-15de4e979d91f4c8143997fc",
+    "task": "r11-test",
+    "suites": 16,
+    "tests": 168,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "fullSuite": false,
+    "node": "win"
+  },
+  "firebase": {
+    "debugCompileJob": "idem-942647d513c18ac15cb74d6b",
+    "debugCompilePassed": true,
+    "windowsBothConfigsValidated": true,
+    "hbBothConfigsValidated": true,
+    "migrationIncludesDebugConfig": true,
+    "fixtureTestsPassed": 6
+  },
+  "apk": {
+    "jobId": "idem-2721d0402c3e5541a3aa8a2e",
+    "buildMode": "fast (no R8), development APK, not a formal release",
+    "localPath": "/workspace/rk-sync/r11/rikkahub-3.1.1-r11-fast.apk",
+    "bytes": 50614178,
+    "sha256": "2ba6f4109130cecd76cfea5e91a4cc3fb24bbd067c05cd3d5588f5679217fca8",
+    "package": "me.rerere.rikkahub.fork",
+    "certificateSha256": "cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89",
+    "abis": ["arm64-v8a", "x86_64"],
+    "zipCRCVerified": true,
+    "signatureVerified": true,
+    "remoteLocalSha256Match": true
+  },
+  "instrumentationRun": false,
+  "installedOnPhone": false,
+  "publishedToGitHub": false,
+  "providerCacheHitRateMeasured": false,
+  "knownBuildWarnings": ["Fast-build D8 startup profile references missing methods; build and lintVital completed. No startup speed claim."],
+  "note": "This verification file was added after the tested source snapshot; no production source changed after APK verification."
+}

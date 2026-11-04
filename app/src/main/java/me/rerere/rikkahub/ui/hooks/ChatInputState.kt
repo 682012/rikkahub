@@ -6,7 +6,9 @@ import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.TextRange
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.rikkahub.data.model.ChatDraft
 import kotlin.uuid.Uuid
 
 class ChatInputState {
@@ -106,6 +108,43 @@ class ChatInputState {
 
     fun isEmpty(): Boolean {
         return textContent.text.isBlank() && messageContent.isEmpty()
+    }
+
+    /**
+     * 当前输入的可存草稿。文字和附件都只是引用，草稿存的是「输入框里现在有什么」，
+     * 编辑历史消息时额外带上原消息的 parts，恢复后才能继续按编辑发送。
+     */
+    fun snapshotDraft(): ChatDraft = ChatDraft(
+        text = textContent.text.toString(),
+        parts = messageContent,
+        editingMessage = editingMessage,
+        originalParts = editingParts.takeIf { editingMessage != null },
+        reasoning = editingReasoning?.text?.toString(),
+        selectionStart = textContent.selection.start,
+        selectionEnd = textContent.selection.end,
+    )
+
+    /**
+     * 恢复草稿。[restoreEditing] 为 false 时只恢复文字和附件，不进入编辑状态
+     * （原消息已经不在时用），附件按新附件处理，不会被当成历史消息的附件保护起来。
+     */
+    fun applyDraft(draft: ChatDraft, restoreEditing: Boolean = true) {
+        val editing = draft.editingMessage.takeIf { restoreEditing }
+        val originals = draft.originalParts.takeIf { editing != null }
+        editingMessage = editing
+        editingParts = originals
+        editingReasoning = draft.reasoning
+            ?.takeIf { originals?.any { part -> part is UIMessagePart.Reasoning } == true }
+            ?.let { TextFieldState(it) }
+        messageContent = draft.parts
+        editingAttachmentUrls = originals.orEmpty().mapNotNull { it.attachmentUrlOrNull() }.toSet()
+        val text = draft.text
+        textContent.edit {
+            replace(0, length, text)
+            val start = draft.selectionStart.coerceIn(0, text.length)
+            val end = draft.selectionEnd.coerceIn(start, text.length)
+            selection = TextRange(start, end)
+        }
     }
 
     fun addImages(uris: List<Uri>) {

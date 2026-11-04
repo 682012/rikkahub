@@ -34,32 +34,38 @@ import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.Remove01
 import me.rerere.rikkahub.R
 
+/**
+ * 压缩对话历史。
+ *
+ * [onConfirm] 返回的是后台任务：任务跑在 ChatService 的 AppScope 里，关掉这个弹窗、切对话、切助手
+ * 都不会取消它，完成后由系统通知告知结果。所以这里只负责显示进度，**不**把弹窗生命周期和任务绑在一起。
+ */
 @Composable
 fun CompressContextDialog(
     onDismiss: () -> Unit,
     onConfirm: (additionalPrompt: String, keepRecentMessages: Int) -> Job
 ) {
+    // Notification permission belongs to this user action; compression itself need not wait.
+    val notificationPermission = me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState(
+        me.rerere.rikkahub.ui.components.ui.permission.PermissionNotification,
+    )
+    me.rerere.rikkahub.ui.components.ui.permission.PermissionManager(notificationPermission)
     var additionalPrompt by remember { mutableStateOf("") }
     // 默认全部压缩，请求前缀与对话一致，缓存命中最好
     var keepRecentMessages by remember { mutableIntStateOf(0) }
     var currentJob by remember { mutableStateOf<Job?>(null) }
     val isLoading = currentJob?.isActive == true
 
-    // Monitor job completion
+    // 任务结束（成功、失败、被取消）后自动收起；本窗口关闭不会 cancel，任务照常在后台跑
     LaunchedEffect(currentJob) {
-        currentJob?.join()
-        if (currentJob?.isCompleted == true && currentJob?.isCancelled == false) {
-            onDismiss()
-        }
-        currentJob = null
+        val job = currentJob ?: return@LaunchedEffect
+        job.join()
+        onDismiss()
     }
 
     AlertDialog(
-        onDismissRequest = {
-            if (!isLoading) {
-                onDismiss()
-            }
-        },
+        // 关闭只是关掉进度显示，后台压缩继续
+        onDismissRequest = onDismiss,
         title = {
             Text(stringResource(R.string.chat_page_compress_context_title))
         },
@@ -68,7 +74,6 @@ fun CompressContextDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 if (isLoading) {
-                    // Loading state
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.Center,
@@ -78,8 +83,13 @@ fun CompressContextDialog(
                             modifier = Modifier.size(32.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text(stringResource(R.string.chat_page_compressing))
+                        Text(stringResource(R.string.r11_compression_dialog_running))
                     }
+                    Text(
+                        text = stringResource(R.string.r11_compression_dialog_running_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 } else {
                     Text(stringResource(R.string.chat_page_compress_context_desc))
 
@@ -129,27 +139,40 @@ fun CompressContextDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+
+                    Text(
+                        text = stringResource(R.string.r11_compression_dialog_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         },
         confirmButton = {
             if (isLoading) {
+                // 只有用户自己发起的任务才提供取消；重复点击拿到的本来就是同一个任务
                 TextButton(onClick = {
                     currentJob?.cancel()
-                    currentJob = null
+                    onDismiss()
                 }) {
                     Text(stringResource(R.string.cancel))
                 }
             } else {
                 TextButton(onClick = {
+                    if (!notificationPermission.allPermissionsGranted) notificationPermission.requestPermissions()
                     currentJob = onConfirm(additionalPrompt, keepRecentMessages)
+                    if (!notificationPermission.showRationaleDialog) onDismiss()
                 }) {
                     Text(stringResource(R.string.confirm))
                 }
             }
         },
         dismissButton = {
-            if (!isLoading) {
+            if (isLoading) {
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.r11_compression_dialog_close))
+                }
+            } else {
                 TextButton(onClick = onDismiss) {
                     Text(stringResource(R.string.cancel))
                 }

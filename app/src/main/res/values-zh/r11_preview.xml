@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r11_preview_network">加载外部资源（会请求页面中的域名）</string>
+    <string name="r11_preview_table_truncated">最多预览 300 行、40 列，完整内容可切换到源码查看。</string>
+</resources>

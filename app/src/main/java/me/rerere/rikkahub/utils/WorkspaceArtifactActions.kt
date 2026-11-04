@@ -21,8 +21,21 @@ import java.io.File
 fun mimeTypeOf(path: String): String {
     val extension = path.substringAfterLast('/').substringAfterLast('.', "").lowercase()
     if (extension.isEmpty()) return "*/*"
-    return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "*/*"
+    return EXTRA_MIME_TYPES[extension]
+        ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+        ?: "*/*"
 }
+
+/** 系统 MimeTypeMap 不认识的常见扩展名，避免退化为泛用 MIME。 */
+private val EXTRA_MIME_TYPES = mapOf(
+    "epub" to "application/epub+zip",
+    "md" to "text/markdown",
+    "markdown" to "text/markdown",
+    "mdown" to "text/markdown",
+    "mkd" to "text/markdown",
+    "tsv" to "text/tab-separated-values",
+    "xhtml" to "application/xhtml+xml",
+)
 
 /** 用其他应用打开缓存里的工作区文件副本 */
 fun Context.openWorkspaceArtifactExternally(file: File, mimeType: String = mimeTypeOf(file.name)): Result<Unit> =

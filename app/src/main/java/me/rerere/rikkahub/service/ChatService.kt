@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.completeWith
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -56,6 +57,7 @@ import me.rerere.rikkahub.data.datastore.forModel
 import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.event.CompressionOutcome
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
@@ -97,6 +99,9 @@ private const val TAG = "ChatService"
 /** 流式生成落库间隔：进程被强杀时最多丢这么久的内容 */
 private const val STREAM_PERSIST_INTERVAL_MS = 1_500L
 
+/** 手动压缩的终态状态在内存里保留多久，够 UI 显示一次结果 */
+private const val COMPRESSION_STATE_RETENTION_MS = 10 * 60 * 1000L
+
 data class ChatError(
     val id: Uuid = Uuid.random(),
     val title: String? = null,
@@ -125,6 +130,7 @@ class ChatService(
     private val folderRepository: FolderRepository,
     private val backgroundShellManager: BackgroundShellManager,
     private val subagentRunner: me.rerere.rikkahub.data.ai.subagent.SubagentRunner,
+    private val backgroundToolManager: me.rerere.rikkahub.data.ai.tools.background.BackgroundToolManager,
 ) {
     /** 一轮生成的结果 */
     private sealed interface TurnResult {
@@ -196,10 +202,21 @@ class ChatService(
 
     fun cleanup() = runCatching { sessionManager.cleanup() }
 
+    // Background completions are delivered at the next existing model step, never start a turn.
+    private val backgroundToolNotices = java.util.concurrent.ConcurrentHashMap<Uuid, java.util.concurrent.ConcurrentLinkedQueue<UIMessagePart.Notice>>()
+
     init {
         // Queue completion notices only. An idle parent does not incur an unsolicited model request.
         subagentRunner.noticeSink = { event ->
             sessionManager.getOrCreate(event.conversationId).inbox.post(event.key, event.notice)
+        }
+        backgroundToolManager.noticeSink = { event ->
+            backgroundToolNotices.computeIfAbsent(event.conversationId) {
+                java.util.concurrent.ConcurrentLinkedQueue()
+            }.apply {
+                add(event.notice)
+                while (size > 64) poll()
+            }
         }
         appScope.launch {
             backgroundShellManager.noticeEvents.collect { event ->
@@ -383,6 +400,8 @@ class ChatService(
     }
 
     private fun cleanupQueuedAttachments(previous: QueuedMessage) {
+        // Draft-origin input keeps its own attachment references until persistence is acknowledged.
+        if (previous.persisted != null) return
         val candidates = previous.parts.localFileUrls()
         if (candidates.isEmpty()) return
         appScope.launch {
@@ -424,6 +443,27 @@ class ChatService(
             session.inbox.enqueue(content, answer)
             dispatchInbox(conversationId)
         }
+    }
+
+    /**
+     * 同 [sendMessage]，额外返回「这条输入是否已经落库」的确认，给输入草稿决定何时清理用：
+     * `true` 表示用户消息已经写进会话（可以清草稿），`false` 表示初始化失败/被撤回，草稿要留着。
+     * 内容为空时返回 null（本来就不会入队）。其他调用者忽略返回值即可。
+     */
+    fun sendMessageWithReceipt(
+        conversationId: Uuid,
+        content: List<UIMessagePart>,
+        answer: Boolean = true,
+    ): CompletableDeferred<Boolean>? {
+        if (content.isEmptyInputMessage()) return null
+        val session = sessionManager.getOrCreate(conversationId)
+        val persisted = CompletableDeferred<Boolean>()
+        synchronized(session) {
+            if (session.inbox.state.value.messages.isEmpty()) session.inbox.resume()
+            session.inbox.enqueue(content, answer, persisted = persisted)
+            dispatchInbox(conversationId)
+        }
+        return persisted
     }
 
     /** Enqueue immediately; the result belongs to this item even after edits or later turns. */
@@ -498,6 +538,8 @@ class ChatService(
                 }
                 session.flush()
                 session.submittingMessage = null
+                // 用户消息已经写进会话：输入草稿这时才可以清掉
+                queued.persisted?.complete(true)
 
                 // 开始补全
                 val result = if (queued.answer) runTurn(session) else null
@@ -516,12 +558,19 @@ class ChatService(
                 if (queued.reply == null) _generationDoneFlow.emit(conversationId)
             } catch (e: Exception) {
                 queued.reply?.completeExceptionally(e)
+                // 没写进会话：草稿要留着，别把它当成已经发出去了
+                queued.persisted?.complete(false)
                 e.printStackTrace()
                 reportFailure(session, e, R.string.error_title_send_message)
             }
         }
         job.invokeOnCompletion { cause ->
             if (cause != null) queued.reply?.completeExceptionally(cause)
+            if (cause != null) {
+                // 取消（停止生成、会话被回收）时消息可能还没落库：没完成就按「没写进去」处理。
+                // 已经 complete(true) 的是生成阶段被取消，这里不会改结果。
+                queued.persisted?.complete(false)
+            }
             synchronized(session) {
                 if (session.submittingMessage?.id == queued.id) session.submittingMessage = null
             }
@@ -718,7 +767,12 @@ class ChatService(
                 turn = turn,
                 messages = history,
                 processingStatus = session.processingStatus,
-                takePendingParts = session.inbox::takeNotices,
+                takePendingParts = {
+                    val queued = backgroundToolNotices[conversationId]
+                    session.inbox.takeNotices() + buildList {
+                        if (queued != null) while (true) add(queued.poll() ?: break)
+                    }
+                },
             )
             var finishReason: AgentFinishReason? = null
             val persistedToolStates = HashMap<String, Pair<kotlin.time.Instant?, Boolean>>()
@@ -1001,6 +1055,9 @@ class ChatService(
      * [keepRecentMessages] 为 0 时压缩全部消息；大于 0 时最近的这些消息不参与压缩、留在检查点之后，
      * 对话已经超出模型上下文时用来缩小压缩请求。
      * 压缩请求本身是纯文本摘要输入（见 CompactionRequestMessages），历史里的图片不会原样上传。
+     *
+     * 这是挂起版本：失败通过 [Result] 返回，Web/其它通道的语义不变。
+     * 聊天页的后台版本见 [startBackgroundCompression]，两者共用同一份快照与提交校验。
      */
     suspend fun compressConversation(
         conversationId: Uuid,
@@ -1012,55 +1069,316 @@ class ChatService(
             check(!session.isGenerating) { context.getString(R.string.chat_page_compress_blocked_generating) }
 
             val conversation = session.state.value
-            val nodes = conversation.messageNodes
-            val checkpointIndex = nodes.indexOfLast { it.currentMessage.isContextCheckpoint }
-            // 压缩范围是 (checkpointIndex, endIndex)，之后的节点原样保留
-            val endIndex = nodes.size - keepRecentMessages.coerceAtLeast(0)
-            // 上一个检查点之后没有可压缩的消息
-            if (endIndex <= checkpointIndex + 1) {
-                throw IllegalStateException(
-                    context.getString(
-                        if (keepRecentMessages > 0) {
-                            R.string.chat_page_compress_not_enough_messages
-                        } else {
-                            R.string.chat_page_compress_nothing_to_compress
-                        }
-                    )
-                )
-            }
-            // 未完成的工具调用没有结果，请求会被服务端拒绝；压到检查点之前也再不会执行。
-            // 保留区里的不发给压缩请求，压缩后照常留在检查点之后，不用检查
-            check(nodes.subList(checkpointIndex + 1, endIndex).none { node ->
-                node.currentMessage.getTools().any { it.isPending || it.canResumeExecution }
-            }) { context.getString(R.string.chat_page_compress_handle_pending_tools) }
-
-            // 没配置压缩模型时沿用对话模型、同一套请求组装，才能命中提示词缓存；
-            // 配置了独立压缩模型时，摘要请求改由它生成。
-            val compressionSettings = settingsStore.awaitLoaded()
-            val compressionModel = compressionSettings.autoCompress.modelId
-                ?.let { compressionSettings.findModelById(it) }
-            val turn = requestFactory.createContext(compressionSettings, conversation, compressionModel)
-            val summary = requestFactory.generateCompressionSummary(
-                turn = turn,
-                messages = conversation.currentMessages.take(endIndex),
-                compressPrompt = buildCompressPrompt(
-                    additionalPrompt = additionalPrompt,
-                    locale = Locale.getDefault().displayName,
-                ),
+            val snapshot = compressionSnapshotOf(conversation, keepRecentMessages, session.incarnation)
+            val summary = generateCompressionSummaryOnce(
+                conversation = conversation,
+                snapshot = snapshot,
+                additionalPrompt = additionalPrompt,
             )
 
             // 原消息原样保留，摘要插在压缩范围的最后一条消息之后。摘要生成期间对话可能已变化，
-            // 因此按节点定位插入到最新状态。
-            session.update { latest ->
-                check(!session.isGenerating) { context.getString(R.string.chat_page_compress_blocked_generating) }
-                val updated = latest.insertContextCheckpoint(
-                    afterNodeId = nodes[endIndex - 1].id,
-                    summary = summary,
-                ) ?: throw IllegalStateException(context.getString(R.string.chat_page_compress_conversation_changed))
-                updated.copy(chatSuggestions = emptyList())
+            // 因此按节点定位插入到最新状态；范围内被改过、边界已有检查点就丢弃，不写旧结果。
+            session.tryUpdate { latest ->
+                when (val commit = latest.compressionCommit(snapshot, session.incarnation)) {
+                    is CompressionCommit.Ready -> {
+                        // 期间新开始的一轮生成正写进压缩范围：摘要不含它的最终内容，丢弃
+                        // （replyMessageId 在一轮结束后仍保留上一条回复，只有生成中才算数）
+                        val streaming = session.replyMessageId.value.takeIf { session.isGenerating }
+                        if (snapshot.coversStreamingMessage(streaming)) {
+                            throw IllegalStateException(context.getString(R.string.chat_page_compress_conversation_changed))
+                        }
+                        latest.insertContextCheckpoint(
+                            afterNodeId = commit.afterNodeId,
+                            summary = summary,
+                        )?.copy(chatSuggestions = emptyList())
+                            ?: throw IllegalStateException(context.getString(R.string.chat_page_compress_conversation_changed))
+                    }
+
+                    CompressionCommit.Changed, CompressionCommit.AlreadyCompressed ->
+                        throw IllegalStateException(context.getString(R.string.chat_page_compress_conversation_changed))
+                }
             }
             session.flush()
         }
+    }
+
+    // ---- 后台压缩 ----
+
+    // 同一个会话同一时间只跑一个手动压缩，重复点击返回同一个任务
+    private val compressionLock = Any()
+    private val compressionJobs = mutableMapOf<Uuid, Job>()
+
+    private val _compressionStates = MutableStateFlow<Map<Uuid, CompressionState>>(emptyMap())
+
+    /** 每个会话最近一次手动压缩的状态（运行中/成功/失败/丢弃/取消），供聊天页显示 */
+    val compressionStates: StateFlow<Map<Uuid, CompressionState>> = _compressionStates.asStateFlow()
+
+    /**
+     * 手动压缩转后台：非挂起启动，任务跑在 [AppScope] 里，聊天页/对话/助手切换都不会取消它。
+     *
+     * - 该会话已有压缩在跑时直接返回同一个 [Job]，不会再发一次模型请求。
+     * - 失败由这里报错（[addError]）并发通知，调用方不需要（也不应该）再接 `.onFailure`。
+     * - 提交前核对开始时的边界快照：范围内被改过、会话被删过就丢弃旧摘要，绝不覆盖新内容；
+     *   范围之后追加的消息原样保留。结果通过 [compressionStates] 和 [AppEvent] 通知出去。
+     */
+    fun startBackgroundCompression(
+        conversationId: Uuid,
+        additionalPrompt: String,
+        keepRecentMessages: Int = 0,
+    ): Job = synchronized(compressionLock) {
+        val running = compressionJobs[conversationId]?.takeIf { it.isActive }
+        if (running != null) return@synchronized running
+
+        val taskId = Uuid.random()
+        pruneFinishedCompressionStates()
+        _compressionStates.update {
+            it + (conversationId to CompressionState(
+                taskId = taskId,
+                outcome = null,
+                keepRecentMessages = keepRecentMessages,
+                startedAt = System.currentTimeMillis(),
+            ))
+        }
+
+        val job = appScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            runBackgroundCompression(
+                conversationId = conversationId,
+                taskId = taskId,
+                additionalPrompt = additionalPrompt,
+                keepRecentMessages = keepRecentMessages,
+            )
+        }
+        compressionJobs[conversationId] = job
+        job.invokeOnCompletion {
+            synchronized(compressionLock) {
+                if (compressionJobs[conversationId] === job) compressionJobs.remove(conversationId)
+            }
+        }
+        job.start()
+        job
+    }
+
+    /** 取消这个会话的后台压缩；没有在跑的任务时返回 false */
+    fun cancelBackgroundCompression(conversationId: Uuid): Boolean {
+        val job = synchronized(compressionLock) { compressionJobs[conversationId] } ?: return false
+        job.cancel()
+        return true
+    }
+
+    /** 会话删除/整条替换前调用：停掉压缩任务并丢掉它的状态，压缩结果不会再写进新会话 */
+    private fun discardCompression(conversationId: Uuid) {
+        synchronized(compressionLock) { compressionJobs.remove(conversationId) }?.cancel()
+        _compressionStates.update { it - conversationId }
+    }
+
+    // 终态状态只留一小会儿给 UI 显示，不然每个压缩过的会话都会留一份
+    private fun pruneFinishedCompressionStates() {
+        val now = System.currentTimeMillis()
+        _compressionStates.update { states ->
+            states.filterValues { state ->
+                state.isRunning || (state.finishedAt ?: now) > now - COMPRESSION_STATE_RETENTION_MS
+            }
+        }
+    }
+
+    private fun finishCompressionState(
+        conversationId: Uuid,
+        taskId: Uuid,
+        outcome: CompressionOutcome,
+        message: String?,
+    ) {
+        _compressionStates.update { states ->
+            val existing = states[conversationId]
+            // 迟到的旧任务不能盖掉新任务的状态
+            if (existing != null && existing.taskId != taskId) {
+                states
+            } else {
+                states + (conversationId to CompressionState(
+                    taskId = taskId,
+                    outcome = outcome,
+                    message = message,
+                    keepRecentMessages = existing?.keepRecentMessages ?: 0,
+                    startedAt = existing?.startedAt ?: System.currentTimeMillis(),
+                    finishedAt = System.currentTimeMillis(),
+                ))
+            }
+        }
+    }
+
+    private suspend fun runBackgroundCompression(
+        conversationId: Uuid,
+        taskId: Uuid,
+        additionalPrompt: String,
+        keepRecentMessages: Int,
+    ) {
+        // 复用生成用的前台服务：App 切到后台时进程不被回收，压缩请求才能跑完。
+        // 它只提供前台服务生命周期，任务本身仍是这个 AppScope 协程；系统/厂商杀进程照样会中断，
+        // 中断时什么都没有写（摘要只在最后一次性提交），对话保持原样。
+        var foregroundStarted = false
+        var title = ""
+        var outcome = CompressionOutcome.Failed
+        var detail: String? = null
+        try {
+            withLoadedSession(conversationId) { session ->
+                check(!session.isGenerating) { context.getString(R.string.chat_page_compress_blocked_generating) }
+
+                val conversation = session.state.value
+                val snapshot = compressionSnapshotOf(conversation, keepRecentMessages, session.incarnation)
+                title = compressionTitle(conversation)
+
+                foregroundStarted = ChatGenerationForegroundService.acquire(
+                    context = context,
+                    generationId = taskId,
+                    conversationId = conversationId,
+                )
+                appEventBus.tryEmit(
+                    AppEvent.ChatCompressionStarted(
+                        conversationId = conversationId,
+                        taskId = taskId,
+                        title = title,
+                    )
+                )
+
+                val statusText = context.getString(R.string.chat_page_compressing)
+                session.processingStatus.value = statusText
+                val summary = try {
+                    generateCompressionSummaryOnce(
+                        conversation = conversation,
+                        snapshot = snapshot,
+                        additionalPrompt = additionalPrompt,
+                    )
+                } finally {
+                    session.processingStatus.compareAndSet(statusText, null)
+                }
+
+                // 请求期间内容可能已经变了：这里只做校验后的一次原子插入，绝不整份写回旧快照。
+                // 范围内被改动/边界已有检查点 → 丢弃；范围之后追加的消息原样保留。
+                currentCoroutineContext().ensureActive()
+                val committed = session.tryUpdate { latest ->
+                    when (val commit = latest.compressionCommit(snapshot, session.incarnation)) {
+                        is CompressionCommit.Ready -> {
+                            // 生成中且正写进压缩范围才丢弃；尾部的新一轮不影响摘要
+                            val streaming = session.replyMessageId.value.takeIf { session.isGenerating }
+                            if (snapshot.coversStreamingMessage(streaming)) {
+                                null
+                            } else {
+                                latest.insertContextCheckpoint(
+                                    afterNodeId = commit.afterNodeId,
+                                    summary = summary,
+                                )?.copy(chatSuggestions = emptyList())
+                            }
+                        }
+
+                        CompressionCommit.Changed, CompressionCommit.AlreadyCompressed -> null
+                    }
+                }
+                if (committed != null) {
+                    session.flush()
+                    outcome = CompressionOutcome.Succeeded
+                } else {
+                    outcome = CompressionOutcome.Discarded
+                    detail = context.getString(R.string.chat_page_compress_conversation_changed)
+                }
+            }
+        } catch (e: CancellationException) {
+            outcome = CompressionOutcome.Cancelled
+            throw e
+        } catch (e: Exception) {
+            detail = e.message?.takeIf { it.isNotBlank() } ?: e::class.java.simpleName
+            outcome = CompressionOutcome.Failed
+            Log.w(TAG, "background compression $taskId failed", e)
+            addError(
+                error = e,
+                conversationId = conversationId,
+                title = context.getString(R.string.error_title_compress_conversation),
+            )
+        } finally {
+            // 取消时也会走到这里；下面都是非挂起调用，不会因为已经取消而抛出来
+            if (foregroundStarted) ChatGenerationForegroundService.release(context, taskId)
+            finishCompressionState(conversationId, taskId, outcome, detail)
+            appEventBus.tryEmit(
+                AppEvent.ChatCompressionEnded(
+                    conversationId = conversationId,
+                    taskId = taskId,
+                    title = title,
+                    outcome = outcome,
+                    detail = detail,
+                )
+            )
+            if (outcome == CompressionOutcome.Discarded) {
+                addError(
+                    error = IllegalStateException(detail),
+                    conversationId = conversationId,
+                    title = context.getString(R.string.error_title_compress_conversation),
+                )
+            }
+        }
+    }
+
+    /** 通知里指认对话用的名字：有标题用标题，没有就用助手名 */
+    private fun compressionTitle(conversation: Conversation): String {
+        if (conversation.title.isNotBlank()) return conversation.title
+        val settings = settingsStore.settingsFlow.value
+        return settings.getAssistantOf(conversation).name.ifBlank {
+            context.getString(R.string.assistant_page_default_assistant)
+        }
+    }
+
+    /**
+     * 校验可以压缩的范围并取快照。不满足条件时抛带提示文案的异常（与原有失败提示一致）。
+     */
+    private fun compressionSnapshotOf(
+        conversation: Conversation,
+        keepRecentMessages: Int,
+        incarnation: Int,
+    ): CompressionSnapshot {
+        val nodes = conversation.messageNodes
+        val checkpointIndex = nodes.indexOfLast { it.currentMessage.isContextCheckpoint }
+        // 压缩范围是 (checkpointIndex, endIndex)，之后的节点原样保留
+        val endIndex = nodes.size - keepRecentMessages.coerceAtLeast(0)
+        // 上一个检查点之后没有可压缩的消息
+        if (endIndex <= checkpointIndex + 1) {
+            throw IllegalStateException(
+                context.getString(
+                    if (keepRecentMessages > 0) {
+                        R.string.chat_page_compress_not_enough_messages
+                    } else {
+                        R.string.chat_page_compress_nothing_to_compress
+                    }
+                )
+            )
+        }
+        // 未完成的工具调用没有结果，请求会被服务端拒绝；压到检查点之前也再不会执行。
+        // 保留区里的不发给压缩请求，压缩后照常留在检查点之后，不用检查
+        check(nodes.subList(checkpointIndex + 1, endIndex).none { node ->
+            node.currentMessage.getTools().any { it.isPending || it.canResumeExecution }
+        }) { context.getString(R.string.chat_page_compress_handle_pending_tools) }
+
+        return conversation.compressionSnapshot(endIndex, incarnation)
+            ?: throw IllegalStateException(context.getString(R.string.chat_page_compress_nothing_to_compress))
+    }
+
+    /**
+     * 生成摘要。没配置压缩模型时沿用对话模型、同一套请求组装，才能命中提示词缓存；
+     * 配置了独立压缩模型时，摘要请求改由它生成。
+     */
+    private suspend fun generateCompressionSummaryOnce(
+        conversation: Conversation,
+        snapshot: CompressionSnapshot,
+        additionalPrompt: String,
+    ): String {
+        val compressionSettings = settingsStore.awaitLoaded()
+        val compressionModel = compressionSettings.autoCompress.modelId
+            ?.let { compressionSettings.findModelById(it) }
+        val turn = requestFactory.createContext(compressionSettings, conversation, compressionModel)
+        return requestFactory.generateCompressionSummary(
+            turn = turn,
+            messages = conversation.currentMessages.take(snapshot.endIndex),
+            compressPrompt = buildCompressPrompt(
+                additionalPrompt = additionalPrompt,
+                locale = Locale.getDefault().displayName,
+            ),
+        )
     }
 
     // ---- 聊天页配置 ----
@@ -1280,6 +1598,8 @@ class ChatService(
      * 还停在这个会话上的页面看到的是空会话，之后再发消息会新建记录，不会写回已删除的那条。
      */
     suspend fun deleteConversation(conversationId: Uuid) {
+        // 后台压缩先停掉：它的结果不能再写进下面这个空会话（incarnation 也会让迟到的提交落空）
+        discardCompression(conversationId)
         val session = sessionManager.getOrCreate(conversationId)
         discardQueuedMessages(session)
         session.replace(newConversation(conversationId), existsInDatabase = false) { previous ->
@@ -1294,6 +1614,7 @@ class ChatService(
 
     /** 撤销删除：写回删除前的会话，还停在这个会话上的页面也一并换回 */
     suspend fun restoreConversation(conversation: Conversation) {
+        discardCompression(conversation.id)
         val session = sessionManager.getOrCreate(conversation.id)
         session.replace(conversation, existsInDatabase = true) {
             conversationStore.write(previous = null, current = conversation)

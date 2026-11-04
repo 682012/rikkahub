@@ -20,6 +20,7 @@ import me.rerere.rikkahub.conversationIntent
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
+import me.rerere.rikkahub.data.event.CompressionOutcome
 import me.rerere.rikkahub.data.model.GenerationPhase
 import me.rerere.rikkahub.data.model.generationPhase
 import me.rerere.rikkahub.utils.NotificationUtil
@@ -32,9 +33,21 @@ import kotlin.uuid.Uuid
 // notify() 是 binder IPC 且系统本身会对高频更新限流，必须在应用侧节流
 private const val LIVE_UPDATE_NOTIFICATION_THROTTLE_MS = 1000L
 
+// 手动压缩用自己的一组通知身份，不和生成完成（id=1）、Live Update（2006）互相覆盖
+private const val CHAT_COMPRESSION_PROGRESS_NOTIFICATION_ID = 2007
+private const val CHAT_COMPRESSION_RESULT_NOTIFICATION_ID = 2008
+private const val CHAT_COMPRESSION_TAG_PREFIX = "chat-compression:"
+
+// 进程被杀时进度卡没人来撤，靠系统超时兜底（30 分钟），结果通知照常到时单独发
+private const val CHAT_COMPRESSION_PROGRESS_TIMEOUT_MS = 30 * 60 * 1000L
+
+/** Android 按 (tag, id) 认通知；同一段前缀便于把这组通知和其它通知区分开 */
+private fun chatCompressionNotificationTag(conversationId: Uuid): String =
+    "$CHAT_COMPRESSION_TAG_PREFIX$conversationId"
+
 /**
  * 订阅 [AppEventBus] 上的聊天生成事件，负责后台生成相关的系统通知
- * （Live Update 进度通知和生成完成通知）。
+ * （Live Update 进度通知和生成完成通知），以及手动压缩的进度/结果通知。
  */
 class ChatNotificationManager(
     private val context: Application,
@@ -45,6 +58,9 @@ class ChatNotificationManager(
     private val notificationLock = Any()
     private val isForeground = MutableStateFlow(false)
     private val liveUpdateLastSentAt = ConcurrentHashMap<Uuid, Long>()
+
+    // 已经发过结果通知的压缩任务，保证同一个任务只发一次（受 notificationLock 保护）
+    private val notifiedCompressionTasks = ArrayDeque<Uuid>()
 
     init {
         // ProcessLifecycleOwner 要求在主线程注册观察者
@@ -73,6 +89,8 @@ class ChatNotificationManager(
                     when (event) {
                         is AppEvent.ChatGenerationUpdate -> handleGenerationUpdate(event)
                         is AppEvent.ChatGenerationEnded -> handleGenerationEnded(event)
+                        is AppEvent.ChatCompressionStarted -> handleCompressionStarted(event)
+                        is AppEvent.ChatCompressionEnded -> handleCompressionEnded(event)
                         else -> {}
                     }
                 }
@@ -120,6 +138,85 @@ class ChatNotificationManager(
             contentIntent = getPendingIntent(context, conversationId)
         }
     }
+
+    // ---- 手动压缩 ----
+
+    /**
+     * 压缩进度卡：只在 App 不在前台时发（前台有弹窗和列表状态，不再加一条系统通知）。
+     * 它和前台服务卡片（2002）、Live Update（2006）都是不同身份，不会互相覆盖。
+     */
+    private fun handleCompressionStarted(event: AppEvent.ChatCompressionStarted) {
+        if (isForeground.value) return
+        if (!compressionNotificationsEnabled()) return
+        context.sendNotification(
+            channelId = CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID,
+            notificationId = CHAT_COMPRESSION_PROGRESS_NOTIFICATION_ID,
+        ) {
+            tag = chatCompressionNotificationTag(event.conversationId)
+            title = event.title.ifBlank { context.getString(R.string.app_name) }
+            content = context.getString(R.string.r11_compression_progress_text)
+            ongoing = true
+            onlyAlertOnce = true
+            category = NotificationCompat.CATEGORY_PROGRESS
+            contentIntent = getPendingIntent(context, event.conversationId)
+            // 进程被杀时这条通知没人来撤，到期由系统收走；结果通知另有身份
+            timeoutAfterMs = CHAT_COMPRESSION_PROGRESS_TIMEOUT_MS
+        }
+    }
+
+    /**
+     * 压缩结果：成功可点开原对话，失败/丢弃说明对话没有被改。
+     *
+     * 用独立的 id 和 tag，普通生成完成通知（id=1）不会冒充压缩结果；
+     * 同一个 taskId 只发一次，避免重复事件发两条。
+     */
+    private fun handleCompressionEnded(event: AppEvent.ChatCompressionEnded) {
+        // 不管后面发不发结果通知，进度卡都要撤掉
+        context.cancelNotification(
+            CHAT_COMPRESSION_PROGRESS_NOTIFICATION_ID,
+            chatCompressionNotificationTag(event.conversationId),
+        )
+        if (event.outcome == CompressionOutcome.Cancelled) return
+        if (!compressionNotificationsEnabled()) return
+        if (!markCompressionResultNotified(event.taskId)) return
+
+        val title = event.title.ifBlank { context.getString(R.string.app_name) }
+        val content = when (event.outcome) {
+            CompressionOutcome.Succeeded -> context.getString(R.string.r11_compression_result_success_text)
+            CompressionOutcome.Failed -> context.getString(
+                R.string.r11_compression_result_failed_text,
+                event.detail?.take(200) ?: context.getString(R.string.r11_compression_result_unknown_error),
+            )
+
+            CompressionOutcome.Discarded -> context.getString(R.string.r11_compression_result_discarded_text)
+            CompressionOutcome.Cancelled -> return
+        }
+        context.sendNotification(
+            channelId = CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID,
+            notificationId = CHAT_COMPRESSION_RESULT_NOTIFICATION_ID,
+        ) {
+            tag = chatCompressionNotificationTag(event.conversationId)
+            this.title = title
+            this.content = content
+            autoCancel = true
+            useDefaults = true
+            useBigTextStyle = true
+            category = NotificationCompat.CATEGORY_MESSAGE
+            contentIntent = getPendingIntent(context, event.conversationId)
+        }
+    }
+
+    /** 同一个压缩任务的结果只通知一次（受 notificationLock 保护） */
+    private fun markCompressionResultNotified(taskId: Uuid): Boolean {
+        if (notifiedCompressionTasks.contains(taskId)) return false
+        notifiedCompressionTasks.addLast(taskId)
+        while (notifiedCompressionTasks.size > 32) notifiedCompressionTasks.removeFirst()
+        return true
+    }
+
+    // 手动压缩的完成通知独立于普通聊天生成通知。
+    private fun compressionNotificationsEnabled(): Boolean =
+        settingsStore.settingsFlow.value.displaySetting.enableNotificationOnCompression
 
     private fun sendLiveUpdateNotification(
         conversationId: Uuid,

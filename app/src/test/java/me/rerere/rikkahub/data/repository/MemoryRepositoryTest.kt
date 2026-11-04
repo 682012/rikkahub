@@ -2,9 +2,11 @@ package me.rerere.rikkahub.data.repository
 
 import kotlinx.coroutines.runBlocking
 import me.rerere.rikkahub.data.db.entity.MemoryFileEntity
+import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.MemoryFile
 import me.rerere.rikkahub.data.model.groupByDirectory
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -98,7 +100,94 @@ class MemoryRepositoryTest {
     }
 
     @Test
-    fun `delete checks the version and removes the file`() = runBlocking {
+    fun `writing content identical to the stored file does not rewrite it`() = runBlocking {
+        val file = create("/profile.md", "- [stated] Lives in Shenzhen\n")
+        val upserts = dao.upsertCalls
+
+        val same = repository.writeFile(assistant, "/profile.md", "- [stated] Lives in Shenzhen\n", file.version)
+
+        assertEquals(MemoryWriteResult.Success(file, unchanged = true), same)
+        assertEquals(upserts, dao.upsertCalls)
+        // 内容没变, 更新时间也就不该动: 记忆清单按更新时间排序的界面不会因为空写跳到最前
+        assertEquals(file.updatedAt, dao.getFile(assistant, "/profile.md")?.updatedAt)
+    }
+
+    @Test
+    fun `appending a line that is already in the file is a no-op`() = runBlocking {
+        val file = create("/topics/food.md", "- [stated] Allergic to peanuts\n")
+        val upserts = dao.upsertCalls
+
+        val again = repository.appendToFile(assistant, "/topics/food.md", "- [stated] Allergic to peanuts\n", file.version)
+        // 行首行尾空白不同也算同一行
+        val spaced = repository.appendToFile(assistant, "/topics/food.md", "  - [stated] Allergic to peanuts  ", file.version)
+
+        assertEquals(MemoryWriteResult.Success(file, unchanged = true), again)
+        assertEquals(MemoryWriteResult.Success(file, unchanged = true), spaced)
+        assertEquals(upserts, dao.upsertCalls)
+        assertEquals("- [stated] Allergic to peanuts\n", repository.getFile(assistant, "/topics/food.md")?.content)
+    }
+
+    @Test
+    fun `appending new content still writes`() = runBlocking {
+        val file = create("/topics/food.md", "- [stated] Allergic to peanuts\n")
+        val upserts = dao.upsertCalls
+
+        val added = repository.appendToFile(assistant, "/topics/food.md", "- [stated] Avoids coriander", file.version)
+
+        assertFalse((added as MemoryWriteResult.Success).unchanged)
+        assertEquals(upserts + 1, dao.upsertCalls)
+        assertEquals(
+            "- [stated] Allergic to peanuts\n- [stated] Avoids coriander\n",
+            repository.getFile(assistant, "/topics/food.md")?.content,
+        )
+    }
+
+    @Test
+    fun `a file that only differs in one line is still written`() = runBlocking {
+        val file = create("/topics/work.md", "- [stated] On the search team\n")
+        val upserts = dao.upsertCalls
+
+        val changed = repository.replaceInFile(
+            assistant,
+            "/topics/work.md",
+            "On the search team",
+            "On the infra team",
+            file.version,
+        )
+
+        assertFalse((changed as MemoryWriteResult.Success).unchanged)
+        assertEquals(upserts + 1, dao.upsertCalls)
+        assertEquals("- [stated] On the infra team\n", changed.file?.content)
+    }
+
+    @Test
+    fun `a write is visible to the next read and changes the version`() = runBlocking {
+        // 记忆段每次请求都从库里现拼, 没有读缓存: 写完下一轮就能看到, 版本也跟着变
+        val file = create("/topics/food.md", "- [stated] Allergic to peanuts\n")
+        val versionsBefore = repository.getFiles(assistant).map { it.version }
+
+        repository.appendToFile(assistant, "/topics/food.md", "- [stated] Avoids coriander", file.version)
+        val appended = repository.getFiles(assistant).single()
+        assertTrue(appended.version !in versionsBefore)
+        assertTrue(appended.content.contains("Avoids coriander"))
+
+        repository.deleteFile(assistant, "/topics/food.md", appended.version)
+        assertTrue(repository.getFiles(assistant).isEmpty())
+    }
+
+    @Test
+    fun `each assistant keeps its own store unless memory is global`() {
+        val own = Assistant(name = "own")
+        val global = Assistant(name = "global", useGlobalMemory = true)
+
+        assertEquals(own.id.toString(), own.memoryId)
+        assertEquals(MemoryRepository.GLOBAL_MEMORY_ID, global.memoryId)
+        // 两个助手各写各的库, 不会读到对方的记忆
+        assertTrue(own.memoryId != global.memoryId)
+    }
+
+    @Test
+    fun `delete still removes the file`() = runBlocking {
         val file = create("/people/mom.md", "- [stated] Lives in Chengdu\n")
 
         assertEquals(MemoryWriteResult.Conflict(file), repository.deleteFile(assistant, "/people/mom.md", "stale"))

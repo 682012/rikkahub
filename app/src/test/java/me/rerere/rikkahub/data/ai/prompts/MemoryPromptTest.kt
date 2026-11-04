@@ -49,6 +49,35 @@ class MemoryPromptTest {
     }
 
     @Test
+    fun `the listing order only depends on the files, not on the order they are passed in`() {
+        val areas = MemoryFile(
+            path = "/areas/house.md",
+            content = "---\nname: house\ndescription: The house hunt\n---\n\n- [stated] Looking in Hangzhou\n",
+            updatedAt = 0,
+        )
+        val books = MemoryFile(
+            path = "/topics/books.md",
+            content = "---\nname: books\ndescription: What the user reads\n---\n\n- [stated] Reads sci-fi\n",
+            updatedAt = 0,
+        )
+
+        // 同一批文件换个顺序传进来, 系统提示必须逐字节相同, 否则前缀缓存白失一次
+        val first = buildMemoryPrompt(listOf(profile, food, areas, books))
+        val second = buildMemoryPrompt(listOf(books, profile, areas, food))
+
+        assertEquals(first, second)
+        assertTrue(first.indexOf("/topics/books.md") < first.indexOf("/topics/food.md"))
+    }
+
+    @Test
+    fun `a path that appears twice is listed once`() {
+        val prompt = buildMemoryPrompt(listOf(profile, food, food))
+
+        // 只看清单: 全文里的 /topics/food.md 还会出现在 <memory_format> 的示例里
+        assertEquals(1, prompt.block("memory_listing").split("/topics/food.md").size - 1)
+    }
+
+    @Test
     fun `consolidation input carries the memory state and each conversation's new turns`() {
         val input = buildMemoryConsolidationInput(
             files = listOf(profile, food),

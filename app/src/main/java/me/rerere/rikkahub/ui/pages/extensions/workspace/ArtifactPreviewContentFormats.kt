@@ -95,7 +95,7 @@ enum class ArtifactDocumentKind {
 }
 
 private val PDF_EXTENSIONS = setOf("pdf")
-private val OFFICE_EXTENSIONS = setOf("docx", "docm", "xlsx", "xlsm", "pptx", "pptm", "odt", "ods", "odp")
+private val OFFICE_EXTENSIONS = setOf("epub", "docx", "docm", "xlsx", "xlsm", "pptx", "pptm", "odt", "ods", "odp")
 private val ARCHIVE_EXTENSIONS = setOf("zip", "tar", "tgz")
 private val AUDIO_EXTENSIONS = setOf(
     "mp3", "m4a", "m4b", "aac", "ogg", "oga", "opus", "wav", "flac", "amr", "mid", "midi", "mka", "3ga", "awb", "wma",
@@ -138,6 +138,7 @@ fun artifactDocumentKindOf(fileName: String, mimeType: String): ArtifactDocument
 // ---------------------------------------------------------------------------------------------
 
 internal enum class OfficeTextFormat(val displayName: String) {
+    EPUB("EPUB"),
     DOCX("Word"),
     XLSX("Excel"),
     PPTX("PowerPoint"),
@@ -164,6 +165,8 @@ internal fun readOfficeText(file: File): OfficeTextDocument {
     return openZip(file) { zip ->
         val names = zip.entryNames()
         when {
+            file.extension.equals("epub", true) -> readEpubText(zip, names, budget)
+
             "word/document.xml" in names -> {
                 val text = xmlTextLines(
                     xml = zip.readEntryText("word/document.xml", budget),
@@ -198,6 +201,34 @@ internal fun readOfficeText(file: File): OfficeTextDocument {
             else -> throw ArtifactPreviewException("这个压缩包里没有可提取的文档正文")
         }
     }
+}
+
+private fun readEpubText(zip: ZipFile, names: List<String>, budget: ArtifactReadBudget): OfficeTextDocument {
+    val container = zip.readEntryText("META-INF/container.xml", budget)
+    val descriptor = org.jsoup.Jsoup.parse(container, "", org.jsoup.parser.Parser.xmlParser())
+    val packageName = descriptor.selectFirst("rootfile")?.attr("full-path")
+        ?.takeIf { it in names } ?: throw ArtifactPreviewException("EPUB 没有有效的内容目录")
+    val book = org.jsoup.Jsoup.parse(zip.readEntryText(packageName, budget), "", org.jsoup.parser.Parser.xmlParser())
+    val parent = packageName.substringBeforeLast('/', "")
+    val manifest = book.select("manifest > item").associate { it.attr("id") to it.attr("href") }
+    val chapters = book.select("spine > itemref").mapNotNull { ref -> manifest[ref.attr("idref")] }
+    var remaining = ArtifactPreviewLimits.MAX_TEXT_CHARS
+    var truncated = chapters.size > ArtifactPreviewLimits.MAX_SECTIONS
+    val sections = chapters.take(ArtifactPreviewLimits.MAX_SECTIONS).mapNotNull { href ->
+        val relative = java.net.URI(href).path ?: return@mapNotNull null
+        val resolved = java.nio.file.Paths.get(parent).resolve(relative).normalize().toString().replace('\\', '/')
+        if (resolved.startsWith("../") || resolved.startsWith('/') || resolved !in names) return@mapNotNull null
+        if (remaining <= 0) { truncated = true; return@mapNotNull null }
+        val document = org.jsoup.Jsoup.parse(zip.readEntryText(resolved, budget))
+        document.select("script,style").remove()
+        val text = document.body().wholeText().trim()
+        if (text.length > remaining) truncated = true
+        val shown = text.take(remaining)
+        remaining -= shown.length
+        OfficeTextSection(document.title().ifBlank { href }, shown.lines())
+    }
+    if (sections.isEmpty()) throw ArtifactPreviewException("EPUB 没有可显示的章节（可能受 DRM 保护）")
+    return OfficeTextDocument(OfficeTextFormat.EPUB, sections, truncated)
 }
 
 private fun readXlsxText(zip: ZipFile, names: List<String>, budget: ArtifactReadBudget): OfficeTextDocument {

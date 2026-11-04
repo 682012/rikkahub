@@ -148,4 +148,54 @@ class MemoryToolsTest {
         assertEquals("true", deleted.string("deleted"))
         assertFalse(call(MemoryToolNames.LIST) {}.toString().contains("/people/mom.md"))
     }
+
+    @Test
+    fun `a repeated append reports unchanged and leaves the file alone`() = runBlocking {
+        val written = call(MemoryToolNames.WRITE) {
+            put("path", "/topics/food.md")
+            put("content", "- [stated] Allergic to peanuts\n")
+            put("if_version", "new")
+        }
+        val again = call(MemoryToolNames.APPEND) {
+            put("path", "/topics/food.md")
+            put("content", "- [stated] Allergic to peanuts")
+            put("if_version", written.string("version"))
+        }
+
+        assertNull(again["error"])
+        assertEquals("true", again.string("unchanged"))
+        // 版本没变: 这次调用没有重写文件, 模型不该为它再读一次
+        assertEquals(written.string("version"), again.string("version"))
+        assertEquals("- [stated] Allergic to peanuts\n", repository.getFile("assistant", "/topics/food.md")?.content)
+    }
+
+    @Test
+    fun `an unchanged write is not reported as a memory change`() = runBlocking {
+        val written = call(MemoryToolNames.WRITE) {
+            put("path", "/topics/food.md")
+            put("content", "- [stated] Allergic to peanuts\n")
+            put("if_version", "new")
+        }
+        val changed = UIMessagePart.Tool(
+            toolCallId = "call_1",
+            toolName = MemoryToolNames.WRITE,
+            input = "{}",
+            output = listOf(UIMessagePart.Text(written.toString())),
+        )
+        val noop = call(MemoryToolNames.APPEND) {
+            put("path", "/topics/food.md")
+            put("content", "- [stated] Allergic to peanuts")
+            put("if_version", written.string("version"))
+        }
+        val unchanged = UIMessagePart.Tool(
+            toolCallId = "call_2",
+            toolName = MemoryToolNames.APPEND,
+            input = "{}",
+            output = listOf(UIMessagePart.Text(noop.toString())),
+        )
+
+        assertEquals("/topics/food.md", changed.memoryWritePath())
+        // 记忆库没动过, 就不能进 changedPaths / "assistant updated memory" 提示
+        assertNull(unchanged.memoryWritePath())
+    }
 }

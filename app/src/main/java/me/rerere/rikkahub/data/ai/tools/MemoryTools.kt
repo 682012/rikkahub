@@ -140,7 +140,7 @@ fun buildMemoryTools(
     ),
     Tool(
         name = MemoryToolNames.APPEND,
-        description = "Append one line to the end of a memory file.",
+        description = "Append one line to the end of a memory file. A line already present in the file is not appended twice.",
         parameters = {
             InputSchema.Obj(
                 properties = buildJsonObject {
@@ -212,6 +212,8 @@ fun UIMessagePart.Tool.memoryWritePath(): String? {
         Json.parseToJsonElement(output.filterIsInstance<UIMessagePart.Text>().joinToString("") { it.text })
     }.getOrNull() as? JsonObject ?: return null
     if ("error" in result) return null
+    // 内容没变时工具返回 unchanged: true, 记忆库其实没动: 不能报成"改过这个文件"
+    if ((result["unchanged"] as? JsonPrimitive)?.contentOrNull == "true") return null
     return (result["path"] as? JsonPrimitive)?.contentOrNull
 }
 
@@ -241,6 +243,8 @@ private fun MemoryWriteResult.toToolOutput(path: String): List<UIMessagePart> = 
             val file = result.file
             put("path", file?.path ?: path)
             if (file != null) put("version", file.version) else put("deleted", true)
+            // 内容没变时不重写文件, 让模型知道不用再试一次
+            if (result.unchanged) put("unchanged", true)
         }
 
         is MemoryWriteResult.Conflict -> putConflict(path, result.current)

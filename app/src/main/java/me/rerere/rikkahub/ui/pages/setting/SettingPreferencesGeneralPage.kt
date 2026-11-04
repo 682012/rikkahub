@@ -73,6 +73,11 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
+                BackgroundToolsSettingsCard(settings.backgroundToolSettings) { updated ->
+                    vm.updateSettings { it.copy(backgroundToolSettings = updated) }
+                }
+            }
+            item {
                 var createNewConversationOnStart by rememberSharedPreferenceBoolean(
                     "create_new_conversation_on_start",
                     true

@@ -22,7 +22,8 @@ import java.util.concurrent.ConcurrentHashMap
  * 当助手绑定了一个 shell 已就绪的 workspace 时, 在系统提示词中追加一段引导,
  * 让模型了解 workspace 环境与 workspace_* 工具的使用方式。
  * 提示中包含实际使用的 shell 与发行版, 避免模型默认按 bash / apt 来写命令。
- * 本地工作区同时读取 ~/.agents、/workspace 和会话当前目录中的 AGENTS.md 作为工作区指令。
+ * 本地工作区同时读取 ~/.agents、/workspace 和会话当前目录中的 AGENTS.md 作为工作区指令:
+ * 内容相同的只注入一次, 合计有上限, 并按 (工作区, 工作目录, 文件 stamp) 缓存 (见 [AgentsPromptCache])。
  * 远程工作区不读取 AGENTS.md, shell 与发行版读到一次后缓存 (见 [RemoteEnvironmentCache]),
  * 连不上时只注入一段说明, 不阻塞对话。
  */
@@ -58,7 +59,9 @@ class WorkspaceReminderTransformer(
             // 规范里不能提读文件、搜索工具
             val backend = effectiveExecutionBackend(workspace.isSsh(), ctx.settings.workspaceRuntime)
             val shell = workspaceRepository.shell(workspaceId)
-            val distro = localDistros.resolve("$workspaceId|$backend|$shell", readDistroName(workspaceId))
+            val environmentKey = "$workspaceId|$backend|$shell"
+            val distro = localDistros.cached(environmentKey)
+                ?: localDistros.resolve(environmentKey, readDistroName(workspaceId))
             buildWorkspacePrompt(
                 workspace = workspace,
                 shell = shell,
@@ -95,10 +98,10 @@ class WorkspaceReminderTransformer(
             workingDirectory.resolve("AGENTS.md").toString(),
         )
         // 每个 step 都会重拼系统提示, 而 AGENTS.md 通常很多步都不变:
-        // 按 (workspaceId, cwd, mtime, size) 复用上一次的结果, 产出才能逐字节相同
+        // 按 (workspaceId, 规范化后的工作目录, 文件 mtime/size) 复用上一次的结果, 产出才能逐字节相同
         return agentsPrompts.get(
             workspaceId = workspaceId,
-            cwd = cwd,
+            workingDirectory = workingDirectory.toString(),
             stamps = { agentsFileStamps(workspaceId, paths) },
             load = { readAgentsInstructions(workspaceId, paths) },
         )
@@ -121,22 +124,10 @@ class WorkspaceReminderTransformer(
     }
 
     private suspend fun readAgentsInstructions(workspaceId: String, paths: Set<String>): String {
-        val instructions = paths.mapNotNull { path ->
-            readRootfsText(workspaceId, path, MAX_AGENTS_BYTES)?.let { path to it }
+        val sources = paths.mapNotNull { path ->
+            readRootfsText(workspaceId, path, MAX_AGENTS_BYTES)?.let { AgentsSource(path, it) }
         }
-        if (instructions.isEmpty()) return ""
-        return buildString {
-            appendLine()
-            appendLine()
-            appendLine("<workspace_instructions>")
-            appendLine("Follow the AGENTS.md instructions below.")
-            instructions.forEach { (path, content) ->
-                appendLine()
-                appendLine("AGENTS.md source: $path")
-                appendLine(content)
-            }
-            append("</workspace_instructions>")
-        }
+        return buildAgentsInstructions(sources)
     }
 
     private suspend fun readDistroName(workspaceId: String): String? =
@@ -174,15 +165,94 @@ internal data class RemoteEnvironment(val shell: String, val distro: String?)
 /** 一个 AGENTS.md 的本地状态; [modifiedAt] 为负表示文件不存在, 不缓存时不会被用到 */
 internal data class AgentsFileStamp(val path: String, val modifiedAt: Long, val size: Long)
 
+/** 读到的一个 AGENTS.md 来源, [content] 是文件原文 */
+internal data class AgentsSource(val path: String, val content: String)
+
+/** 所有 AGENTS.md 合计注入的上限; 三份各 64KB 全注入会把每一步的提示撑到 100KB 以上 */
+internal const val MAX_AGENTS_TOTAL_CHARS = 64 * 1024
+
 /**
- * 按 (workspaceId, cwd, 文件 mtime/size) 缓存 AGENTS.md 提示词。
+ * 把读到的 AGENTS.md 拼成注入块。
+ *
+ * - 同一份内容出现在多个位置(软链、复制出来的工作区模板)时只注入一次, 避免同一段规则重复占上下文;
+ * - 合计超过 [MAX_AGENTS_TOTAL_CHARS] 时按顺序截断, 并写明可以用 workspace_read_file 读剩下的部分,
+ *   不静默丢掉用户写的内容。
+ */
+internal fun buildAgentsInstructions(sources: List<AgentsSource>): String {
+    val blocks = mutableListOf<Pair<String, String>>()
+    val skipped = mutableListOf<String>()
+    val seenContents = HashSet<String>()
+    var used = 0
+    for (source in sources) {
+        val content = source.content.trim()
+        if (content.isEmpty()) continue
+        if (!seenContents.add(content)) continue
+        val remaining = MAX_AGENTS_TOTAL_CHARS - used
+        if (remaining <= 0) {
+            skipped.add(source.path)
+            continue
+        }
+        val head = if (content.length <= remaining) content else content.take(remaining)
+        // 截断时退到最后一个完整行, 不留半行
+        val included = if (head.length == content.length) head else head.substringBeforeLast('\n', head)
+        used += included.length
+        blocks.add(
+            source.path to buildString {
+                append(included)
+                if (included.length < content.length) {
+                    appendLine()
+                    append(
+                        "[truncated at $MAX_AGENTS_TOTAL_CHARS characters; read the rest with " +
+                            "workspace_read_file(path=\"${source.path}\")]"
+                    )
+                }
+            }
+        )
+    }
+    if (blocks.isEmpty()) return ""
+    return buildString {
+        appendLine()
+        appendLine()
+        appendLine("<workspace_instructions>")
+        appendLine("Follow the AGENTS.md instructions below.")
+        blocks.forEach { (path, text) ->
+            appendLine()
+            appendLine("AGENTS.md source: $path")
+            appendLine(text)
+        }
+        if (skipped.isNotEmpty()) {
+            appendLine()
+            appendLine(
+                "Not included (size budget): ${skipped.joinToString(", ")}. " +
+                    "Read them with workspace_read_file if the task needs them."
+            )
+        }
+        append("</workspace_instructions>")
+    }
+}
+
+/**
+ * 按 (workspaceId, 规范化后的工作目录, 文件 mtime/size) 缓存 AGENTS.md 提示词。
  *
  * 每个 step 都要重建系统提示, 而 AGENTS.md 往往几十步都不变。stamp 没变就复用上一次拼好的字符串,
  * 一是省掉每个 step 的读文件, 二是保证产出逐字节相同 —— 读失败时这一段也不会突然从提示里消失,
  * 否则系统提示一变, 后面的全部历史前缀缓存都失效。
+ *
+ * mtime/size 单独不足: mtime 粒度粗(1 秒)、内容被原样改写但长度不变、或是编辑后又被改回来,
+ * 都可能让 stamp 不变而内容已经变了。所以条目过了 [revalidateMillis] 会重读一次并逐字节比较,
+ * 用读到的内容本身确认, 不靠 stamp 推断; 内容真的变了就换掉, 没变才继续复用。
+ * 判断不了新旧(stamps 为 null)时丢掉旧条目, 不拿可能过时的内容顶替。
  */
-internal class AgentsPromptCache {
-    private class Entry(val stamps: List<AgentsFileStamp>, val prompt: String)
+internal class AgentsPromptCache(
+    private val revalidateMillis: Long = DEFAULT_REVALIDATE_MS,
+    private val maxEntries: Int = DEFAULT_MAX_ENTRIES,
+    private val now: () -> Long = { System.nanoTime() / 1_000_000 },
+) {
+    private class Entry(
+        val stamps: List<AgentsFileStamp>,
+        val prompt: String,
+        val validatedAt: Long,
+    )
 
     private val entries = ConcurrentHashMap<String, Entry>()
 
@@ -191,20 +261,44 @@ internal class AgentsPromptCache {
      */
     suspend fun get(
         workspaceId: String,
-        cwd: String?,
+        workingDirectory: String,
         stamps: suspend () -> List<AgentsFileStamp>?,
         load: suspend () -> String,
     ): String {
-        val key = "$workspaceId\n${cwd.orEmpty()}"
+        val key = "$workspaceId\n$workingDirectory"
         val current = stamps()
-        if (current != null) {
-            entries[key]?.takeIf { it.stamps == current }?.let { return it.prompt }
+        val cached = entries[key]
+        if (current != null && cached != null && cached.stamps == current) {
+            if (now() - cached.validatedAt < revalidateMillis) return cached.prompt
+            // 到点复核: 重新读一次, 内容没变就继续用(逐字节相同), 变了就换成新的
+            val prompt = load()
+            put(key, Entry(current, prompt, now()))
+            return prompt
         }
         val prompt = load()
-        if (current != null) {
-            entries[key] = Entry(current, prompt)
+        if (current == null) {
+            entries.remove(key)
+        } else {
+            put(key, Entry(current, prompt, now()))
         }
         return prompt
+    }
+
+    // 不同工作区/目录的条目不能无限堆积: 超过上限时先扔最久没有校验过的
+    private fun put(key: String, entry: Entry) {
+        entries[key] = entry
+        val overflow = entries.size - maxEntries
+        if (overflow <= 0) return
+        entries.entries
+            .filter { it.key != key }
+            .sortedBy { it.value.validatedAt }
+            .take(overflow)
+            .forEach { entries.remove(it.key) }
+    }
+
+    private companion object {
+        const val DEFAULT_REVALIDATE_MS = 30_000L
+        const val DEFAULT_MAX_ENTRIES = 16
     }
 }
 
@@ -400,15 +494,18 @@ internal fun StringBuilder.appendToolUseGuidance(guidance: ToolUseGuidance) {
     )
     when (guidance) {
         ToolUseGuidance.LOCAL -> appendLine(
-            "- Locate first with `workspace_grep` / `workspace_glob`, and read only what you need: pass `offset` / `limit` to `workspace_read_file` for a large file. Do not run grep, find or cat through `workspace_shell`."
+            "- Locate with `workspace_grep` / `workspace_glob` first, then read only what you need with `offset` / `limit` on `workspace_read_file`."
         )
         ToolUseGuidance.SSH -> appendLine(
-            "- Search with `workspace_shell` (grep -n, find) before reading, then read only the lines you need with the `offset` / `limit` of `workspace_read_file`."
+            "- Search with `workspace_shell` (grep -n, find) before reading, then read only the lines you need with `offset` / `limit`."
         )
         ToolUseGuidance.SHELL_ONLY -> appendLine(
             "- Files are only reachable through `workspace_shell`: search with grep -n or find, then print just the line range you need (for example sed -n '120,200p') instead of whole files."
         )
     }
+    appendLine(
+        "- If the workspace already has a script, README or skill for the task, use that entry point instead of rebuilding it."
+    )
     appendLine("- Never read a file again when its content is already in this conversation and you have not changed it.")
     appendLine("- When a call fails, read the error and change the approach; never repeat an identical call.")
 }

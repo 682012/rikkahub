@@ -123,6 +123,14 @@ val appModule = module {
     }
 
     single {
+        val context: android.content.Context = get()
+        me.rerere.rikkahub.data.ai.tools.background.BackgroundToolManager(
+            rootDir = java.io.File(context.filesDir, me.rerere.rikkahub.data.ai.tools.background.BACKGROUND_TOOLS_DIR),
+            lease = me.rerere.rikkahub.data.ai.tools.background.AndroidBackgroundForegroundLease(context),
+        )
+    }
+
+    single {
         ChatToolFactory(
             context = get(),
             memoryRepository = get(),
@@ -133,6 +141,7 @@ val appModule = module {
             workspaceRepository = get(),
             subagentRunner = get(),
             backgroundShellManager = get(),
+            backgroundToolManager = get(),
         )
     }
 
@@ -171,6 +180,7 @@ val appModule = module {
             folderRepository = get(),
             backgroundShellManager = get(),
             subagentRunner = get(),
+            backgroundToolManager = get(),
         )
     }
 

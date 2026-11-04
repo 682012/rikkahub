@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- r11 后台压缩（简体中文） -->
+<resources>
+  <string name="r11_compression_progress_text">正在后台压缩对话…</string>
+  <string name="r11_compression_result_success_text">历史已压缩为摘要，点按返回该对话。</string>
+  <string name="r11_compression_result_failed_text">压缩失败，对话未改动：%1$s</string>
+  <string name="r11_compression_result_unknown_error">未知错误</string>
+  <string name="r11_compression_result_discarded_text">对话在压缩期间发生变化，本次结果已丢弃，对话本身未被修改。</string>
+  <string name="r11_compression_dialog_running">正在后台压缩…</string>
+  <string name="r11_compression_dialog_hint">压缩会在后台继续，离开本对话不会中断；完成后会通知你。</string>
+  <string name="r11_compression_dialog_running_hint">可以关闭此窗口或离开本页。压缩在后台继续进行，完成后会通知你。</string>
+  <string name="r11_compression_dialog_close">关闭</string>
+</resources>

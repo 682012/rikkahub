@@ -211,7 +211,7 @@ enum class WorkspaceArtifactKind {
     /** 应用内只读文本 */
     TEXT,
 
-    /** 应用内受限 WebView 预览（禁脚本、禁本地/网络访问） */
+    /** 应用内网页预览：随机不透明 origin + 父目录受限的本地资源读取，外网默认关闭 */
     HTML,
 
     /** 应用内不渲染，交给用户手动用其他应用打开 */
@@ -230,9 +230,9 @@ enum class WorkspaceArtifactKind {
             "mjs", "cjs", "ts", "tsx", "jsx", "kt", "kts", "java", "py", "rb", "go", "rs", "c", "h",
             "cpp", "hpp", "cc", "cs", "swift", "sh", "bash", "zsh", "gradle", "sql", "gitignore",
             "dockerfile", "lua", "php", "pl", "r", "dart", "vue", "svelte", "gql", "graphql",
-            "proto", "diff", "patch", "srt", "vtt",
+            "proto", "diff", "patch", "srt", "vtt", "mdown", "mkd", "ipynb", "ndjson", "jsonl", "rst", "adoc", "ps1", "bat", "cmake", "tex",
         )
-        private val HTML = setOf("html", "htm")
+        private val HTML = setOf("html", "htm", "xhtml")
 
         fun of(path: String): WorkspaceArtifactKind {
             val name = path.substringAfterLast('/')

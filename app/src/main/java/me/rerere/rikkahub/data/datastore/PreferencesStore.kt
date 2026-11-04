@@ -178,6 +178,7 @@ class SettingsStore internal constructor(
         val WORKSPACE_RUNTIME = stringPreferencesKey("workspace_runtime")
         val SUBAGENT = stringPreferencesKey("subagent")
         val AUTO_COMPRESS = stringPreferencesKey("auto_compress")
+        val BACKGROUND_TOOL_SETTINGS = stringPreferencesKey("background_tool_settings")
 
         // 备份提醒
         val BACKUP_REMINDER_CONFIG = stringPreferencesKey("backup_reminder_config")

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- r11 后台压缩：手动压缩的后台任务、进度与结果通知文案 -->
+<resources>
+  <string name="r11_compression_progress_text">Compressing conversation…</string>
+  <string name="r11_compression_result_success_text">History compressed into a summary. Tap to open the conversation.</string>
+  <string name="r11_compression_result_failed_text">Compression failed, the conversation is unchanged: %1$s</string>
+  <string name="r11_compression_result_unknown_error">unknown error</string>
+  <string name="r11_compression_result_discarded_text">The conversation changed during compression, so this result was discarded. The conversation itself was not modified.</string>
+  <string name="r11_compression_dialog_running">Compressing in the background…</string>
+  <string name="r11_compression_dialog_hint">Compression keeps running in the background. Leaving this conversation won\'t stop it; you will be notified when it finishes.</string>
+  <string name="r11_compression_dialog_running_hint">You can close this dialog or leave the page. Compression continues in the background and you will be notified when it finishes.</string>
+  <string name="r11_compression_dialog_close">Close</string>
+</resources>

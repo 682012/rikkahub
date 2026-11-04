@@ -343,6 +343,33 @@ class WorkspaceRepository(
         outputStream: OutputStream,
     ) = readFromBackend(id) { it.exportFile(area, path, outputStream) }
 
+    /** Scoped HTML asset reader. The WebView never receives local file/content access. */
+    suspend fun readHtmlPreviewResource(id: String, parent: String, relative: String): ByteArray = readFromBackend(id) { backend ->
+        require(parent.startsWith("/") && !parent.contains('\\')) { "预览目录必须是绝对路径" }
+        require(relative.isNotBlank() && !relative.startsWith('/') && !relative.contains('\\'))
+        require(relative.split('/').none { it.isEmpty() || it.startsWith('.') })
+        val limit = 8 * 1024 * 1024
+        val bytes = ByteArrayOutputStream()
+        val bounded = object : OutputStream() {
+            override fun write(value: Int) { require(bytes.size() < limit); bytes.write(value) }
+            override fun write(b: ByteArray, off: Int, len: Int) {
+                require(bytes.size().toLong() + len <= limit) { "Preview asset exceeds 8 MB" }
+                bytes.write(b, off, len)
+            }
+        }
+        if (backend is SshWorkspaceBackend) {
+            backend.exportPreviewResource(parent, relative, bounded)
+        } else {
+            val root = requireNotNull(backend.localAbsoluteFile(parent)).canonicalFile
+            val file = requireNotNull(backend.localAbsoluteFile("$parent/$relative")).canonicalFile
+            require(file.path.startsWith(root.path.trimEnd('/') + "/")) { "Preview asset escapes selected folder" }
+            require(file.relativeTo(root).invariantSeparatorsPath.split('/').none { it.startsWith('.') })
+            require(file.isFile && file.length() <= limit) { "Invalid or oversized web asset" }
+            file.inputStream().use { it.copyTo(bounded) }
+        }
+        bytes.toByteArray()
+    }
+
     suspend fun artifactFileSize(id: String, path: String): Long = readFromBackend(id) { backend ->
         if (backend is SshWorkspaceBackend) backend.artifactFileSize(path) else backend.absoluteFileSize(path)
     }

@@ -62,6 +62,50 @@ class ConversationInboxTest {
     }
 
     @Test
+    fun `withdrawing a queued message reports that it was never persisted`() = runBlocking {
+        val queue = ConversationInbox()
+        val persisted = CompletableDeferred<Boolean>()
+        queue.enqueue(text("withdrawn"), persisted = persisted)
+        val id = queue.state.value.messages.single().id
+
+        assertTrue(queue.remove(id) != null)
+        assertTrue(persisted.isCompleted)
+        assertFalse(persisted.await())
+    }
+
+    @Test
+    fun `pausing and approval keep persistence receipts alive until resume or removal`() = runBlocking {
+        val queue = ConversationInbox()
+        val pausedReceipt = CompletableDeferred<Boolean>()
+        queue.enqueue(text("paused"), persisted = pausedReceipt)
+        queue.pause()
+        assertFalse(pausedReceipt.isCompleted)
+
+        val failedReceipt = CompletableDeferred<Boolean>()
+        queue.enqueue(text("failed"), persisted = failedReceipt)
+        queue.failReplyWaiters("approval required")
+        assertFalse(failedReceipt.isCompleted)
+        assertEquals(2, queue.state.value.messages.size)
+        queue.resume()
+        val first = queue.nextMessage()!!
+        first.persisted?.complete(true)
+        assertTrue(pausedReceipt.await())
+        queue.remove(queue.state.value.messages.single().id)
+        assertFalse(failedReceipt.await())
+    }
+
+    @Test
+    fun `empty input is rejected without leaving a pending receipt`() = runBlocking {
+        val queue = ConversationInbox()
+        val persisted = CompletableDeferred<Boolean>()
+        queue.enqueue(emptyList(), persisted = persisted)
+
+        assertTrue(persisted.isCompleted)
+        assertFalse(persisted.await())
+        assertTrue(queue.state.value.messages.isEmpty())
+    }
+
+    @Test
     fun `dispatches in submission order and preserves send without answer`() {
         val queue = ConversationInbox()
         queue.enqueue(text("first"))

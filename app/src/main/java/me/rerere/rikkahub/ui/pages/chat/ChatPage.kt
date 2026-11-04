@@ -26,6 +26,7 @@ import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -40,6 +41,8 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.ui.toast.ToastType
 import dev.chrisbanes.haze.hazeSource
@@ -143,30 +146,55 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
 
     val inputState = vm.inputState
 
+    // 草稿恢复完再导入分享进来的内容：等恢复完再加，分享的文字/附件是加在草稿后面，
+    // 而不是把刚恢复出来的草稿冲掉。
+    val draftReady by vm.draftReady.collectAsStateWithLifecycle()
+    // 导入只做一次，但换会话/换分享内容时必须重新做：只用一个裸 boolean 会在复用页面时吞掉新的分享
+    var importApplied by rememberSaveable(id, text, files) { mutableStateOf(false) }
+
+    // 进程可能在页面离开后被杀：暂停和离开时都存一次（onCleared 只是最后一道保险）
+    LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
+        vm.persistDraftNow()
+    }
+    DisposableEffect(vm) {
+        onDispose { vm.persistDraftNow() }
+    }
+
     // 初始化输入状态（处理传入的 files 和 text 参数）
-    LaunchedEffect(files, text) {
+    LaunchedEffect(files, text, draftReady) {
+        if (!draftReady || importApplied) return@LaunchedEffect
+        importApplied = true
         if (files.isNotEmpty()) {
             val localFiles = filesManager.createChatFilesByContents(files)
-            val contentTypes = files.mapNotNull { file ->
-                filesManager.getFileMimeType(file)
-            }
             val parts = buildList {
+                // 按本地文件下标取对应的 mime：mapNotNull 会丢掉拿不到类型的文件，
+                // 之后的图片/视频就会错位认领别人的类型
                 localFiles.forEachIndexed { index, file ->
-                    val type = contentTypes.getOrNull(index)
-                    if (type?.startsWith("image/") == true) {
-                        add(UIMessagePart.Image(url = file.toString()))
-                    } else if (type?.startsWith("video/") == true) {
-                        add(UIMessagePart.Video(url = file.toString()))
-                    } else if (type?.startsWith("audio/") == true) {
-                        add(UIMessagePart.Audio(url = file.toString()))
+                    val source = files.getOrNull(index)
+                    val type = source?.let { filesManager.getFileMimeType(it) }
+                    when {
+                        type?.startsWith("image/") == true -> add(UIMessagePart.Image(url = file.toString()))
+                        type?.startsWith("video/") == true -> add(UIMessagePart.Video(url = file.toString()))
+                        type?.startsWith("audio/") == true -> add(UIMessagePart.Audio(url = file.toString()))
+                        else -> add(
+                            UIMessagePart.Document(
+                                url = file.toString(),
+                                fileName = source?.let { filesManager.getFileNameFromUri(it) } ?: "file",
+                                mime = type ?: "application/octet-stream",
+                            ),
+                        )
                     }
                 }
             }
-            inputState.messageContent = parts
+            inputState.messageContent = inputState.messageContent + parts
         }
         text?.base64Decode()?.let { decodedText ->
             if (decodedText.isNotEmpty()) {
-                inputState.setMessageText(decodedText)
+                if (inputState.textContent.text.isBlank()) {
+                    inputState.setMessageText(decodedText)
+                } else {
+                    inputState.appendText("\n$decodedText")
+                }
             }
         }
     }
@@ -372,32 +400,41 @@ private fun ChatPageContent(
                             return@ChatInput
                         }
                         if (inputState.isEditing()) {
-                            vm.handleMessageEdit(
-                                parts = inputState.getContents(),
-                                messageId = inputState.editingMessage!!,
-                            )
-                        } else {
-                            vm.handleMessageSend(inputState.getContents())
+                            // 提交成功、且输入框还是提交的那份，VM 才会清；这里不清，编辑失败不能丢
+                            if (vm.handleMessageEdit(
+                                    parts = inputState.getContents(),
+                                    messageId = inputState.editingMessage!!,
+                                )
+                            ) {
+                                scope.launch {
+                                    delay(100.milliseconds)
+                                    chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+                                }
+                            }
+                        } else if (vm.handleMessageSend(inputState.getContents())) {
+                            // 输入框先留着：等用户消息真的落库，VM 收到确认后才清（见 handleMessageSend）
                             scope.launch {
                                 delay(100.milliseconds)
                                 chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
                             }
                         }
-                        inputState.clearInput()
                     },
                     onLongSendClick = {
                         if (inputState.isEditing()) {
-                            vm.handleMessageEdit(
-                                parts = inputState.getContents(),
-                                messageId = inputState.editingMessage!!,
-                            )
-                        } else {
-                            vm.handleMessageSend(content = inputState.getContents(), answer = false)
+                            if (vm.handleMessageEdit(
+                                    parts = inputState.getContents(),
+                                    messageId = inputState.editingMessage!!,
+                                )
+                            ) {
+                                scope.launch {
+                                    chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+                                }
+                            }
+                        } else if (vm.handleMessageSend(content = inputState.getContents(), answer = false)) {
                             scope.launch {
                                 chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
                             }
                         }
-                        inputState.clearInput()
                     },
                     onUpdateChatModel = vm::setChatModel,
                     onUpdateAssistant = vm::updateAssistant,

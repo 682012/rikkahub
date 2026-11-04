@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r11_long_message_default">Long messages</string>
+    <string name="r11_long_message_default_desc">Choose the initial state. You can still expand or collapse individual messages.</string>
+    <string name="r11_default_collapsed">Collapsed by default</string>
+    <string name="r11_default_expanded">Expanded by default</string>
+    <string name="r11_background_tools_title">Background tools</string>
+    <string name="r11_background_tools_enabled">Move long tool calls to the background</string>
+    <string name="r11_background_tools_desc">Keep the same call running and return a task ID, so the assistant can work on other steps.</string>
+    <string name="r11_background_tools_wait">Wait before moving to background</string>
+    <string name="r11_background_tools_seconds">Seconds (1–3600)</string>
+    <string name="r11_background_tools_wait_desc">This does not restart the call or extend its own execution timeout.</string>
+    <string name="r11_compression_notify_setting">Compression result notifications</string>
+    <string name="r11_compression_notify_setting_desc">Notify when manual background compression finishes. Tap to open the conversation.</string>
+</resources>

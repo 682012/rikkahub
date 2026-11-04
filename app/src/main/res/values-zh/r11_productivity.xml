@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r11_long_message_default">长正文默认状态</string>
+    <string name="r11_long_message_default_desc">仍可单独展开或收起每条消息，手动选择优先。</string>
+    <string name="r11_default_collapsed">默认收起</string>
+    <string name="r11_default_expanded">默认展开</string>
+    <string name="r11_background_tools_title">后台工具</string>
+    <string name="r11_background_tools_enabled">耗时工具自动转后台</string>
+    <string name="r11_background_tools_desc">同一次调用继续运行并返回任务 ID，助手可以先处理其他步骤。</string>
+    <string name="r11_background_tools_wait">转入后台前的等待时间</string>
+    <string name="r11_background_tools_seconds">秒（1–3600）</string>
+    <string name="r11_background_tools_wait_desc">不会重启调用，也不会延长工具自身的执行超时。</string>
+    <string name="r11_compression_notify_setting">压缩完成通知</string>
+    <string name="r11_compression_notify_setting_desc">手动后台压缩结束时通知，点击返回原对话。</string>
+</resources>

@@ -139,6 +139,23 @@ fun SettingPreferencesUIPage(vm: SettingVM = koinViewModel()) {
                         supportingContent = { Text("清晰的上下文状态与会话仪表板；关闭后使用经典布局") },
                         headlineContent = { Text("工作台界面") },
                     )
+                    formItem(
+                        headlineContent = { Text(stringResource(R.string.r11_long_message_default)) },
+                        supportingContent = { Text(stringResource(R.string.r11_long_message_default_desc)) },
+                    ) {
+                        ConnectedChoiceButtons(
+                            options = listOf(false, true),
+                            selected = displaySetting.collapseLongMessages && displaySetting.collapseLongMessagesByDefault,
+                            onSelect = {
+                                updateDisplaySetting(displaySetting.copy(
+                                    collapseLongMessages = true,
+                                    collapseLongMessagesByDefault = it,
+                                ))
+                            },
+                        ) { collapsed, _ ->
+                            Text(stringResource(if (collapsed) R.string.r11_default_collapsed else R.string.r11_default_expanded))
+                        }
+                    }
                     switchItem(
                         checked = displaySetting.showUserAvatar,
                         onCheckedChange = { updateDisplaySetting(displaySetting.copy(showUserAvatar = it)) },
