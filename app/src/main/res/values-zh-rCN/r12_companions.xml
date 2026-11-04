@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r12：六小只。名字与一句话说明照抄素材包 data/companions.json，和默认资源一致，
+         单独一份文件，不改任何旧翻译资源。 -->
+
+    <string name="r12_name_gpt">小白龙</string>
+    <string name="r12_name_claude">小橙</string>
+    <string name="r12_name_deepseek">小鲸</string>
+    <string name="r12_name_gemini">小星</string>
+    <string name="r12_name_glm">眠眠</string>
+    <string name="r12_name_qwen">小云</string>
+
+    <string name="r12_desc_gpt">好奇、爱理思路，被夸会嘴硬一下。</string>
+    <string name="r12_desc_claude">心思细，说话轻，幽默像书页里夹的小纸条。</string>
+    <string name="r12_desc_deepseek">话少、心细，有一点认真过头的可爱。</string>
+    <string name="r12_desc_gemini">灵动的好奇猫，想到新角度就会竖起耳朵。</string>
+    <string name="r12_desc_glm">困困的小狐狸，开口慢半拍，心思却清楚。</string>
+    <string name="r12_desc_qwen">说话利落又轻盈，袖口藏着一点俏皮。</string>
+
+    <string name="r12_persona_summary_gemini">好奇、说话轻快的小猫娘，会换一个有趣角度看小事</string>
+    <string name="r12_persona_summary_glm">平时困困、接到正经话就清醒的小狐狸</string>
+    <string name="r12_persona_summary_qwen">说话利落、偶尔俏皮但落到眼前问题的小云</string>
+
+    <string name="r12_style_title">角色动态</string>
+    <string name="r12_style_dynamic">2D 动态</string>
+    <string name="r12_style_static">静态</string>
+    <string name="r12_style_dynamic_desc">轻呼吸、轻摆；点一下切到动作图并说一句。两张立绘的轻量动画，不是骨骼或 Live2D。</string>
+    <string name="r12_style_static_desc">不跑附加动画。点一下仍会切到动作图并说一句台词。</string>
+    <string name="r12_preview_hint">这就是真实气泡：点一下能看到动作图和台词。</string>
+</resources>

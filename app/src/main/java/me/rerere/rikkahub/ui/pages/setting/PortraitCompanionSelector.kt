@@ -63,15 +63,26 @@ internal fun presetTagName(preset: FloatingCompanionPreset): String = when (pres
     FloatingCompanionPreset.WHALE_MAID, FloatingCompanionPreset.CAT -> "whale_maid"
     FloatingCompanionPreset.DRAGON_GIRL, FloatingCompanionPreset.DRAGON -> "dragon_girl"
     FloatingCompanionPreset.SUN_READER -> "sun_reader"
+    FloatingCompanionPreset.GEMINI_CAT -> "gemini_cat"
+    FloatingCompanionPreset.GLM_FOX -> "glm_fox"
+    FloatingCompanionPreset.QWEN_GIRL -> "qwen_girl"
     FloatingCompanionPreset.CUSTOM -> "custom"
     FloatingCompanionPreset.LOGO -> "logo"
 }
 
-/** 旧 CAT/DRAGON 存档仍在，高亮落到它们现在映射的角色上。 */
+/** 旧 CAT/DRAGON 存档仍在，高亮落到它们现在映射的角色上；新三只各自独立。 */
 internal fun highlightPreset(preset: FloatingCompanionPreset): FloatingCompanionPreset = when (preset) {
     FloatingCompanionPreset.CAT -> FloatingCompanionPreset.WHALE_MAID
     FloatingCompanionPreset.DRAGON -> FloatingCompanionPreset.DRAGON_GIRL
-    else -> preset
+    FloatingCompanionPreset.DRAGON_GIRL,
+    FloatingCompanionPreset.SUN_READER,
+    FloatingCompanionPreset.WHALE_MAID,
+    FloatingCompanionPreset.GEMINI_CAT,
+    FloatingCompanionPreset.GLM_FOX,
+    FloatingCompanionPreset.QWEN_GIRL,
+    FloatingCompanionPreset.CUSTOM,
+    FloatingCompanionPreset.LOGO,
+        -> preset
 }
 
 /**

@@ -57,13 +57,16 @@ class PortraitCompanionSelectorTest {
     @Test
     fun `portrait tiles point at the bundled transparent assets`() {
         val expected = mapOf(
-            FloatingCompanionPreset.WHALE_MAID to "file:///android_asset/companions/whale-maid.webp",
-            FloatingCompanionPreset.DRAGON_GIRL to "file:///android_asset/companions/dragon-girl.webp",
-            FloatingCompanionPreset.SUN_READER to "file:///android_asset/companions/sun-reader.webp",
+            FloatingCompanionPreset.WHALE_MAID to "file:///android_asset/companions/six/deepseek/idle.png",
+            FloatingCompanionPreset.DRAGON_GIRL to "file:///android_asset/companions/six/gpt/idle.png",
+            FloatingCompanionPreset.SUN_READER to "file:///android_asset/companions/six/claude/idle.png",
+            FloatingCompanionPreset.GEMINI_CAT to "file:///android_asset/companions/six/gemini/idle.png",
+            FloatingCompanionPreset.GLM_FOX to "file:///android_asset/companions/six/glm/idle.png",
+            FloatingCompanionPreset.QWEN_GIRL to "file:///android_asset/companions/six/qwen/idle.png",
         )
         expected.forEach { (preset, asset) ->
             assertEquals(asset, portraitAsset(preset))
-            assertTrue(portraitAsset(preset).endsWith(".webp"))
+            assertTrue(portraitAsset(preset).endsWith(".png"))
         }
     }
 }

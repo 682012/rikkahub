@@ -116,6 +116,7 @@ class PortraitCompanionUiTest {
             animationEnabled = false,
             minimized = minimized,
             sizeDp = FloatingCompanionLimits.SIZE_DEFAULT_DP,
+            tapLines = listOf(context.getString(R.string.portrait_line_1)),
         )
 
     private fun handle() = rule.onNodeWithTag(TAG_HANDLE)
@@ -135,7 +136,7 @@ class PortraitCompanionUiTest {
 
     /** 收起态手柄的无障碍描述：生产里是 “角色名 + 展开” 两个资源串拼起来的。 */
     private fun expectedHandleDescription() =
-        "${context.getString(R.string.portrait_whale_maid)} ${context.getString(R.string.portrait_expand)}"
+        "${context.getString(R.string.r12_name_deepseek)} ${context.getString(R.string.portrait_expand)}"
 
     // -------------------------------------------------------------------- tests
 
@@ -298,14 +299,14 @@ class PortraitCompanionUiTest {
 
     @Test
     fun presetsPointAtDistinctTransparentAssets() {
-        assertEquals("file:///android_asset/companions/whale-maid.webp", portraitAsset(FloatingCompanionPreset.WHALE_MAID))
-        assertEquals("file:///android_asset/companions/dragon-girl.webp", portraitAsset(FloatingCompanionPreset.DRAGON_GIRL))
-        assertEquals("file:///android_asset/companions/sun-reader.webp", portraitAsset(FloatingCompanionPreset.SUN_READER))
+        assertEquals("file:///android_asset/companions/six/deepseek/idle.png", portraitAsset(FloatingCompanionPreset.WHALE_MAID))
+        assertEquals("file:///android_asset/companions/six/gpt/idle.png", portraitAsset(FloatingCompanionPreset.DRAGON_GIRL))
+        assertEquals("file:///android_asset/companions/six/claude/idle.png", portraitAsset(FloatingCompanionPreset.SUN_READER))
         val assets = FloatingCompanionPreset.entries
             .filter { it != FloatingCompanionPreset.LOGO }
             .map(::portraitAsset)
             .toSet()
-        assertTrue("三个立绘预设不能共用同一张图", assets.size >= 3)
+        assertTrue("六个立绘预设不能共用同一张图", assets.size == 6)
     }
 
     private companion object {

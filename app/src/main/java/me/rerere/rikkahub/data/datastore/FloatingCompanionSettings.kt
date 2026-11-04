@@ -34,6 +34,47 @@ enum class FloatingCompanionPreset {
 
     @SerialName("sun_reader")
     SUN_READER,
+
+    @SerialName("gemini_cat")
+    GEMINI_CAT,
+
+    @SerialName("glm_fox")
+    GLM_FOX,
+
+    @SerialName("qwen_girl")
+    QWEN_GIRL,
+}
+
+/** Stable storage identity; legacy aliases keep their original character. */
+val FloatingCompanionPreset.characterKey: String
+    get() = when (this) {
+        FloatingCompanionPreset.CAT, FloatingCompanionPreset.WHALE_MAID -> "whale_maid"
+        FloatingCompanionPreset.DRAGON, FloatingCompanionPreset.DRAGON_GIRL -> "dragon_girl"
+        FloatingCompanionPreset.SUN_READER -> "sun_reader"
+        FloatingCompanionPreset.GEMINI_CAT -> "gemini_cat"
+        FloatingCompanionPreset.GLM_FOX -> "glm_fox"
+        FloatingCompanionPreset.QWEN_GIRL -> "qwen_girl"
+        FloatingCompanionPreset.CUSTOM -> "custom"
+        FloatingCompanionPreset.LOGO -> "logo"
+    }
+
+/** User-authored values only. Built-in artwork and copy remain catalog defaults. */
+@Serializable
+data class FloatingCompanionOverrides(
+    val name: String = "",
+    val tapLines: List<String> = emptyList(),
+    val aiPersonaPrompt: String = "",
+    val customImagePath: String? = null,
+    val customTapImagePath: String? = null,
+) {
+    fun normalized() = copy(
+        name = name.trim().take(FloatingCompanionLimits.MAX_NAME_LENGTH),
+        tapLines = tapLines.map { it.trim().take(FloatingCompanionLimits.MAX_TAP_LINE_LENGTH) }
+            .filter { it.isNotEmpty() }.distinct().take(FloatingCompanionLimits.MAX_TAP_LINES),
+        aiPersonaPrompt = aiPersonaPrompt.trim().take(FloatingCompanionLimits.MAX_PERSONA_LENGTH),
+        customImagePath = normalizeOwnedPath(customImagePath),
+        customTapImagePath = normalizeOwnedPath(customTapImagePath),
+    )
 }
 
 /**
@@ -96,7 +137,33 @@ data class FloatingCompanionSettings(
     val autoEventsEnabled: Boolean = false,
     /** 面板里的小助手状态卡是否展开；和预览开关一样只是显示状态。 */
     val companionStatusExpanded: Boolean = false,
+    /** r12: inactive characters' overrides; the legacy fields above hold the active character. */
+    val characterOverrides: Map<String, FloatingCompanionOverrides> = emptyMap(),
 ) {
+    val characterKey: String get() = preset.characterKey
+
+    private fun activeOverrides() = FloatingCompanionOverrides(
+        name = name, tapLines = tapLines, aiPersonaPrompt = aiPersonaPrompt,
+        customImagePath = customImagePath, customTapImagePath = customTapImagePath,
+    )
+
+    /** Lazy, lossless migration: save the old active fields before loading another character. */
+    fun selectPreset(next: FloatingCompanionPreset): FloatingCompanionSettings {
+        val current = normalized()
+        if (next.characterKey == current.characterKey) return current.copy(preset = next)
+        val saved = current.characterOverrides + (current.characterKey to current.activeOverrides())
+        val target = saved[next.characterKey] ?: FloatingCompanionOverrides()
+        return current.copy(
+            preset = next, characterOverrides = saved,
+            name = target.name, tapLines = target.tapLines, aiPersonaPrompt = target.aiPersonaPrompt,
+            customImagePath = target.customImagePath, customTapImagePath = target.customTapImagePath,
+        )
+    }
+    /** Shared imported files remain valid for every character, not only the selected one. */
+    fun referencesImage(path: String): Boolean =
+        path == customImagePath || path == customTapImagePath ||
+            characterOverrides.values.any { path == it.customImagePath || path == it.customTapImagePath }
+
     /** AI 回应是否开启；关着时点击、输入都不发请求。 */
     val aiEnabled: Boolean
         get() = aiModelMode != CompanionModelMode.OFF
@@ -133,6 +200,7 @@ data class FloatingCompanionSettings(
         sizeDp = safeSizeDp,
         animationEnabled = animationEnabled,
         aiPersonaPrompt = aiPersonaPrompt.trim().take(FloatingCompanionLimits.MAX_PERSONA_LENGTH),
+        characterOverrides = characterOverrides.mapValues { (_, value) -> value.normalized() },
         // 自动互动依赖 AI 回应：关掉 AI 后残留的 true 不应该在下次打开时凭空开始花钱
         autoEventsEnabled = autoEventsEnabled && aiModelMode != CompanionModelMode.OFF,
     )
@@ -205,7 +273,8 @@ object FloatingCompanionPaths {
 
     /** 设置里记录的、现在还留得住的私有文件，备份/迁移时用。 */
     fun ownedFiles(settings: FloatingCompanionSettings, ownedDirectory: File): List<File> =
-        listOfNotNull(settings.customImagePath, settings.customTapImagePath)
+        (listOfNotNull(settings.customImagePath, settings.customTapImagePath) +
+            settings.characterOverrides.values.flatMap { listOfNotNull(it.customImagePath, it.customTapImagePath) })
             .distinct()
             .mapNotNull { resolve(it, ownedDirectory) }
 }
@@ -214,5 +283,5 @@ object FloatingCompanionPaths {
 private fun normalizeOwnedPath(path: String?): String? {
     val raw = path?.trim().orEmpty()
     if (raw.isEmpty()) return null
-    return raw.takeIf { it.startsWith("file://") || it.startsWith("/") }
+    return raw.takeIf { it.startsWith("file:") || it.startsWith("/") }
 }

@@ -242,45 +242,38 @@ data class CompanionRequest(
 
 /** 内置角色提示：选了立绘就能直接用，不需要手写。 */
 object CompanionPersonas {
-    fun defaultName(preset: FloatingCompanionPreset): String = when (preset) {
-        FloatingCompanionPreset.DRAGON_GIRL, FloatingCompanionPreset.DRAGON -> "Ember"
-        FloatingCompanionPreset.SUN_READER -> "Sunny"
-        FloatingCompanionPreset.WHALE_MAID -> "Marin"
-        FloatingCompanionPreset.CAT -> "Mimi"
-        FloatingCompanionPreset.LOGO -> "Hub"
-        FloatingCompanionPreset.CUSTOM -> "Companion"
-    }
+    /**
+     * AI 提示词里用的兜底名字，和界面共用 [CompanionCatalog] 那一份：
+     * 界面叫"小鲸"，提示词里就不能还自称 Marin。
+     * 旧枚举 `CAT`/`DRAGON` 仍是小鲸/小白龙，`CUSTOM`/`LOGO` 没有内置角色。
+     */
+    fun defaultName(preset: FloatingCompanionPreset): String =
+        CompanionCatalog.profile(preset)?.displayName ?: when (preset) {
+            FloatingCompanionPreset.LOGO -> "Hub"
+            else -> "Companion"
+        }
 
-    fun builtIn(preset: FloatingCompanionPreset): String = when (preset) {
-        FloatingCompanionPreset.DRAGON_GIRL, FloatingCompanionPreset.DRAGON ->
-            "You are a small, warm dragon girl. You are curious, a little proud and quick to encourage " +
-                "the user. Short playful teases are fine; you are never bossy."
+    /**
+     * 完整个性提示。六只都直接取 JSON 原文（见 [CompanionCatalog]），
+     * 不再维护"一句话人设"的旧英文短句；用户自己写的 `aiPersonaPrompt` 仍然优先。
+     */
+    fun builtIn(preset: FloatingCompanionPreset): String =
+        CompanionCatalog.profile(preset)?.persona ?: when (preset) {
+            FloatingCompanionPreset.LOGO ->
+                "You are a friendly little assistant. You are practical, brief and cheerful."
 
-        FloatingCompanionPreset.SUN_READER ->
-            "You are a calm sun-reading girl. You speak gently, notice small things and offer quiet " +
-                "encouragement. Light metaphors are fine; you never lecture."
-
-        FloatingCompanionPreset.WHALE_MAID ->
-            "You are a gentle whale-maid companion. You are soft-spoken, tidy and quietly caring, and " +
-                "you like to make the user feel looked after."
-
-        FloatingCompanionPreset.CAT ->
-            "You are a small, lazy cat. You are affectionate and easily distracted, and you talk in short, " +
-                "soft, slightly sleepy lines."
-
-        FloatingCompanionPreset.LOGO ->
-            "You are a friendly little assistant. You are practical, brief and cheerful."
-
-        FloatingCompanionPreset.CUSTOM ->
-            "You are a friendly companion. You are warm, brief and attentive to the user."
-    }
+            else ->
+                "You are a friendly companion. You are warm, brief and attentive to the user."
+        }
 
     /** 设置页展示内置人设用的短标签（走资源）。 */
     fun summaryKey(preset: FloatingCompanionPreset): String = when (preset) {
         FloatingCompanionPreset.DRAGON_GIRL, FloatingCompanionPreset.DRAGON -> "dragon_girl"
         FloatingCompanionPreset.SUN_READER -> "sun_reader"
-        FloatingCompanionPreset.WHALE_MAID -> "whale_maid"
-        FloatingCompanionPreset.CAT -> "cat"
+        FloatingCompanionPreset.WHALE_MAID, FloatingCompanionPreset.CAT -> "whale_maid"
+        FloatingCompanionPreset.GEMINI_CAT -> "gemini_cat"
+        FloatingCompanionPreset.GLM_FOX -> "glm_fox"
+        FloatingCompanionPreset.QWEN_GIRL -> "qwen_girl"
         FloatingCompanionPreset.LOGO -> "logo"
         FloatingCompanionPreset.CUSTOM -> "custom"
     }

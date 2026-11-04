@@ -148,6 +148,11 @@ class ChatFloatingWindows(
                     if (visible) companionController.refreshModel()
                 }
         }
+        // Character and user persona own their short-lived session. No request is made here.
+        appScope.launch {
+            settingsStore.settingsFlow.map { it.displaySetting.floatingCompanion }
+                .distinctUntilChanged().collect { companionController.switchCharacter(it) }
+        }
         // 模型相关的设置变了（换模式/换模型/关掉 AI）：先停在途请求再刷新，
         // 状态卡里的模型和下一句真正用的模型才是同一个
         appScope.launch {
@@ -327,6 +332,7 @@ class ChatFloatingWindows(
                     onCompanionRetry = {
                         // 再说一句同样要先确认窗口还在：没权限就不发请求
                         companionCanSpeak()
+                        companionController.switchCharacter(settingsStore.settingsFlow.value.displaySetting.floatingCompanion)
                         companionController.repeatLast()
                     },
                     onCompanionStop = companionController::stop,

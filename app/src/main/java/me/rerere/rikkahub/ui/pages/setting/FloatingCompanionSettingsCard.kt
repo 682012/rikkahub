@@ -59,6 +59,7 @@ import me.rerere.hugeicons.stroke.Delete02
 import me.rerere.hugeicons.stroke.Image02
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.companion.CompanionPersonas
+import me.rerere.rikkahub.data.companion.CompanionCatalog
 import me.rerere.rikkahub.data.datastore.CompanionModelMode
 import me.rerere.rikkahub.data.datastore.FloatingCompanionLimits
 import me.rerere.rikkahub.data.datastore.FloatingCompanionPreset
@@ -115,24 +116,31 @@ fun FloatingCompanionSettingsCard(
      */
     fun importImage(uri: Uri?, tapImage: Boolean) {
         if (uri == null || saving) return
+        val importOwner = latest.characterKey
+        val targetPreset = if (!tapImage && latest.effectivePreset == FloatingCompanionPreset.LOGO) {
+            FloatingCompanionPreset.CUSTOM
+        } else latest.preset
         saving = true
         saveError = null
         scope.launch {
             runCatching {
                 withContext(Dispatchers.IO) { FloatingCompanionFiles.copyFromUri(context, uri) }
             }.onSuccess { storedPath ->
-                val previous = if (tapImage) latest.customTapImagePath else latest.customImagePath
-                val updated = latest.copy(
-                    // 选了自定义图片就切到"我的图片"，不然选了图还停在 logo 上会让人以为没生效
-                    preset = if (!tapImage) FloatingCompanionPreset.CUSTOM else latest.preset,
-                    customImagePath = if (tapImage) latest.customImagePath else storedPath,
-                    customTapImagePath = if (tapImage) storedPath else latest.customTapImagePath,
+                // The copy may finish after a character switch. Save to the original owner,
+                // then restore the current selection instead of putting its picture on another girl.
+                val active = latest
+                val target = active.selectPreset(targetPreset)
+                val previous = if (tapImage) target.customTapImagePath else target.customImagePath
+                val imported = target.copy(
+                    customImagePath = if (tapImage) target.customImagePath else storedPath,
+                    customTapImagePath = if (tapImage) storedPath else target.customTapImagePath,
                 ).normalized()
+                val updated = if (active.characterKey == importOwner) imported else imported.selectPreset(active.preset)
                 onChange(updated)
                 if (persistChange != null) {
                     runCatching { persistChange.invoke(updated) }
                         .onSuccess {
-                            if (previous != null && previous != storedPath && previous !in listOf(updated.customImagePath, updated.customTapImagePath)) {
+                            if (previous != null && previous != storedPath && !updated.referencesImage(previous)) {
                                 withContext(Dispatchers.IO) { FloatingCompanionFiles.release(context, previous) }
                             }
                         }
@@ -157,7 +165,7 @@ fun FloatingCompanionSettingsCard(
             if (persistChange != null) {
                 runCatching { persistChange.invoke(updated) }
                     .onSuccess {
-                        if (previous != null && previous !in listOf(updated.customImagePath, updated.customTapImagePath)) {
+                        if (previous != null && !updated.referencesImage(previous)) {
                             withContext(Dispatchers.IO) { FloatingCompanionFiles.release(context, previous) }
                         }
                     }
@@ -176,7 +184,7 @@ fun FloatingCompanionSettingsCard(
     val content: @Composable ColumnScope.() -> Unit = {
         CardGroup(title = { Text(stringResource(R.string.floating_companion_section_preview)) }) {
             formItem(
-                supportingContent = { Text(stringResource(R.string.floating_companion_preview_hint)) },
+                supportingContent = { Text(stringResource(R.string.r12_preview_hint)) },
             ) {
                 Box(
                     modifier = Modifier
@@ -201,7 +209,9 @@ fun FloatingCompanionSettingsCard(
             ) {
                 PortraitCompanionSelector(
                     companion = current,
-                    onSelect = { preset -> update { it.copy(preset = preset) } },
+                    // 切角色统一走 selectPreset：先把当前角色的名字/台词/个性/图片存回自己的格子，
+                    // 再载入下一只。模型、AI 和所有开关都不在这份数据里，原样保留。
+                    onSelect = { preset -> update { settings -> settings.selectPreset(preset) } },
                 )
                 if (highlightPreset(current.preset) == FloatingCompanionPreset.CUSTOM) {
                     Text(
@@ -214,9 +224,8 @@ fun FloatingCompanionSettingsCard(
             }
         }
 
-        if (current.preset == FloatingCompanionPreset.CUSTOM || current.customImagePath != null ||
-            current.customTapImagePath != null
-        ) {
+        // r12：内置角色也能各自放一张自己的图当覆盖，所以图片区始终显示，不再只在"我的图片"时出现
+        run {
             CardGroup(title = { Text(stringResource(R.string.floating_companion_section_image)) }) {
                 formItem(
                     headlineContent = { Text(stringResource(R.string.floating_companion_image_idle_title)) },
@@ -299,14 +308,15 @@ fun FloatingCompanionSettingsCard(
                 supportingContent = { Text(stringResource(R.string.floating_companion_lines_desc)) },
             ) {
                 // 输入框留一份原始草稿：设置里是过滤过的列表，直接拿它回填的话
-                // 刚敲下的换行会被 normalized 吃掉，光标会乱跳
-                var draft by remember { mutableStateOf(current.tapLines.joinToString("\n")) }
+                // 刚敲下的换行会被 normalized 吃掉，光标会乱跳。
+                // r12：按角色分开记，切角色就重建草稿，避免把上一只的台词串写到新角色。
+                var draft by remember(current.characterKey) { mutableStateOf(current.tapLines.joinToString("\n")) }
                 fun sanitize(text: String) = text.split('\n')
                     .map { it.trim().take(FloatingCompanionLimits.MAX_TAP_LINE_LENGTH) }
                     .filter { it.isNotEmpty() }
                     .distinct()
                     .take(FloatingCompanionLimits.MAX_TAP_LINES)
-                LaunchedEffect(current.tapLines) {
+                LaunchedEffect(current.characterKey, current.tapLines) {
                     // 只有外部真的改了内容（换预设、点"用默认台词"）才回填，自己打字时不动
                     if (sanitize(draft) != current.tapLines) {
                         draft = current.tapLines.joinToString("\n")
@@ -482,12 +492,35 @@ fun FloatingCompanionSettingsCard(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
-            switchItem(
-                checked = current.animationEnabled,
-                onCheckedChange = { enabled -> update { it.copy(animationEnabled = enabled) } },
-                headlineContent = { Text(stringResource(R.string.floating_companion_animation_title)) },
-                supportingContent = { Text(stringResource(R.string.floating_companion_animation_desc)) },
-            )
+            // r12：把"动不动"说清楚，就是这一个开关——动态=轻呼吸/轻摆 + 点击切图，静态=不跑附加动画。
+            // 两种都会在点击时切到动作图并说一句台词，语义沿用原来的 animationEnabled。
+            formItem(
+                headlineContent = { Text(stringResource(R.string.r12_style_title)) },
+                supportingContent = {
+                    Text(
+                        stringResource(
+                            if (current.animationEnabled) {
+                                R.string.r12_style_dynamic_desc
+                            } else {
+                                R.string.r12_style_static_desc
+                            }
+                        )
+                    )
+                },
+            ) {
+                ConnectedChoiceButtons(
+                    options = listOf(true, false),
+                    selected = current.animationEnabled,
+                    onSelect = { enabled -> update { settings -> settings.copy(animationEnabled = enabled) } },
+                ) { isDynamic, isSelected ->
+                    ConnectedChoiceLabel(
+                        text = stringResource(
+                            if (isDynamic) R.string.r12_style_dynamic else R.string.r12_style_static
+                        ),
+                        selected = isSelected,
+                    )
+                }
+            }
             // 换角色、改大小都不动这两个值，收起状态是独立开关
             switchItem(
                 checked = current.minimized,
@@ -598,12 +631,16 @@ private fun CompanionImageRow(
 
 /** 内置人设的一句话说明；个性输入框留空时就是它在起作用。 */
 @Composable
-private fun builtInPersonaSummary(preset: FloatingCompanionPreset): String = stringResource(
+private fun builtInPersonaSummary(preset: FloatingCompanionPreset): String =
+    CompanionCatalog.profile(preset)?.shortDescription ?: stringResource(
     when (CompanionPersonas.summaryKey(preset)) {
         "dragon_girl" -> R.string.companion_persona_builtin_dragon_girl
         "sun_reader" -> R.string.companion_persona_builtin_sun_reader
         "whale_maid" -> R.string.companion_persona_builtin_whale_maid
         "cat" -> R.string.companion_persona_builtin_cat
+        "gemini_cat" -> R.string.r12_persona_summary_gemini
+        "glm_fox" -> R.string.r12_persona_summary_glm
+        "qwen_girl" -> R.string.r12_persona_summary_qwen
         "logo" -> R.string.companion_persona_builtin_logo
         else -> R.string.companion_persona_builtin_custom
     }

@@ -19,9 +19,13 @@ internal fun Settings.withRestoredWallpaperPath(filesDir: File): Settings {
     val wallpaper=relocate(displaySetting.appearance.wallpaper,"appearance_wallpapers")
     val idle=relocate(companion.customImagePath,FloatingCompanionLimits.DIRECTORY)
     val tap=relocate(companion.customTapImagePath,FloatingCompanionLimits.DIRECTORY)
-    if(wallpaper==displaySetting.appearance.wallpaper && idle==companion.customImagePath && tap==companion.customTapImagePath) return this
+    val overrides = companion.characterOverrides.mapValues { (_, value) -> value.copy(
+        customImagePath = relocate(value.customImagePath, FloatingCompanionLimits.DIRECTORY),
+        customTapImagePath = relocate(value.customTapImagePath, FloatingCompanionLimits.DIRECTORY),
+    ) }
+    if(wallpaper==displaySetting.appearance.wallpaper && idle==companion.customImagePath && tap==companion.customTapImagePath && overrides==companion.characterOverrides) return this
     return copy(displaySetting=displaySetting.copy(
         appearance=displaySetting.appearance.copy(wallpaper=wallpaper),
-        floatingCompanion=companion.copy(customImagePath=idle,customTapImagePath=tap),
+        floatingCompanion=companion.copy(customImagePath=idle,customTapImagePath=tap,characterOverrides=overrides),
     ))
 }

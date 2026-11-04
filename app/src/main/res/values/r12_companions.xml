@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r12: six 2D companions. Names and one-line descriptions are copied verbatim
+         from the hand-off data/companions.json; kept in their own file so no older
+         translation file is touched. -->
+
+    <string name="r12_name_gpt">小白龙</string>
+    <string name="r12_name_claude">小橙</string>
+    <string name="r12_name_deepseek">小鲸</string>
+    <string name="r12_name_gemini">小星</string>
+    <string name="r12_name_glm">眠眠</string>
+    <string name="r12_name_qwen">小云</string>
+
+    <string name="r12_desc_gpt">好奇、爱理思路，被夸会嘴硬一下。</string>
+    <string name="r12_desc_claude">心思细，说话轻，幽默像书页里夹的小纸条。</string>
+    <string name="r12_desc_deepseek">话少、心细，有一点认真过头的可爱。</string>
+    <string name="r12_desc_gemini">灵动的好奇猫，想到新角度就会竖起耳朵。</string>
+    <string name="r12_desc_glm">困困的小狐狸，开口慢半拍，心思却清楚。</string>
+    <string name="r12_desc_qwen">说话利落又轻盈，袖口藏着一点俏皮。</string>
+
+    <!-- Personality summaries: what the built-in persona is when the box is empty. -->
+    <string name="r12_persona_summary_gemini">好奇、说话轻快的小猫娘，会换一个有趣角度看小事</string>
+    <string name="r12_persona_summary_glm">平时困困、接到正经话就清醒的小狐狸</string>
+    <string name="r12_persona_summary_qwen">说话利落、偶尔俏皮但落到眼前问题的小云</string>
+
+    <!-- 2D motion: this is plain illustration animation plus an idle/tap swap, not a rig. -->
+    <string name="r12_style_title">Character motion</string>
+    <string name="r12_style_dynamic">2D animated</string>
+    <string name="r12_style_static">Static</string>
+    <string name="r12_style_dynamic_desc">Light breathing and sway; a tap swaps to the action frame and says one line. Two illustrations, not a rig or Live2D.</string>
+    <string name="r12_style_static_desc">No extra motion. A tap still swaps to the action frame and says one line.</string>
+    <string name="r12_preview_hint">This is the real bubble: tap it to see the action frame and its line.</string>
+</resources>

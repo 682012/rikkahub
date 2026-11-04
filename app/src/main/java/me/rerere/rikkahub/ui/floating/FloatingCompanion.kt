@@ -73,6 +73,7 @@ import kotlin.random.Random
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.companion.CompanionCatalog
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Alert01
 import me.rerere.hugeicons.stroke.Tick01
@@ -979,26 +980,24 @@ private fun presetName(preset: FloatingCompanionPreset): String = stringResource
         FloatingCompanionPreset.CAT -> R.string.floating_companion_default_name_cat
         FloatingCompanionPreset.DRAGON -> R.string.floating_companion_default_name_dragon
         FloatingCompanionPreset.CUSTOM -> R.string.floating_companion_default_name_custom
-        FloatingCompanionPreset.WHALE_MAID -> R.string.portrait_whale_maid
-        FloatingCompanionPreset.DRAGON_GIRL -> R.string.portrait_dragon_girl
-        FloatingCompanionPreset.SUN_READER -> R.string.portrait_sun_reader
+        FloatingCompanionPreset.WHALE_MAID -> R.string.r12_name_deepseek
+        FloatingCompanionPreset.DRAGON_GIRL -> R.string.r12_name_gpt
+        FloatingCompanionPreset.SUN_READER -> R.string.r12_name_claude
+        FloatingCompanionPreset.GEMINI_CAT -> R.string.r12_name_gemini
+        FloatingCompanionPreset.GLM_FOX -> R.string.r12_name_glm
+        FloatingCompanionPreset.QWEN_GIRL -> R.string.r12_name_qwen
     }
 )
 
+/**
+ * 默认台词：六只直接用各自 8 句（见 [CompanionCatalog]），`CUSTOM`/`LOGO` 仍走旧资源。
+ * 这里的列表只给设置页做占位提示；真正常驻的是角色资料里的那一份。
+ */
 @Composable
-private fun stringArrayResourceFor(preset: FloatingCompanionPreset): List<String> = when (preset) {
-    FloatingCompanionPreset.DRAGON -> listOf(
-        stringResource(R.string.floating_companion_default_line_dragon_1),
-        stringResource(R.string.floating_companion_default_line_dragon_2),
-    )
-    FloatingCompanionPreset.CAT -> listOf(
-        stringResource(R.string.floating_companion_default_line_cat_1),
-        stringResource(R.string.floating_companion_default_line_cat_2),
-    )
-    FloatingCompanionPreset.WHALE_MAID, FloatingCompanionPreset.DRAGON_GIRL, FloatingCompanionPreset.SUN_READER -> listOf(
-        stringResource(R.string.portrait_line_1), stringResource(R.string.portrait_line_2),
-    )
-    else -> listOf(stringResource(R.string.floating_companion_default_line_cat_1))
+private fun stringArrayResourceFor(preset: FloatingCompanionPreset): List<String> {
+    val builtIn = CompanionCatalog.portraitTapLines(preset)
+    if (builtIn.isNotEmpty()) return builtIn
+    return listOf(stringResource(R.string.floating_companion_default_line_cat_1))
 }
 
 /** 预览/设置页用：没有 Koin、没有真实会话也能跑的角色气泡。 */

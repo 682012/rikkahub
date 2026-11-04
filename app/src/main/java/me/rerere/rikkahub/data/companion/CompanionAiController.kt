@@ -4,6 +4,7 @@ import java.util.Locale
 import kotlin.uuid.Uuid
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -80,6 +81,30 @@ class CompanionAiController(
     private var cancelReason: CompanionCancelReason = CompanionCancelReason.LEFT_WINDOW
     private var lastTrigger: CompanionTrigger? = null
     private var lastCompanion: FloatingCompanionSettings = FloatingCompanionSettings()
+    private var characterIdentity: Triple<String, String, String>? = null
+
+    /** Change only the companion session; provider choices and rate/budget limits stay intact. */
+    fun switchCharacter(companion: FloatingCompanionSettings) {
+        val settings = companion.normalized()
+        val identity = Triple(settings.characterKey, settings.name, settings.aiPersonaPrompt)
+        val previousJob = synchronized(tokenLock) {
+            lastCompanion = settings
+            if (characterIdentity == identity) return
+            val first = characterIdentity == null
+            characterIdentity = identity
+            if (first) return
+            val old = job
+            activeRunId = 0L // Invalidate before cancellation, including non-cooperative sources.
+            job = null
+            runModel = null
+            lastTrigger = null
+            memory.clear()
+            _interactions.value = emptyList()
+            _state.value = CompanionAiState(model = _state.value.model)
+            old
+        }
+        previousJob?.cancel()
+    }
 
     /** 本次 run 解析出来的模型；取消时用它写互动记录，和这一轮真正请求的模型一致。 */
     @Volatile
@@ -121,10 +146,10 @@ class CompanionAiController(
 
     /** 用户主动操作（点击角色、在面板里说一句）。点击本身即授权，不再需要额外开关。 */
     fun submit(trigger: CompanionTrigger, companion: FloatingCompanionSettings): Boolean {
-        lastCompanion = companion
+        switchCharacter(companion)
         val now = clock()
         var rejected: CompanionSkipReason? = null
-        var runId = 0L
+        var acceptedJob: Job? = null
         synchronized(tokenLock) {
             // 检查和占位在同一把锁里：界面点击（主线程）和自动事件（appScope）不会同时通过
             val busy = job?.isActive == true || _state.value.busy
@@ -142,9 +167,16 @@ class CompanionAiController(
                 lastTrigger = trigger
                 policy.record(trigger, now)
                 runCounter += 1
-                runId = runCounter
+                val runId = runCounter
                 activeRunId = runId
                 cancelledRunId = 0L
+                cancelReason = CompanionCancelReason.LEFT_WINDOW
+                runModel = null
+                _state.value = _state.value.copy(phase = CompanionAiPhase.THINKING, skipped = null,
+                    text = "", thinking = "", failure = null, cancelReason = null,
+                    trigger = trigger, startedAtMillis = now, finishedAtMillis = null)
+                acceptedJob = scope.launch(start = CoroutineStart.LAZY) { run(runId, trigger, companion, now) }
+                job = acceptedJob
             }
         }
         val skipReason = rejected
@@ -152,10 +184,7 @@ class CompanionAiController(
             skip(skipReason, now)
             return false
         }
-        cancelReason = CompanionCancelReason.LEFT_WINDOW
-        runModel = null
-        _state.update { it.copy(skipped = null) }
-        job = scope.launch { run(runId, trigger, companion, now) }
+        acceptedJob?.start()
         return true
     }
 
@@ -183,8 +212,8 @@ class CompanionAiController(
      */
     private fun cancelActive(reason: CompanionCancelReason) {
         val activeJob = job
-        if (activeJob?.isActive != true) {
-            // 没有在途请求：不伪造一次取消
+        if (activeJob == null || activeJob.isCompleted) {
+            // 没有在途请求：不伪造一次取消；尚未 start 的 LAZY job 也需要取消。
             if (activeJob == null) cancelReason = reason
             return
         }
@@ -329,6 +358,8 @@ class CompanionAiController(
     ): Attempt {
         currentCoroutineContext().ensureActive()
         val model = describeModelSafely()
+        currentCoroutineContext().ensureActive()
+        if (!isWritable(runId)) throw CancellationException("Companion session changed")
         publishModel(runId, model)
         if (!model.available) {
             return Attempt(model = model, failure = model.failure ?: CompanionFailure.ModelMissing)
@@ -339,11 +370,13 @@ class CompanionAiController(
             },
             name = companion.displayName(CompanionPersonas.defaultName(companion.effectivePreset)),
             trigger = trigger,
-            memory = memory.snapshot(),
+            memory = synchronized(tokenLock) { memory.snapshot() },
             sessionId = Uuid.random(),
             languageTag = languageTag(),
             // 界面显示的模型和真正发出去的请求必须是同一个：实现会拿这份快照比对
         ).copy(expectedModel = model.snapshot)
+        currentCoroutineContext().ensureActive()
+        if (!isWritable(runId)) throw CancellationException("Companion session changed")
         val reply = source.generate(conversationId(), request) { delta -> onDelta(runId, delta) }
         // source 可能吞掉取消照样返回：只有还活着的 run 才算数
         currentCoroutineContext().ensureActive()
@@ -354,8 +387,8 @@ class CompanionAiController(
         )
     }
 
-    private fun publishModel(runId: Long, model: CompanionModelDescription) {
-        if (!isWritable(runId)) return
+    private fun publishModel(runId: Long, model: CompanionModelDescription) = synchronized(tokenLock) {
+        if (!isWritable(runId)) return@synchronized
         runModel = model
         _state.update { current -> if (isWritable(runId)) current.copy(model = model) else current }
     }
@@ -412,31 +445,32 @@ class CompanionAiController(
             if (runId == finishedRunId) return
             if (runId == cancelledRunId && phase != CompanionAiPhase.CANCELLED) return
             finishedRunId = runId
-        }
-        val finishedAt = clock()
-        _state.update { current ->
-            current.copy(
+            // Commit together with the token check: a concurrent character switch cannot leak
+            // an old terminal state, interaction, or memory entry into the new character.
+            val finishedAt = clock()
+            _state.update { current ->
+                current.copy(
+                    phase = phase,
+                    text = text,
+                    failure = failure,
+                    cancelReason = cancelReason,
+                    finishedAtMillis = finishedAt,
+                    startedAtMillis = startedAt,
+                    trigger = trigger ?: current.trigger,
+                )
+            }
+            val interaction = CompanionInteraction(
+                trigger = trigger ?: CompanionTrigger(CompanionTriggerKind.TAP),
                 phase = phase,
                 text = text,
                 failure = failure,
-                cancelReason = cancelReason,
-                finishedAtMillis = finishedAt,
-                startedAtMillis = startedAt,
-                trigger = trigger ?: current.trigger,
+                modelLabel = model.label,
+                atMillis = finishedAt,
             )
-        }
-        val interaction = CompanionInteraction(
-            trigger = trigger ?: CompanionTrigger(CompanionTriggerKind.TAP),
-            phase = phase,
-            text = text,
-            failure = failure,
-            modelLabel = model.label,
-            atMillis = finishedAt,
-        )
-        _interactions.update { listOf(interaction) + it.take(CompanionLimits.MAX_INTERACTIONS - 1) }
-        // 只有真正完成、而且这一轮没被取消过的台词才进记忆（带 token 的守卫已经在上面过了）
-        if (phase == CompanionAiPhase.COMPLETED && !memoryPrompt.isNullOrBlank() && !memoryReply.isNullOrBlank()) {
-            memory.record(memoryPrompt, memoryReply)
+            _interactions.update { listOf(interaction) + it.take(CompanionLimits.MAX_INTERACTIONS - 1) }
+            if (phase == CompanionAiPhase.COMPLETED && !memoryPrompt.isNullOrBlank() && !memoryReply.isNullOrBlank()) {
+                memory.record(memoryPrompt, memoryReply)
+            }
         }
     }
 
