@@ -1,11 +1,12 @@
 package me.rerere.rikkahub.ui.components.ui.permission
 
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
@@ -51,43 +52,50 @@ fun rememberPermissionState(
     permissions: Set<PermissionInfo>
 ): PermissionState {
     val context = LocalContext.current
-    val activity = context as? ComponentActivity
-        ?: throw IllegalStateException("rememberPermissionState 必须在 ComponentActivity 中使用")
+    val localActivity = LocalActivity.current
+    val activity = remember(context, localActivity) {
+        (localActivity as? ComponentActivity) ?: context.findPermissionActivity()
+    }
+    val registryOwner = LocalActivityResultRegistryOwner.current
 
-    // 创建权限状态对象
-    val permissionState = remember(permissions) {
-        PermissionState(permissions, context, activity)
+    // Keep the real permission state even in a service/preview host; only launching needs an Activity.
+    val permissionState = remember(permissions, context, activity) {
+        PermissionState(permissions, context.applicationContext ?: context, activity)
     }
 
-    // 多个权限请求启动器
-    val multiplePermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { results ->
-        permissionState.handlePermissionResult(results)
-    }
+    if (activity != null && registryOwner != null) {
 
-    // 单个权限请求启动器
-    val singlePermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        // 获取最后请求的权限（通过当前rationale权限或者denied权限推断）
-        val lastRequestedPermission = permissionState.currentRationalePermissions.firstOrNull()?.permission
-            ?: permissionState.deniedPermissions.firstOrNull()?.permission
-
-        lastRequestedPermission?.let { permission ->
-            permissionState.handleSinglePermissionResult(permission, granted)
+        // 多个权限请求启动器
+        val multiplePermissionLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestMultiplePermissions()
+        ) { results ->
+            permissionState.handlePermissionResult(results)
         }
-    }
 
-    // 设置启动器
-    LaunchedEffect(multiplePermissionLauncher, singlePermissionLauncher) {
-        permissionState.setPermissionLaunchers(multiplePermissionLauncher, singlePermissionLauncher)
+        // 单个权限请求启动器
+        val singlePermissionLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.RequestPermission()
+        ) { granted ->
+            // 获取最后请求的权限（通过当前rationale权限或者denied权限推断）
+            val lastRequestedPermission = permissionState.currentRationalePermissions.firstOrNull()?.permission
+                ?: permissionState.deniedPermissions.firstOrNull()?.permission
+
+            lastRequestedPermission?.let { permission ->
+                permissionState.handleSinglePermissionResult(permission, granted)
+            }
+        }
+
+        // 设置启动器
+        DisposableEffect(permissionState, multiplePermissionLauncher, singlePermissionLauncher) {
+            permissionState.setPermissionLaunchers(multiplePermissionLauncher, singlePermissionLauncher)
+            onDispose { permissionState.clearPermissionLaunchers() }
+        }
     }
 
     // 监听生命周期变化，更新权限状态
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, permissionState) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> {
@@ -110,11 +118,6 @@ fun rememberPermissionState(
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
         }
-    }
-
-    // 初始化时更新权限状态
-    LaunchedEffect(Unit) {
-        permissionState.updatePermissionStates()
     }
 
     return permissionState
