@@ -112,7 +112,7 @@ fun PortraitCompanionBubble(
     var speech by remember { mutableStateOf<String?>(null) }
     var tapJob by remember { mutableStateOf<Job?>(null) }
 
-    // ---- 说什么：角色自己的 8 句，用户填了就用用户的；轮换不连续同句 ----
+    // ---- 说什么：AI 关着才读角色自己的 8 句（离线台词），AI 开着这一句只能来自真实模型 ----
     val defaultLines = listOf(
         stringResource(R.string.portrait_line_1),
         stringResource(R.string.portrait_line_2),
@@ -121,8 +121,8 @@ fun PortraitCompanionBubble(
     val roleLines = settings.tapLinesOr(builtInLines.ifEmpty { defaultLines })
     val rotation = remember(settings.characterKey, roleLines) { CompanionLineRotation() }
 
-    // Leaving the foreground, collapsing, or switching character invalidates the old callback.
-    LaunchedEffect(settings.characterKey, minimized, resumed) {
+    // Leaving the foreground, collapsing, switching character or turning AI on invalidates the old callback.
+    LaunchedEffect(settings.characterKey, minimized, resumed, settings.aiEnabled) {
         tapJob?.cancel()
         tapJob = null
         responding = false
@@ -163,10 +163,12 @@ fun PortraitCompanionBubble(
         val tappedCharacter = settings.characterKey
         tapJob = scope.launch {
             responding = true
-            // AI 回应开着时不读静态台词：说什么由真实模型决定，气泡只显示控制器写进去的状态。
-            if (settings.aiEnabled && latestAiTrigger != null) {
+            // AI 开着时不读静态台词：说什么由真实模型决定，气泡只显示控制器写进去的状态。
+            // 回调缺失（宿主没接上）时同样不能退回 8 句冒充"模型刚说的"——宁可这一下不说话。
+            if (settings.aiEnabled) {
                 latestAiTrigger?.invoke()
             } else {
+                // 只有关掉 AI 回应时才走固定台词，并且是本地离线轮换，不发任何请求。
                 speech = rotation.next(roleLines)
             }
             // 回弹独立跑，不拖慢 400ms 的切图回收和原回调。
@@ -219,16 +221,17 @@ fun PortraitCompanionBubble(
                 CompanionAiPhase.CANCELLED -> context.getString(R.string.companion_bubble_stopped)
                 CompanionAiPhase.IDLE -> ""
             }
-            // AI 开着但这一句其实没生成出来（没发出去/模型不能用）时照实说一句，
+            // AI 开着但这一句其实没生成出来（没发出去/模型不能用/上一次被跳过）时照实说一句，
             // 不拿静态台词冒充"模型刚说的"；AI 关着时下面照旧走固定台词
-            val aiHint = if (settings.aiEnabled && latestAiTrigger != null && aiState.phase == CompanionAiPhase.IDLE) {
+            val aiHint = if (settings.aiEnabled && aiState.phase == CompanionAiPhase.IDLE) {
                 aiState.model.failure?.let { companionFailureLabel(it) }
                     ?: aiState.skipped?.let {
                         context.getString(R.string.companion_status_skipped, companionSkipLabel(it.reason))
                     }
             } else null
+            // AI 开着时 speech 恒为 null；这里再挡一次，保证离线台词永远不会出现在 AI 模式的气泡里
             val line = aiLine.ifEmpty {
-                aiHint ?: speech ?: when {
+                aiHint ?: speech.takeUnless { settings.aiEnabled } ?: when {
                     state.pendingTools.isNotEmpty() -> stringResource(R.string.portrait_approval)
                     state.failed -> stringResource(R.string.portrait_error)
                     else -> ""

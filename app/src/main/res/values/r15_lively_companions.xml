@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r15_offline_lines_title">Offline lines</string>
+    <string name="r15_offline_lines_desc">Only used when AI replies are off. With AI on, every accepted tap gets a fresh model-generated reply.</string>
+    <string name="r15_ai_desc">Generate each reply from this character and recent companion interactions. Uses your selected model, billed separately; the offline lines are not sampled.</string>
+</resources>

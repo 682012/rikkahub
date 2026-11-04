@@ -83,6 +83,18 @@ class CompanionAiController(
     private var lastCompanion: FloatingCompanionSettings = FloatingCompanionSettings()
     private var characterIdentity: Triple<String, String, String>? = null
 
+    /**
+     * 当前角色会话里已经被接受的点击次数（TAP 序号）。
+     *
+     * 只影响“这一次点我要换个方向说”的轮换（[CompanionTapImagination]），不是台词库：
+     * 每次点击仍然是 source.generate 现场生成。换角色归零，所以新角色的第一下点从 1 开始；
+     * 被拒绝的点击（冷却/忙/关掉）不占号。
+     */
+    private var tapTurn: Int = 0
+
+    /** 只读给状态卡/测试看：已经接受了多少次 TAP。换角色会归零。 */
+    val acceptedTapTurns: Int get() = synchronized(tokenLock) { tapTurn }
+
     /** Change only the companion session; provider choices and rate/budget limits stay intact. */
     fun switchCharacter(companion: FloatingCompanionSettings) {
         val settings = companion.normalized()
@@ -98,6 +110,7 @@ class CompanionAiController(
             job = null
             runModel = null
             lastTrigger = null
+            tapTurn = 0 // 新角色的第一次点击从方向 1 开始，旧角色的序号不继承
             memory.clear()
             _interactions.value = emptyList()
             _state.value = CompanionAiState(model = _state.value.model)
@@ -172,10 +185,14 @@ class CompanionAiController(
                 cancelledRunId = 0L
                 cancelReason = CompanionCancelReason.LEFT_WINDOW
                 runModel = null
+                // 接受时才算这一下的“即兴方向”：被拒绝/冷却的点击不占号，两个人在同一时刻看到的方向也不同
+                val improvHint = nextTapImprovHint(companion, trigger)
                 _state.value = _state.value.copy(phase = CompanionAiPhase.THINKING, skipped = null,
                     text = "", thinking = "", failure = null, cancelReason = null,
                     trigger = trigger, startedAtMillis = now, finishedAtMillis = null)
-                acceptedJob = scope.launch(start = CoroutineStart.LAZY) { run(runId, trigger, companion, now) }
+                acceptedJob = scope.launch(start = CoroutineStart.LAZY) {
+                    run(runId, trigger, companion, now, improvHint)
+                }
                 job = acceptedJob
             }
         }
@@ -242,6 +259,7 @@ class CompanionAiController(
         trigger: CompanionTrigger,
         companion: FloatingCompanionSettings,
         startedAt: Long,
+        tapImprovHint: String?,
     ) {
         if (!isWritable(runId)) return
         _state.update { current ->
@@ -263,7 +281,7 @@ class CompanionAiController(
 
         val outcome: Attempt? = try {
             // 模型解析也在超时窗口里：解析卡住同样会按 TIMEOUT 结束，不会一直挂在 THINKING
-            withTimeoutOrNull(timeoutMillis) { attempt(runId, trigger, companion) }
+            withTimeoutOrNull(timeoutMillis) { attempt(runId, trigger, companion, tapImprovHint) }
         } catch (cancel: CancellationException) {
             finish(
                 runId = runId,
@@ -355,6 +373,7 @@ class CompanionAiController(
         runId: Long,
         trigger: CompanionTrigger,
         companion: FloatingCompanionSettings,
+        tapImprovHint: String?,
     ): Attempt {
         currentCoroutineContext().ensureActive()
         val model = describeModelSafely()
@@ -373,6 +392,9 @@ class CompanionAiController(
             memory = synchronized(tokenLock) { memory.snapshot() },
             sessionId = Uuid.random(),
             languageTag = languageTag(),
+            // 点击的“即兴方向”：只有 TAP 有，且每次不同；Builder 只把它放进 userPrompt，不进人设。
+            tapImprovHint = tapImprovHint,
+            useBuiltInStyle = companion.aiPersonaPrompt.isBlank(),
             // 界面显示的模型和真正发出去的请求必须是同一个：实现会拿这份快照比对
         ).copy(expectedModel = model.snapshot)
         currentCoroutineContext().ensureActive()
@@ -383,7 +405,8 @@ class CompanionAiController(
         return Attempt(
             model = model,
             text = cleanCompanionLine(reply),
-            userPrompt = request.userPrompt,
+            // 记忆里只留“用户点了一下”这件事，不把这一轮的即兴方向当成用户说过的话再喂回去
+            userPrompt = if (trigger.kind == CompanionTriggerKind.TAP) TAP_MEMORY_PROMPT else request.userPrompt,
         )
     }
 
@@ -479,6 +502,31 @@ class CompanionAiController(
 
     private fun isRunning(): Boolean = job?.isActive == true || _state.value.busy
 
+    /**
+     * 这一下点击的"即兴方向"。
+     *
+     * 只在 **接受** TAP 时取：被冷却/忙/关掉的点击不占号，所以连续两次真的发出去的点击
+     * 一定拿到相邻的两个方向（[CompanionTapImagination] 用步长 3、周期 7 轮换，含"别重复上一句"），
+     * 而不是从固定台词里抽一句。手动输入和自动事件不注入方向，保持它们各自的语境。
+     *
+     * 返回的是给 [CompanionPromptBuilder.build] 的 `tapImprovHint`（只进 userPrompt），
+     * 不是可以照读的句子。
+     */
+    private fun nextTapImprovHint(
+        companion: FloatingCompanionSettings,
+        trigger: CompanionTrigger,
+    ): String? {
+        if (trigger.kind != CompanionTriggerKind.TAP) return null
+        tapTurn = if (tapTurn == Int.MAX_VALUE) 1 else tapTurn + 1
+        return CompanionTapImagination.hint(
+            profileId = if (companion.aiPersonaPrompt.isBlank()) {
+                CompanionCatalog.profile(companion.effectivePreset)?.id
+            } else null,
+            turn = tapTurn,
+            hasHistory = memory.size > 0,
+        )
+    }
+
     private fun failureOf(error: Throwable): CompanionFailure =
         (error as? CompanionModelUnavailableException)?.failure
             ?: CompanionFailure.Request(
@@ -508,3 +556,6 @@ class CompanionAiController(
         )
     }
 }
+
+/** TAP 进记忆时写的"用户说了什么"：一句稳定的事实，不带这一轮的即兴方向。 */
+private const val TAP_MEMORY_PROMPT = "The user just tapped you."

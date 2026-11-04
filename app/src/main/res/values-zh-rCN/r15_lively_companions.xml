@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r15_offline_lines_title">离线台词</string>
+    <string name="r15_offline_lines_desc">仅关闭AI回应时使用。开启后，每次有效点击都由模型现场写一句，不从这里抽取。</string>
+    <string name="r15_ai_desc">按当前角色的人设和最近互动现场生成，沿用你选择的模型并单独计费，不抽取离线台词。</string>
+</resources>

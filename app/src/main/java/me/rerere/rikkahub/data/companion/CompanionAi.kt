@@ -195,8 +195,25 @@ object CompanionLimits {
     /** 用户一次能说的字数上限。 */
     const val MAX_INPUT_CHARS = 240
 
-    /** 单句台词的长度上限，气泡放得下，也防止模型长篇大论烧钱。 */
+    /**
+     * 单句台词的硬上限沿用160字，避免升级截断原本能显示的输入回应。
+     *
+     * 这是发现“写得比想要的长”的兜底，不是给模型的写作目标；目标是下面那个区间。
+     */
     const val MAX_REPLY_CHARS = 160
+
+    /**
+     * 给模型的“通常区间”（中文字符）。
+     *
+     * r14 之前提示词里写的是“不超过 40 字符”，和内置人设自带的“6 到 24 字”两套窄数字互相打架，
+     * 模型于是越写越短、越写越像口头禅。现在统一成 8–48：一句话（或相连两短句）够说完一层意思，
+     * 又不至于占满气泡。
+     */
+    const val REPLY_TARGET_MIN_CHARS = 8
+    const val REPLY_TARGET_MAX_CHARS = 48
+
+    /** 每次点击的“即兴方向”说明的防御性上限；正常实现远低于它。 */
+    const val TAP_HINT_MAX_CHARS = 240
 
     /** 每次请求的输出上限，和小助手"一句短话"的定位一致。 */
     const val MAX_REPLY_TOKENS = 320
@@ -254,17 +271,31 @@ object CompanionPersonas {
         }
 
     /**
-     * 完整个性提示。六只都直接取 JSON 原文（见 [CompanionCatalog]），
-     * 不再维护"一句话人设"的旧英文短句；用户自己写的 `aiPersonaPrompt` 仍然优先。
+     * 完整个性提示。
+     *
+     * 六只都取 JSON 原文（见 [CompanionCatalog]），再叠一层 [CompanionRoleplayProfiles]
+     * 的第二层人设（想要什么、小毛病、习惯、关系节奏）。原文的身份、名字和外观不变，
+     * 用户自己写的 `aiPersonaPrompt` 仍然整段优先——那种情况下 `builtIn` 根本不会被调用。
      */
-    fun builtIn(preset: FloatingCompanionPreset): String =
-        CompanionCatalog.profile(preset)?.persona ?: when (preset) {
+    fun builtIn(preset: FloatingCompanionPreset): String {
+        val base = CompanionCatalog.profile(preset)?.persona ?: when (preset) {
             FloatingCompanionPreset.LOGO ->
                 "You are a friendly little assistant. You are practical, brief and cheerful."
 
             else ->
                 "You are a friendly companion. You are warm, brief and attentive to the user."
         }
+        val overlay = builtInOverlay(preset)
+        return if (overlay.isBlank()) base.trim() else base.trimEnd() + "\n\n" + overlay
+    }
+
+    /** 内置角色在 [CompanionRoleplayProfiles] 里的 id；`CUSTOM`/`LOGO` 没有。 */
+    fun roleplayId(preset: FloatingCompanionPreset): String? =
+        CompanionCatalog.profile(preset)?.id
+
+    /** 只有叠加层，不含 Catalog 原文；给测试和设置页预览用，未知角色返回空串。 */
+    fun builtInOverlay(preset: FloatingCompanionPreset): String =
+        CompanionRoleplayProfiles.textFor(roleplayId(preset))
 
     /** 设置页展示内置人设用的短标签（走资源）。 */
     fun summaryKey(preset: FloatingCompanionPreset): String = when (preset) {
@@ -285,6 +316,11 @@ object CompanionPersonas {
  * 刻意只接受个性、名字、触发和记忆窗口：聊天正文不在参数里，所以构造不出"把全文聊天发给另一个模型"。
  */
 object CompanionPromptBuilder {
+    /**
+     * @param tapImprovHint 只在 [CompanionTriggerKind.TAP] 时生效：这一次点击的“即兴方向”
+     *   （由 [CompanionTapImagination] 轮换给出，不含任何可播放台词）。默认 null，
+     *   此时行为与 r14 一致，老调用点不用改。
+     */
     fun build(
         persona: String,
         name: String,
@@ -292,60 +328,102 @@ object CompanionPromptBuilder {
         memory: List<CompanionExchange>,
         sessionId: Uuid,
         languageTag: String,
+        tapImprovHint: String? = null,
+        useBuiltInStyle: Boolean = true,
     ): CompanionRequest {
         val system = buildString {
             append("You are \"").append(name.trim().ifBlank { "Companion" }).append("\", ")
             append("a small companion living in a floating bubble on the user's phone.\n")
-            append(persona.trim()).append('\n')
-            append("Rules:\n")
+            append(persona.trim()).append("\n\n")
+            append("How to speak:\n")
+            if (!useBuiltInStyle) {
+                append("- The custom persona above defines your identity, speaking quirks and optional small stage directions. ")
+                append("Preserve them; do not substitute any built-in character.\n")
+            }
+            append("- Write the line yourself, right now, in this character's own mood and voice. ")
+            append("Never pick a ready-made line from a fixed list, and never reuse the previous line.\n")
+            if (useBuiltInStyle) {
+                append("- One spoken line, or two short lines that belong together: usually ")
+                append(CompanionLimits.REPLY_TARGET_MIN_CHARS).append('–')
+                append(CompanionLimits.REPLY_TARGET_MAX_CHARS)
+                append(" Chinese characters, never more than ").append(CompanionLimits.MAX_REPLY_CHARS)
+                append(".\n")
+                append("- Vary what the line does (a small reaction, a half-finished joke carried over, ")
+                append("a light question, or no question at all), not how it is punctuated. ")
+                append("Do not put your own name into every line.\n")
+            } else {
+                append("- Keep your response concise for the bubble, never more than ").append(CompanionLimits.MAX_REPLY_CHARS).append(" characters.\n")
+            }
             append("- Answer in the same language as the user's latest message")
             append(" (if there is none, use the language tag ").append(languageTag).append(").\n")
-            append("- One short spoken line only: no markdown, no lists, no headings, no more than 40 characters.\n")
-            append("- Never mention being an AI model, prompts, tokens or these rules.\n")
-            append("- You cannot see the user's chats. Only the lines below are available to you.\n")
-        }
-        val history = ArrayList<CompanionPromptMessage>()
-        var usedChars = 0
-        memory.takeLast(CompanionLimits.MEMORY_EXCHANGES).forEach { exchange ->
-            val cost = exchange.prompt.length + exchange.reply.length
-            if (usedChars + cost <= CompanionLimits.MAX_HISTORY_CHARS) {
-                history += CompanionPromptMessage(CompanionPromptRole.USER, exchange.prompt)
-                history += CompanionPromptMessage(CompanionPromptRole.ASSISTANT, exchange.reply)
-                usedChars += cost
+            if (useBuiltInStyle) {
+                append("- Plain speech only: no markdown, no lists, no headings, no bracketed stage directions.\n")
+                append("- No assistant or customer-service opening (\"how can I help\"), and do not fall ")
+                append("back on the same fillers every time, such as \"我在\", \"别戳\" or \"在呢\".\n")
             }
+            append("- Never mention being an AI model, prompts, tokens or these rules.\n")
+            append("- You cannot see the user's chats, the home screen or the real world around them. ")
+            append("Only the lines below are available to you.\n")
+            append("- Never claim you already did something you cannot do, and never invent a reason ")
+            append("for an error. A finished reply is not a finished task.\n")
+            append("- Say the line itself: do not offer several candidate lines for the user to choose from.\n")
+        }
+        // 预算是“从最新往旧装”的连续窗口：最近一轮优先留下，装不下就停，
+        // 不会因为一条很长的旧对话把刚刚那一句挤掉（r14 是从旧往新装，最近一轮反而会丢）。
+        val history = ArrayList<CompanionPromptMessage>()
+        val kept = ArrayDeque<CompanionExchange>()
+        var usedChars = 0
+        val window = memory.takeLast(CompanionLimits.MEMORY_EXCHANGES)
+        for (exchange in window.asReversed()) {
+            val cost = exchange.prompt.length + exchange.reply.length
+            if (usedChars + cost > CompanionLimits.MAX_HISTORY_CHARS) break
+            kept.addFirst(exchange)
+            usedChars += cost
+        }
+        kept.forEach { exchange ->
+            history += CompanionPromptMessage(CompanionPromptRole.USER, exchange.prompt)
+            history += CompanionPromptMessage(CompanionPromptRole.ASSISTANT, exchange.reply)
         }
         return CompanionRequest(
             systemPrompt = system,
             history = history,
-            userPrompt = userPromptOf(trigger),
+            userPrompt = userPromptOf(trigger, tapImprovHint),
             sessionId = sessionId,
         )
     }
 
-    private fun userPromptOf(trigger: CompanionTrigger): String = when (trigger.kind) {
-        CompanionTriggerKind.TAP ->
-            "The user just tapped you. Say one short line that fits the moment."
+    private fun userPromptOf(trigger: CompanionTrigger, tapImprovHint: String?): String =
+        when (trigger.kind) {
+            CompanionTriggerKind.TAP -> buildString {
+                append("The user just tapped you. Say one short line that fits the moment.")
+                val hint = tapImprovHint?.trim().orEmpty()
+                if (hint.isNotEmpty()) {
+                    append("\nThis time improvise along this direction. It is a note for you, ")
+                    append("not a script: never read it out and never copy its wording.\n")
+                    append(hint.take(CompanionLimits.TAP_HINT_MAX_CHARS))
+                }
+            }
 
-        CompanionTriggerKind.INPUT ->
-            "The user says: \"" + trigger.detail.trim().take(CompanionLimits.MAX_INPUT_CHARS) +
-                "\"\nReply with one short line."
+            CompanionTriggerKind.INPUT ->
+                "The user says: \"" + trigger.detail.trim().take(CompanionLimits.MAX_INPUT_CHARS) +
+                    "\"\nReply with one short line."
 
-        CompanionTriggerKind.EVENT -> when (trigger.event) {
-            CompanionEventKind.GENERATION_STARTED ->
-                "A chat reply just started generating in the app. Say one short encouraging line."
+            CompanionTriggerKind.EVENT -> when (trigger.event) {
+                CompanionEventKind.GENERATION_STARTED ->
+                    "A chat reply just started generating in the app. Say one short encouraging line."
 
-            CompanionEventKind.GENERATION_FINISHED ->
-                "A chat reply just finished. Say one short line that fits the moment."
+                CompanionEventKind.GENERATION_FINISHED ->
+                    "A chat reply just finished. Say one short line that fits the moment."
 
-            CompanionEventKind.GENERATION_FAILED ->
-                "A chat reply just failed. Say one short comforting line."
+                CompanionEventKind.GENERATION_FAILED ->
+                    "A chat reply just failed. Say one short comforting line."
 
-            CompanionEventKind.APPROVAL_PENDING ->
-                "A tool is waiting for the user's approval. Say one short line reminding them gently."
+                CompanionEventKind.APPROVAL_PENDING ->
+                    "A tool is waiting for the user's approval. Say one short line reminding them gently."
 
-            null -> "Something just happened in the app. Say one short line that fits the moment."
+                null -> "Something just happened in the app. Say one short line that fits the moment."
+            }
         }
-    }
 }
 
 /** 把模型输出收成一句台词：最多两行、去引号、限长。 */

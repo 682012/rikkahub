@@ -383,8 +383,8 @@ fun FloatingCompanionSettingsCard(
                 )
             }
             formItem(
-                headlineContent = { Text(stringResource(R.string.floating_companion_lines_title)) },
-                supportingContent = { Text(stringResource(R.string.floating_companion_lines_desc)) },
+                headlineContent = { Text(stringResource(R.string.r15_offline_lines_title)) },
+                supportingContent = { Text(stringResource(R.string.r15_offline_lines_desc)) },
             ) {
                 // 输入框留一份原始草稿：设置里是过滤过的列表，直接拿它回填的话
                 // 刚敲下的换行会被 normalized 吃掉，光标会乱跳。
@@ -447,7 +447,7 @@ fun FloatingCompanionSettingsCard(
                     }
                 },
                 headlineContent = { Text(stringResource(R.string.companion_ai_title)) },
-                supportingContent = { Text(stringResource(R.string.companion_ai_desc)) },
+                supportingContent = { Text(stringResource(R.string.r15_ai_desc)) },
             )
             if (current.aiEnabled) {
                 formItem(
