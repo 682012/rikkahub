@@ -6,7 +6,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import me.rerere.ai.provider.NetworkUnavailableException
 import me.rerere.common.http.NetworkHandover
-import me.rerere.ai.provider.NetworkUnavailableException
 import java.io.IOException
 import kotlin.random.Random
 import kotlin.time.Duration
