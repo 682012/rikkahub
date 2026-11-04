@@ -1,70 +1,47 @@
-# 个人分支：构建与维护
+# 个人分支：构建、发布与维护
 
-本版 **3.1.1-r10 / 3000057** 带来沉浸聊天、部分计时 TPS、图片压缩兼容和带真实运行状态的 AI 小助手。使用与边界见 [RELEASE-r10.md](RELEASE-r10.md)，构建与验证范围见 [verification/r10.json](verification/r10.json)；本轮按用户要求停止扩大测试范围，不宣称全量界面回归通过。
+本页只讲**怎么把这个分支构建出来、怎么发、出问题怎么回退**。用户功能与安装说明在 [仓库首页](../README.md) 与 [功能对比](FEATURES.md)，当前版本的变化见 [r11 说明](RELEASE-r11.md)。
 
-前一预发布 **3.1.1-r9 / 3000056** 修复 r8 短用户气泡错位，全部 r8 功能保留、不增加功能组数；最终 JVM 2103 项零失败／1 跳过、Android 147 项全过。见 [r9 验收](RELEASE-r9.md)、[对齐修复](ALIGNMENT-r9.md)、[verification/r9.json](verification/r9.json)。r3 stable latest 不变。
-
-前一预发布 **3.1.1-r8 / 3000055**，以 r7 为基线的独立预发布，生产提交 `2def5785cf259023b56ca607f704426c6aa4f3ec`。三处折叠和透明立绘替换保留 r7 其他能力；正式包、2025 个生产输入、最终 JVM 2103／Android 139 项及同签名覆盖均已核对。见 [RELEASE-r8.md](RELEASE-r8.md)、[PORTRAIT-r8.md](PORTRAIT-r8.md)、[verification/r8.json](verification/r8.json)；下载与 tag 为 `v3.1.1-r8`，stable latest 仍是 r3。
-
-上一预发布 **3.1.1-r7 / 3000054**，见 [r7验收](RELEASE-r7.md)、[互动角色与预览](COMPANION-r7.md) 和 [verification/r7.json](verification/r7.json)。下方 r6 与 stable r3 是历史基线，不代表本轮测试。
-
-前一实验代码 **3.1.1-r6 / 3000053** 合并已发布 r5 的全部统计修复与工作区访问权限分支，另增加[可切换布局与沉浸壁纸](APPEARANCE-r6.md)、[主动授权与挂载](WORKSPACE-ACCESS.md)。稳定 latest 保持 r3，r4/r5 不撤回。验收只以 [r6 发布说明](RELEASE-r6.md) 与 [verification/r6.json](verification/r6.json) 为准；r6 提供 App / 用户授权 Shizuku / 已有 su Root 入口，Shizuku 正向与 App su Root 正向本轮未完成真机验证，不声称已通过，PRoot 不是 Root。下面保留历史基线。
-
-r4基线代码为**r4 /3000051**，APK 19,118,258字节，SHA256 `17652736e2900f93fa41b1ecc780625b1fc6ec02d478904b191fcaba1965026f`，完整[R4验收](RELEASE-r4.md)。发布在实验分支和独立tag，prerelease不改变r3稳定latest。下面保留稳定r3维护基线。
-
-用户可见功能统一维护在 [仓库首页](../README.md) 与 [官方差异表](FEATURES.md)。本页记录构建、签名与回退；r8 说明见 [r8 验收](RELEASE-r8.md)、[立绘与素材](PORTRAIT-r8.md) 与 [verification/r8.json](verification/r8.json)，上一版 r7 见 [r7 发布说明](RELEASE-r7.md)，稳定基线说明见 [r3 更新说明](RELEASE-r3.md)。
-
-## 稳定基线维护对象（r3 stable latest）
-
-下表是稳定 latest 的 r3 基线；`3.1.1-r6 / 3000053` 是 `experiment/r6-immersive` 上的实验预发布，`3.1.1-r8 / 3000055` 是独立预发布，都不改动本表。r8 的包名、签名与 schema 34 沿用 r7，对应 tag 与资产独立保存，latest 仍保留 r3。
+## 当前状态
 
 | 项目 | 值 |
 |---|---|
-| 官方基线 | `3.1.1` / `ad2c4430`；跟随到 master `5ad19405` |
-| 维护分支 | `fork/3.1.1`（稳定基线分支） |
-| 稳定版本（latest） | `3.1.1-r3` / `3000050` |
-| 包名 | `me.rerere.rikkahub.fork` |
-| 数据库 | schema 34；与 fork.37 相同，不与官方编号混用 |
-| r3 已验发布构建 | R8 release，arm64-v8a + x86_64 通用包，19,034,218 字节，HB验证 r3-hb-20261102 |
-| r3 构建 SHA-256 | `c19141b32330fbbe0ad349562097157d0b6e314451da976e48d589d5a59e38ea` |
+| 版本 | `3.1.1-r11` / `3000058` |
+| 维护分支 | `fork/3.1.1` |
+| 包名 | `me.rerere.rikkahub.fork`（Debug 变体 `me.rerere.rikkahub.fork.debug`） |
+| 应用名 / 图标 / 签名 | 与 r10 及更早的本分支版本一致，未改 |
+| 官方基线 | `3.1.1` / `ad2c4430`，已合入上游 master `5ad19405` |
+| 数据库 | schema 34（沿用 r3 起的本分支编号，不与官方编号混用） |
+| 发布标签 / 资产名 | `v3.1.1-r11` / `rikkahub-3.1.1-r11.apk` |
 
-`master` 是上游镜像，旧 fork 分支是历史版本。每个正式版的已验原包保存在对应 Release（[稳定 latest](https://github.com/682012/rikkahub/releases/latest) 为 3.1.1-r3；r6 实验预发布不替换它），附 APK 与 SHA256SUMS；旧 nightly 不代表当前已验安装包。fork.40 起由 GitHub Actions `Fork Verify` 构建签名；旧包保留，不触发旧 nightly，也不替换其资产。r3 的包与校验值由本次验收产物生成；名称和图标与上游最新版一致。
+已发布的历史版本各自保留 tag 与资产，不覆盖、不复用版本号。正式下载入口为 [Latest](https://github.com/682012/rikkahub/releases/latest)，固定版本按 tag 取包。
 
-## 重复下载、复用与后续维护
+## 构建环境
 
-- 直接使用：下载 Release APK 即可；固定版本链接长期用于取回同一份包，[最新正式版](https://github.com/682012/rikkahub/releases/latest) 用于找后续版本。
-- 继续开发：从 Release 对应 tag 获取完整公开源码；保留上游许可证、Material 源码和测试。签名与本机配置不入库，干净克隆仍需准备下列构建环境和配置。
-- 后续发布：沿用构建和测试流程，核对版本、签名、APK SHA-256，再以独立版本 tag 归档 APK 与校验文件；不复用旧版本号、不覆盖旧资产。`Fork Verify` 只在推送 `ci/**` 分支或手动触发时运行（签名构建并核对证书、JVM 测试、API 34 模拟器测试），不自动发布 Release；旧 nightly 仍只手动触发。
-- 工作区复用：ZIP 可反复导入为独立文件区；不覆盖旧工作区，不含 Rootfs、聊天数据库或整机环境。App 数据与签名密钥分别备份。
-
-## 构建与测试
-
-JDK 21、Android SDK 37.2、Gradle 9.6；NDK 28.2.13676358、CMake 3.22.1；Web UI 需要 Node.js 22、pnpm 11，先在 `web-ui/` 运行 `pnpm install --frozen-lockfile`。Google Services 配置和签名放在本机，不提交真实凭据。
+JDK 21、Android SDK 37.2、Gradle 9.6；NDK 28.2.13676358、CMake 3.22.1。Web UI 需要 Node.js 22 与 pnpm 11，先在 `web-ui/` 执行 `pnpm install --frozen-lockfile`。3.1.1 有 `github` / `play` 两个 flavor，APK 输出在 `app/build/outputs/apk/github/release/`，不再是旧的 `apk/release/`。正式构建内存开销大（Gradle 配置 6 GiB 堆，另有 Kotlin/R8 与原生编译），不要在同一目录并发跑两份 release。
 
 ```bash
-# 快速编译：不进行 R8，不能算正式优化包
+# 快速编译：跳过 R8，只能当开发包，不是正式包
 ./gradlew :app:assembleGithubRelease -PfastBuild --daemon
 
 # 正式构建：R8 + release lintVital
 ./gradlew :app:assembleGithubRelease --daemon --max-workers=2
-
-# 全模块 JVM，测试任务真实重跑
-./gradlew testDebugUnitTest --rerun :app:testGithubDebugUnitTest --rerun
-
-# 构建 Android 测试；只有执行到设备上才算仪器测试通过
-./gradlew :app:assembleGithubDebug :app:assembleGithubDebugAndroidTest
-./gradlew :app:connectedGithubDebugAndroidTest
 ```
 
-APK 目录为 `app/build/outputs/apk/github/release/`。3.1.1 有 github/play flavor，不能再用旧 `apk/release/` 路径。正式构建需要较多内存：Gradle 配置 6 GiB 堆，另有 Kotlin/R8/原生编译；不要在同一目录并发多份 release 构建。
+`material3/material-color-utilities` 已作为**普通源码目录**提交，与已验构建内容一致，不需要额外的子模块初始化；上游许可证在该目录内保留。
 
-`material3/material-color-utilities` 已作为**普通源码目录**提交，与已验构建内容一致；不再保留空 gitlink 或要求额外初始化子模块。上游许可证在该目录中保留。
+## Firebase 双配置（r11 修过）
 
-## 签名与私密配置
+`github` flavor 的两个变体各有自己的配置，缺一个就会在 Gradle 或运行期失败：
 
-`app/google-services.json` 需要匹配包名 `me.rerere.rikkahub.fork`；运行 debug/仪器测试时，另在 `app/src/debug/google-services.json` 配置 `me.rerere.rikkahub.fork.debug`。源码未附真实 Google 服务配置，不能把干净克隆等同于免配置构建。维护者同签名升级所用 keystore 也不公开；自行签名的包不能直接覆盖维护者签名的安装包。
+- Release：`app/google-services.json`，包名 `me.rerere.rikkahub.fork`
+- Debug：`app/src/debug/google-services.json`，包名 `me.rerere.rikkahub.fork.debug`
 
-手动 CI 使用 `KEY_BASE64`、`SIGNING_CONFIG`、`GOOGLE_SERVICES_JSON` 三项仓库 Secrets；只在自行构建时需要，下载本次 APK 不需要这些配置。本次 r2 的 GitHub 构建被平台以 `repository invocation blocked` 取消；最终包在 HB 完成全部构建、JVM、API34 界面测试、签名及覆盖升级验收，未把取消的 CI 记为通过。
+两份配置由维护者私下保管，不放入公开仓库。Windows / HB 云构建入口在 pnpm / Gradle 之前调用 `fork/scripts/verify-firebase-config.py`：从 Gradle 读出 applicationId 与 debug 后缀，核对 JSON 结构、项目号、app id 与包名，缺文件、包名不符或 JSON 损坏时直接给出具体错误；内容相同的配置不重复写盘。脚本本身无网络依赖，也不会打印 key。
+
+不要用「伪造 Firebase client」「禁用插件」或改包名的方式绕过——r11 之前 Debug 变体失败的原因就是迁移时只带了 Release 配置。
+
+## 签名与本地配置
 
 `local.properties`（不入库）：
 
@@ -75,30 +52,51 @@ keyAlias=fork
 keyPassword=<local-secret>
 ```
 
-同一包名、同一签名才能覆盖升级分支。不要把 keystore、口令、API key、远程 token、聊天数据库或手机备份放进仓库。源码备份不能代替数据备份。
+只有同包名 + 同签名才能覆盖升级；自行签名的包不能覆盖维护者签名的安装包，反之亦然。keystore、口令、API key、远程 token、聊天数据库与整机备份都不进仓库，源码备份也不能代替数据备份。
 
-## HTTP 后端
+GitHub 的 `Fork Verify` 验证流程使用 `KEY_BASE64`、`SIGNING_CONFIG` 与仓库内的占位 Google Services 脚本；它不能证明生产 Firebase 配置可用。旧手动 Daily Build 另读取 `GOOGLE_SERVICES_JSON`。本版正式包走 Windows 云构建与真实双配置，两条路径不要混用；下载 APK 不需要这些构建材料。
 
-实现：[rk-exec-server.py](rk-exec-server.py)。要求非空 `RK_EXEC_TOKEN`，默认回环监听，`RK_EXEC_ROOT` 与 `RK_EXEC_JOBS` 控制目录。客户端仅接受 HTTPS，回环地址例外。
+## 发布流程与纪律
 
-只接管本地类型工作区的 shell/job，不覆盖 SSH。没有远端文件工具或 job-list 接口；令牌具有命令执行权限，还可能进入设置备份，必须保密。服务重启后不会自动接管旧任务。
+1. 先合并远端已生效的修复，再选未占用的版本号；已发布的 tag、APK 与验收记录不覆盖。
+2. 源码与已验输入逐文件核对；只改文档不会扩大测试覆盖范围，也不重新跑测试。
+3. 构建正式包（R8 + lintVital），核对 versionName/versionCode、包名、证书指纹、ABI 与 SHA-256。
+4. 以独立 tag 归档 APK 与校验文件；同名资产已存在时先比摘要，不同就拒绝，不能拿新包冒用旧版本。
+5. 快速包（`-PfastBuild`）用于开发验证，不能替代启用 R8 的正式发布包。
+6. 维护分支的 CI 手动触发（`Fork Verify` 只在推送 `ci/**` 或手动运行时构建签名包、跑 JVM 与 API 34 模拟器测试），不自动发 Release；推文档不会顺带发 nightly。
+7. 可见版本号用「上游版本 + 短后缀」（`3.1.1-r10`、`3.1.1-r11`），versionCode 独立递增，不再套早期的 `3000000 + fork.N` 公式。
 
-## 合并与发布纪律
+## 本版本的验证范围
 
-- 使用现有 `fork/3.1.1` 分支历史增量提交，不以独立快照强推替换远端历史。
-- 源码先与已验输入逐文件核对；只改文档不会扩大测试覆盖范围。
-- 维护分支 CI 保持手动触发，不因推文档顺带发布 nightly。
-- 可见版本用上游版本 + 短后缀（如 `3.1.1-r1`，后续 `r2/r3`）；versionCode 独立递增，不套早期 `3000000 + fork.N` 公式。首次旧 fork 升级 r1 需直接下载；未来发布资产命名遵循 `rikkahub-<version>.apk`。
-- [CHANGES.md](CHANGES.md) 保留版本历史；[HANDOFF.md](HANDOFF.md) 是历史维护现场，不是当前用户说明。
+- 正式 Release 构建完成，R8 与 lintVital 通过；版本、包名、原签名、双 ABI、ZIP 完整性与传输 SHA-256 已核对。
+- 16 个测试套件、168 项定向单元测试通过（0 失败 / 0 错误 / 0 跳过）；正式发布复用已有结果，没有重跑测试。
+- Debug 变体真实编译通过，含两种 Firebase 配置的 preflight；Firebase 校验脚本另有 6 项 fixture 测试。
+- 源码与测试/打包快照逐文件核对一致（2326 条文件与链接）。
+- **没有做**真机或模拟器界面回归、没有安装到用户手机、没有用真实提供商测缓存命中率或真实模型后台调用。
+- 已记录的构建警告：D8 的旧 startup profile 引用了部分不存在的方法；打包与 lintVital 均完成，但**不据此声称启动速度已优化**。
+
+具体结果以 [verification/r11.json](verification/r11.json) 为准；正式包的版本、哈希、签名与实际构建记录在该文件中。
 
 ## 回退
 
-升级前备份聊天、设置和工作区。用 Git 历史或已验源码包回退代码；设备数据库必须单独处理，不要为了降级先卸载 App 再找数据。
+升级前备份聊天、设置与工作区。代码用 Git 历史或已验源码包回退；设备数据库要单独处理，不要为了降级先卸载 App 再找数据。
 
-ZIP 迁移只覆盖文件区，不含 Rootfs/数据库/整机；旧包未保存的符号链接和权限无法恢复。跨分支备份对齐只修改 staging 副本，不承诺所有分支业务数据都兼容。
+ZIP 迁移只覆盖 `/workspace` 文件区，不含 Rootfs、数据库与整机；旧包没有记录的符号链接与权限无法恢复。跨分支备份对齐只改 staging 副本，不承诺所有分支的业务数据都兼容。
 
-## 并行维护与版本号
+## HTTP 执行后端
 
-开始维护和发布前核对远端维护分支、最新 Release 与标签；先合并远端已生效的修复，再选未占用的版本号。已发布 tag、APK 和历史验收不覆盖。若已有同名资产，发布脚本先比对摘要，不同就拒绝，不能拿新包冒用旧版本。CI 构建提交与最终文档提交分开记录；最终 tag 相对已验构建只能增加说明和验收文件。
+实现见 [rk-exec-server.py](rk-exec-server.py)。要求非空 `RK_EXEC_TOKEN`，默认回环监听，`RK_EXEC_ROOT` 与 `RK_EXEC_JOBS` 控制目录；客户端只接受 HTTPS，回环地址例外。
 
-本轮维护后删除临时构建目录、Gradle/node依赖缓存、模拟器与下载分片；只留当前源码、最新APK、精简验收及必要签名。未发布的独立品牌草稿压缩归档，保留全部改动与删除记录，不保留整套重复源码。
+它只接管**本地类型**工作区的 shell/job，不覆盖 SSH；没有远端文件工具，也没有 job-list 接口。令牌具有命令执行权限，还可能进入设置备份，必须保密。服务重启后不会自动接管旧任务。
+
+## 历史与相关文档
+
+- 当前版本：[r11 说明](RELEASE-r11.md) · [verification/r11.json](verification/r11.json)
+- 功能计数与源码位置：[FEATURES.md](FEATURES.md)；逐版历史：[CHANGES.md](CHANGES.md)
+- r1–r10 的发布说明：`RELEASE-r1.md` … `RELEASE-r10.md`；更早的 fork.38–fork.43 见 `RELEASE-fork38.md` … `RELEASE-fork43.md`
+- 专项记录：[草稿持久化](AGENT-DRAFTS.md) · [工具效率](AGENT-EFFICIENCY-r11.md) · [架构](AGENT-ARCHITECTURE.md) · [工作区权限](WORKSPACE-ACCESS.md) · [网页会话](WEB-ACCOUNTS.md) · [历史维护现场](HANDOFF.md)
+- 自动发布脚本与工具：[push-github.py](scripts/push-github.py) · [sync-upstream.sh](scripts/sync-upstream.sh)
+
+## 许可
+
+上游版权与 **AGPL-3.0** 保持不变（见 [LICENSE](../LICENSE)）。本分支不改变上游许可，也不代表上游接受这些修改。

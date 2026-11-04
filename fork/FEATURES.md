@@ -1,160 +1,121 @@
 # 相比官方 3.1.1：新增工作流、功能增强与限制
 
-本版 **3.1.1-r10 / 3000057**：壁纸聊天去厚重外框；TPS 按已测步骤计速并标覆盖；带图片的历史可生成文本压缩摘要，原图不删；小助手选模型即可按互动生成回应，并可查看真实状态、停止和近期互动。详见 [r10 说明](RELEASE-r10.md) 与 [验证范围](verification/r10.json)。下方分组数量沿用历史基线，r10 增量在此单列。
+本版 **3.1.1-r11 / 3000058**：长正文默认折叠可设置、输入草稿按对话/助手持久化、记忆与 `AGENTS` 注入更稳定、HTML 隔离预览与 Markdown/CSV/TSV/JSON/EPUB 文本预览、Pi/CodeMode 工具指引整理、耗时工具按阈值转后台（`background_tool`）、手动压缩转后台并通知。详见 [r11 说明](RELEASE-r11.md) 与 [验证范围](verification/r11.json)。
 
-前一预发布 **3.1.1-r9 / 3000056** 修复 r8 短用户气泡错位，全部 r8 功能保留、不增加功能组数；最终 JVM 2103 项零失败／1 跳过、Android 147 项全过。见 [r9 验收](RELEASE-r9.md)、[对齐修复](ALIGNMENT-r9.md)、[verification/r9.json](verification/r9.json)。r3 stable latest 不变。
+对比基线为官方 **3.1.1 / `ad2c4430`**，已跟进上游 master **`5ad19405`**，数据库 schema 34。上一版本 r10 的变化见 [RELEASE-r10.md](RELEASE-r10.md)，更早的 r1–r9 见各自 `RELEASE-rN.md` 与 [CHANGES.md](CHANGES.md)。
 
-前一预发布 **3.1.1-r8 / 3000055**（生产提交 `2def5785cf259023b56ca607f704426c6aa4f3ec`）：三处可折叠信息与三张透明立绘，见 [r8 验收](RELEASE-r8.md)、[素材来源](PORTRAIT-r8.md)、[verification/r8.json](verification/r8.json)。**r8 不改变功能组数：折叠是呈现增强，立绘替换 r7 角色形象，不是新增一套 Live2D。**
+## 怎样数功能
 
-上一预发布 **3.1.1-r7 / 3000054**，见 [r7验收](RELEASE-r7.md)、[互动角色与预览](COMPANION-r7.md) 和 [verification/r7.json](verification/r7.json)。下方 r6 与 stable r3 是历史基线，不代表本轮测试。
+下面沿用早期的 **5 组工作流 + 2 项主要增强** 作为导航，不代表 r11 全部能力的总数；外观、预览与工具调用层另列，不按按钮或端点凑数。
 
-前一实验代码 **3.1.1-r6 / 3000053** 合并已发布 r5 的全部统计修复与工作区访问权限分支，另增加[可切换布局与沉浸壁纸](APPEARANCE-r6.md)、[主动授权与挂载](WORKSPACE-ACCESS.md)。稳定 latest 保持 r3，r4/r5 不撤回。验收只以 [r6 发布说明](RELEASE-r6.md) 与 [verification/r6.json](verification/r6.json) 为准；r6 提供 App / 用户授权 Shizuku / 已有 su Root 入口，Shizuku 正向与 App su Root 正向本轮未完成真机验证，不声称已通过，PRoot 不是 Root。下面保留历史基线。
+- 单会话用量面板算官方统计能力的**增强**，不算新增一组。
+- ZIP 导入与导出合为一组文件迁移流程，不拆成两个数字。
+- r8 的三处折叠、立绘形象替换是**呈现层调整**，不计入组数。
+- fork.43 的工具调用层重做没有新的使用目的，改的是调用方式，单列一节。
+- r11 的折叠默认值、草稿、记忆稳定性、预览、后台工具与压缩分别在下节说明。
 
-本实验分支额外加入[Gemini/Claude网页会话](WEB-ACCOUNTS.md)与[缓存/窗口计数修复](CACHE-r4.md)，见[r4验收与限制](RELEASE-r4.md)。以下分组保留稳定版r3基线；网页工具是需确认的提示词协议，账号兼容性未实测，不能算原生function calling。
+## r11：七项变化
 
-对比功能增量的基线为官方 **3.1.1 / `ad2c4430`**；稳定基线 **`3.1.1-r3 / 3000050`**（stable latest）保留 fork.43 的全部能力，已跟进官方 master **`5ad19405`（2026-11-01）**，另带官方预览分支 `feat/background-shell`，数据库 schema 34。本版修复网络/VPN切换恢复，保留每模型设置。[r3 更新与说明](RELEASE-r3.md)。不沿用早期版本的“官方没有”结论。
+| 项 | 之前 | 现在 | 边界 |
+|---|---|---|---|
+| 长正文折叠 | 超阈值默认折叠，重启回默认 | 设置 → 偏好设置 → 界面偏好设置 → 长正文默认状态，可选默认展开/默认收起，单条手动选择优先 | 只改变显示，不截断正文；单条手动状态只在本次进程内保留，重启回设定默认值；流式中不自动折叠 |
+| 输入草稿 | 离开页面或切对话后丢失 | 文字、附件引用、光标、编辑态存到应用私有目录；已有对话按对话、新对话按助手 | 附件只存引用，不复制文件；发送后要等用户消息落库确认才清理 |
+| 记忆与提示词 | 相同内容可能重复写、清单顺序随更新日期变化 | 相同内容不重复写入、不改版本；清单按路径稳定排序；`AGENTS` 相同内容只注入一次并按文件变化复核 | 只减少重复读取、稳定前缀；**没有实测供应商缓存命中率** |
+| 文件预览 | 已有图片、PDF、音视频、Office 文本等预览 | HTML/HTM/XHTML/SVG 隔离 WebView 预览并可切源码；Markdown 阅读、CSV/TSV 表格、JSON 格式化、EPUB 章节文本；聊天里的 HTML/PDF/文本附件也能预览 | Office/EPUB 是文本提取，不还原版式、不读 DRM；表格 300 行 / 40 列上限；外部资源默认关闭 |
+| Pi/CodeMode 指引 | 工具说明分散、容易重复注入 | 静态指引集中一次注入；已知入口直接复用，定位后分页读取 | 只改工具机制，不改助手人格；不宣称真实缓存命中率 |
+| 后台工具 | 已有专用 shell/job 后台入口，通用工具长调用仍需等待 | 设置 → 偏好设置 → 常规 → 后台工具，阈值默认 30 秒、可设 1–3600 秒；`background_tool` 提供 start/list/result/wait/cancel | 同一次执行继续跑，不取消不重跑；审批照旧、写操作排队；完成提醒不主动发起新的模型请求 |
+| 手动压缩 | 需停留原地等结果 | 确认后转后台，完成通知可点回原对话；开关在偏好设置 → 通知 | 提交前核对消息分支与正文；压缩期间新增尾部消息保留，正文被改则丢弃旧摘要；原图附件不删 |
 
-## 怎样数功能？
+构建侧另修了 Firebase 双配置入口：Debug 变体带 `me.rerere.rikkahub.fork.debug` 自己的配置并在构建前校验，包名未改，见 [r11 说明](RELEASE-r11.md)、[构建维护](README.md)。
 
-**5 组新增工作流 + 2 项主要功能增强；兼容与稳定性修复单列，不计入新增数。**
+## r2–r10 延续到本版的体验
 
-一组按独立使用目的计数，不按按钮、端点或提交数凑数。旧版说明的“6 组新增”把单会话用量面板也计入了新增；此处明确将它归为官方统计功能的增强。ZIP 导入与导出合为一组文件迁移流程，不拆成两个数字。这是计数更准确，不是删掉功能。**r8 的折叠与立绘同样不计入：前者是呈现调整，后者是 r7 角色的形象替换。**
+- **按模型设置**：上下文窗口、自动压缩开关/阈值与并发上限可独立配置，未配置时沿用全局；同模型的聊天与子代理共享名额。
+- **网络切换恢复**：换网后结束旧连接、网络恢复提前重试；MCP 有界重连，已发出的副作用工具不自动重放。不承诺旧 TCP 连接不断。
+- **外观与角色**：经典/工作台/专注三布局，全局与助手壁纸、沉浸薄底；顶部与角色面板可收起，保留三张透明立绘。
+- **小助手 AI**：指定或跟随模型，真实流式互动、请求状态、停止与近期互动；自动事件默认关闭，用量单列，不另起工具执行循环。
+- **统计与压缩**：单会话用量分来源，累计与上下文分开；多步 TPS 显示已测覆盖，含图片历史可生成文本摘要但不删除原图。
+- **访问与挂载**：工作区目录挂载、用户主动授权的宿主命令，以及 Shizuku / 已有 Root 入口；不把 PRoot 当系统 Root。
+- **实验网页登录**：Gemini/Claude 网页会话仍保留兼容限制，不保证登录即用，不当作原生 function calling。
 
-**fork.43 的工具调用层重做不计入组数。** 它没有新的使用目的，改的是已有工作流的调用方式（并发、去重、大输出读回、子代理结果分页、代码模式），因此单列一节，见下面的「fork.43：工具调用层重做」。`workspace_grep`/`workspace_glob`/`run_script` 这些新工具服务于同一个“在设备上做文件与会话工作”的目的，也不为了凑数拆成新组。
-
-## r3：默认网络切换恢复
-
-文本请求在换网后退出旧连接、网络恢复后提前重试，保留已显示预览、不拼接不同生成。MCP单任务有界重连、离线不空转，已发送工具响应丢失不重放。终态缺失的流按截断处理。不开永久探测，不绕过VPN，不承诺旧TCP迁移或SSH终端续接。
-
-## r2：每模型运行设置
-
-设置 → 提供商 → 编辑模型 → 基本，集中设置上下文窗口、自动压缩/阈值、并发上限。上下文大小沿用官方已有字段；压缩覆盖与共享请求名额为本分支增量。名额按模型ID计数，不按展示名；主聊天/子代理/摘要共享，最大1–64或不额外限制。可取消地FIFO排队，修改上限不重建计数池，工具与重试退避不持名额，全局子代理数量不变。旧备份缺字段时保持原行为。
+细节见 [沉浸聊天与小助手](RELEASE-r10.md)、[外观](APPEARANCE-r6.md)、[权限与挂载](WORKSPACE-ACCESS.md)、[网页会话](WEB-ACCOUNTS.md)。
 
 ## 五组新增工作流
 
 ### 1. 子代理协作
 
-**官方已有**：模型调用、工具、MCP、Skills，以及会话历史检索。官方 3.1.1 没有本分支的子代理任务管理器。
+**官方已有**：模型调用、工具、MCP、Skills、会话历史检索。官方 3.1.1 没有本分支的子代理任务管理器。
 
-**本分支增加**：`subagent_run`、`subagent_wait`、`subagent_result`、`subagent_list`、`subagent_cancel`。每个任务独立上下文和模型，支持排队、超时、取消、结果与日志落盘。默认并发 4，可设置 1–8；fork.43 起按设备 `ActivityManager.memoryClass` 自动封顶（≥256MB 用配置值、≥192MB 最多 4、其余最多 2），因为每个子代理都有独立上下文与工具集，内部还带 `tool_batch` 的 8 路并发。
+**本分支增加**：`subagent_run`、`subagent_wait`、`subagent_result`、`subagent_list`、`subagent_cancel`。每个任务独立上下文与模型，支持排队、超时、取消、结果与日志落盘。默认并发 4，可设 1–8，并按设备 `ActivityManager.memoryClass` 封顶（≥256MB 用配置值、≥192MB 最多 4、其余最多 2）。
 
-fork.43 起 `subagent_result` 支持分页：`offset`/`limit`，一页默认 6000、最多 12000 字符，回带 `nextOffset`/`totalChars`/`eof`；运行中、失败、超时、取消的任务都能读部分结果，不再只能一次性拿全文或日志。
+fork.43 起 `subagent_result` 支持 `offset`/`limit` 分页（默认 6000、最多 12000 字符，回带 `nextOffset`/`totalChars`/`eof`），运行中、失败、超时、取消的任务都能读部分结果。
 
-子代理可以按设置继承工作区、MCP 和官方历史工具；历史检索本身不算新增。fallback 只在尚未收到模型响应的安全边界尝试，不借重试重放已经执行的工具。
-
-入口：高级与长任务 → 子代理。默认关闭；不支持嵌套、独立费用预算或子代理内审批/续跑。需要审批的操作由父对话处理。并行有时更快，但不保证每个任务更快，且增加请求、内存和模型用量。
-
-源码：[SubagentRunner](../app/src/main/java/me/rerere/rikkahub/data/ai/subagent/SubagentRunner.kt)、[SubagentTools](../app/src/main/java/me/rerere/rikkahub/data/ai/tools/SubagentTools.kt)。
+**入口**：高级与长任务 → 子代理，默认关闭。**边界**：不支持嵌套、独立费用预算或子代理内审批/续跑；并行有时更快，但增加请求、内存与用量。
 
 ### 2. 工作区后台任务
 
-**官方已有**：本地 PRoot/Linux 工作区、shell、终端；官方 shell 默认超时 30 秒、最高 600 秒。
+**官方已有**：本地 PRoot/Linux 工作区、shell、终端（官方 shell 默认超时 30 秒、最高 600 秒）。
 
-**本分支增加**：`workspace_job_start/status/kill`，启动后立即返回任务 ID，之后查询状态、日志或停止任务。默认/最大命令超时可配置，0 表示不限。本地后台任务申请前台服务与 wakelock；启动被拒绝时不放出无保护的任务。
+**本分支增加**：`workspace_job_start/status/kill`，启动后立即返回任务 ID，之后查状态、读日志或停止；默认/最大命令超时可配，0 表示不限。本地后台任务申请前台服务与 wakelock，启动被拒绝时不放出无保护任务。
 
-fork.40 起另带官方预览的后台命令（`workspace_shell` 的 `run_in_background`，配 `workspace_shell_output/kill`），属于官方能力，不计入本分支新增。两者并存：官方后台命令归属当前会话，结束后主动通知模型，只在本地 Rootfs 提供，子代理不拿；`workspace_job` 是可跨会话查询的独立任务，也支持 HTTP 远程执行。
+fork.40 起另带官方预览的后台命令（`workspace_shell` 的 `run_in_background` 配 `output/kill`），属于官方能力，不计入新增。两者并存：官方后台命令归属当前会话、结束后通知模型、只在本地 Rootfs 提供；`workspace_job` 可跨会话查询，也支持 HTTP 远程执行。
 
-边界：本地 Rootfs 与 HTTP 执行后端支持，SSH 工作区没有 job 通道。App 重启后历史记录不等于还持有进程，不能用旧 PID 不加校验地接管或杀任务。前台服务也不等于锁屏永不掉线。
-
-源码：[WorkspaceJobManager](../workspace/src/main/java/me/rerere/workspace/WorkspaceJobManager.kt)、[WorkspaceRepository](../app/src/main/java/me/rerere/rikkahub/data/repository/WorkspaceRepository.kt)、[前台服务](../app/src/main/java/me/rerere/rikkahub/service/WorkspaceJobForegroundService.kt)。
+**边界**：SSH 工作区没有 job 通道；App 重启后历史记录不等于还持有进程，不会用旧 PID 不加校验地接管；前台服务不等于锁屏永不掉线。
 
 ### 3. 自托管 HTTP 远程执行
 
-**官方已有**：SSH/SFTP 工作区，命令与文件都在所选 SSH 主机。
+**官方已有**：SSH/SFTP 工作区，命令与文件都在所选主机。
 
-**本分支增加**：可选的 `/exec`、`/job/start`、`/job/status`、`/job/kill` 协议，把本地类型工作区的 shell/job 交给自己部署的服务器执行。与官方 SSH 是不同通道；全局 HTTP 开关不会劫持 SSH 工作区。
+**本分支增加**：可选的 `/exec`、`/job/start`、`/job/status`、`/job/kill` 协议，把本地类型工作区的 shell/job 交给自己部署的服务器执行；与官方 SSH 是不同通道，全局 HTTP 开关不会劫持 SSH 工作区。
 
-边界：HTTP 模式没有远端文件工具，用远端 shell 操作文件；本机文件区不会自动同步过去。服务端要求非空 Bearer token，客户端要求 HTTPS（回环除外）。没有多租户目录隔离，服务重启后不会自动接管旧任务；也没有 HTTP job-list 端点，调用时明确说明不支持。
-
-源码：[服务端](rk-exec-server.py)、[RemoteExecutionClient](../app/src/main/java/me/rerere/rikkahub/data/repository/RemoteExecutionClient.kt)、[后端选择策略](../app/src/main/java/me/rerere/rikkahub/data/repository/WorkspaceExecutionPolicy.kt)。
+**边界**：HTTP 模式没有远端文件工具，用远端 shell 操作文件，本机文件区不会自动同步；服务端要求非空 Bearer token，客户端要求 HTTPS（回环除外）；服务重启后不会自动接管旧任务，也没有 job-list 端点。
 
 ### 4. 自动上下文压缩
 
 **官方已有**：手动压缩对话与检查点机制；记忆整理是另一个官方功能。
 
-**本分支增加**：新用户轮次开始前，按对话模型的窗口和阈值自动生成摘要；全局默认阈值 80%，模型可以独立覆盖开关和10%–100%阈值；可选独立压缩模型。摘要作为检查点插入，本轮输入及原始历史保留，不删除聊天记录。
+**本分支增加**：新用户轮次开始前，按对话模型的窗口与阈值自动生成摘要；全局默认阈值 80%，模型可独立覆盖开关与 10%–100% 阈值，可选独立压缩模型。摘要作为检查点插入，本轮输入与原始历史保留，不删聊天记录。
 
-边界：阈值依赖 `contextLength` 设置正确；摘要请求会消耗用量，单独的摘要模型也可能窗口不足。摘要失败不阻断原对话。不是“无限上下文”，也不是长期记忆整理的替代品。
-
-源码：[AutoCompressionPlan](../app/src/main/java/me/rerere/rikkahub/service/AutoCompressionPlan.kt)、[ChatService](../app/src/main/java/me/rerere/rikkahub/service/ChatService.kt)、[ChatRequestFactory](../app/src/main/java/me/rerere/rikkahub/data/ai/ChatRequestFactory.kt)。
+**边界**：阈值依赖 `contextLength` 设置正确；摘要请求会消耗用量，独立摘要模型也可能窗口不足；摘要失败不阻断原对话。不是「无限上下文」，也不替代长期记忆整理。
 
 ### 5. ZIP 工作区文件迁移
 
-**官方已有**：文件导入/导出与向目录批量导出，不能说官方完全没有导出。
+**官方已有**：文件导入/导出与向目录批量导出。
 
-**本分支增加**：选择整个本地文件区生成 ZIP，并把 ZIP 导入为**新的本地工作区**。旧版裸文件 ZIP、有效空包、Unicode 名称与内容、二进制、空目录、大小写不同的文件名均支持；`workspace/` 或 `files/` 外层需明确选择去掉。
+**本分支增加**：把整个本地文件区导出为 ZIP，并把 ZIP 导入为**新的**本地工作区。支持旧裸文件包、有效空包、Unicode 名称与内容、二进制、空目录、仅大小写不同的文件名；`workspace/` 或 `files/` 外层需明确选择去掉。导入先在同一临时目录验证，全部通过才发布并注册；校验路径、CRC、实际大小、重复冲突、ZIP64 与权限，ZIP 内记录的 0600/0700 不放宽。
 
-导入先在独立临时目录验证，全部通过再发布并注册；失败/取消不伪装成功，提交后的取消不会删掉已注册文件。校验路径、CRC、实际大小、重复冲突、ZIP64 与权限；ZIP 内记录的 0600/0700 不放宽。过期临时残骸按需清理，活跃导入跳过。
-
-导出可选择过滤缓存/构建目录，或包含这些目录的全部普通文件；完成页显示跳过数量。始终排除 `.jobs`、符号链接和特殊文件，不宣称原子快照。
-
-入口：工作区列表 → 工作区文件迁移；高级与长任务中也有入口。只迁移 `/workspace` 文件区，**不含 Linux Rootfs、聊天数据库、设置或整机**。导入不覆盖旧工作区或修改原会话绑定；运行命令前需安装 Rootfs 并自行选择新工作区。
-
-默认限额：100000 条目、12 GiB 展开、4 GiB 单文件/压缩包。分卷、加密、非 UTF-8 文件名明确拒绝；不恢复符号链接，旧导出没有记录的权限不能凭空还原。
-
-源码：[WorkspaceFilesImporter](../app/src/main/java/me/rerere/rikkahub/data/repository/WorkspaceFilesImporter.kt)、[WorkspaceFilesExporter](../app/src/main/java/me/rerere/rikkahub/data/repository/WorkspaceFilesExporter.kt)、[WorkspaceTransferCard](../app/src/main/java/me/rerere/rikkahub/ui/pages/extensions/workspace/WorkspaceTransferCard.kt)。
+**入口**：工作区列表 → 工作区文件迁移（高级与长任务里也有）。**边界**：只迁移 `/workspace` 文件区，不含 Rootfs、聊天数据库、设置或整机；默认限额 100000 条目、12 GiB 展开、4 GiB 单文件/压缩包；分卷、加密、非 UTF-8 文件名明确拒绝；不恢复符号链接，导出不是原子快照。
 
 ## 两项主要功能增强
 
 | 增强 | 官方 3.1.1 | 本分支 |
 |---|---|---|
-| 重试策略 | 自动重试开关；按 1、2、4…秒指数退避，最高 60 秒 | 最大次数 0–100；固定 30/60 秒、30–60 秒均匀随机整秒、自定义 1–600 秒范围。主对话和子代理共用；关闭/0 次/取消不重试 |
-| 单会话用量面板 | 已有 UsageRecorder、usage_record 表、全局统计 | 聊天页按会话聚合输入/输出/缓存、命中率和模型明细，包含关联子代理用量；不是重新发明用量记录，不计算真实账单或虚构缺失历史 |
+| 重试策略 | 自动重试开关；按 1、2、4…秒指数退避，上限 60 秒 | 最大次数 0–100；固定 30/60 秒、30–60 秒均匀随机整秒、自定义 1–600 秒范围。主对话与子代理共用 |
+| 单会话用量面板 | UsageRecorder、usage_record 表、全局统计 | 聊天页按会话聚合输入/输出/缓存、命中率与模型明细，含关联子代理用量；不计算真实账单，也不虚构缺失历史 |
 
-**默认等待已改为固定 60 秒**，与旧版“指数退避、上限 60 秒”不同。可按需要改为 30 秒或随机区间。只重试匹配的网络异常，不保证所有 429/5xx 都会重试。
-
-源码：[重试设置](../app/src/main/java/me/rerere/rikkahub/ui/pages/setting/RetryDelaySettings.kt)、[重试策略](../ai/src/main/java/me/rerere/ai/agent/Retry.kt)、[UsageSheet](../app/src/main/java/me/rerere/rikkahub/ui/pages/chat/UsageSheet.kt)、[UsageRecordDAO](../app/src/main/java/me/rerere/rikkahub/data/db/dao/UsageRecordDAO.kt)。
-
-## r8：三处折叠与立绘形象（增强，不改变组数）
-
-r8 没有新增使用目的：折叠改的是已有信息的呈现方式，立绘替换的是 r7 已上线的悬浮角色形象。因此它不计入上面的 5 组 + 2 项，也不把原生 Compose 动效说成完整 Live2D。
-
-| 项 | 官方 3.1.1 | r7（已发布预发布） | r8（预发布） |
-|---|---|---|---|
-| 顶部信息 | 会话标题栏内混排 | 三布局常显提供商/模型与可靠 TPS | 默认压成一条提供商／模型／TPS 摘要，箭头展开详细计时与上下文；展开偏好随设置保存，三布局一致，抽屉/统计/预览/新会话入口不丢 |
-| 长消息 | 全文直接铺开 | 全文直接铺开 | 超阈值默认折成约 280dp 预览，可展开/收起；正文字符不剪断，媒体、附件与待审批工具在裁切区外 |
-| 悬浮角色 | 应用图标 + 快速回复 | 原创猫/小龙与自定义待机/点击图 | 三张用户提供的透明立绘：鲸鱼女仆（半身）、白龙、橙发坐姿全身；旧 `cat`/`dragon` 自动映射到女仆/龙少女，默认不再显示几何小动物 |
-| 角色入口 | 图标常显 | 可拖动、点击给动作与台词 | 默认收成 48dp×56dp 边缘入口，点开显示立绘，再点给轻微姿态与台词并开快速回复，可一键缩回 |
-| 角色面板 | — | 回复预览直接铺开 | 预览默认隐藏、按需展开，待审批内容始终可见；高度限 62% 可用屏幕、最多 440dp |
-
-边界：折叠是界面层状态，长正文的展开/收起按 messageId 记在本次进程内，滚动回收不丢、App 重启回到默认折叠；只有头部摘要展开与角色开关持久化。立绘是静态 WebP 加原生 Compose 的轻微呼吸/位移，没有骨骼、表情切换、口型同步或 3D，也不含用户可编辑的图层。素材三张合计约 1.0MB，分割模型只在构建时用 CPU 跑一次、不进 APK，App 内没有新增推理运行时、Node 或浏览器引擎。r7 的多格式预览、工作区权限、统计与压缩能力全部保留，本轮不撤任何 r7 功能。
-
-源码：[ChatStyleHeader](../app/src/main/java/me/rerere/rikkahub/ui/pages/chat/ChatStyleHeader.kt)、[MessageCollapsePolicy](../app/src/main/java/me/rerere/rikkahub/ui/components/message/MessageCollapsePolicy.kt)、[CollapsibleMessageText](../app/src/main/java/me/rerere/rikkahub/ui/components/message/CollapsibleMessageText.kt)、[PortraitCompanionBubble](../app/src/main/java/me/rerere/rikkahub/ui/floating/PortraitCompanionBubble.kt)、[PortraitCompanionAssets](../app/src/main/java/me/rerere/rikkahub/ui/floating/PortraitCompanionAssets.kt)、[FloatingCompanionSettings](../app/src/main/java/me/rerere/rikkahub/data/datastore/FloatingCompanionSettings.kt)。
+**默认等待已改为固定 60 秒**（与旧版「指数退避、上限 60 秒」不同），可在网络设置改成 30 秒或随机区间。只重试匹配的网络异常，不保证所有 429/5xx 都会重试。
 
 ## fork.43：工具调用层重做
 
-**这部分改的是“怎么调用、怎么读回”，不是新的使用目的，所以不计入上面的 5 组 + 2 项。** 数字为代码里的阈值与上限；[受控工具测量](verification/fork43-benchmark.md)单列，不等于端到端模型加速或 token 收益。
+改的是「一次回复里怎么调工具、大输出怎么读回来」，不是新的使用目的。数字为代码里的阈值与上限；[受控工具测量](verification/fork43-benchmark.md) 单列，不等于端到端加速或 token 收益。
 
-| 机制 | 官方 3.1.1 | 本分支 fork.43 | 硬边界 |
+| 机制 | 官方 3.1.1 | 本分支 | 硬边界 |
 |---|---|---|---|
-| 同批并发 | 工具调用按顺序执行 | 只读工具可重叠执行，并发上限 8；同批同名同参数的只读调用只跑一次、结果共享 | 写操作与语义未知的工具仍是顺序屏障；MCP 工具不按名字猜语义 |
-| `tool_batch` | 无 | 一次提交 1–16 个已规划调用，结果按调用顺序返回 | 成员失败只回错误字段；批内审批照样生效，判定异常时失败关闭；`ask_user`/`run_script`/`tool_batch` 不能进批 |
-| MCP 瘦身 | 全部 MCP 工具 schema 直接进请求 | ≥16 个工具或 ≥20000 字符时换成精简目录 + `tool_search`/`tool_call` | 搜索默认 6 条、最多 8 条并可翻页；发现陌生工具通常会多一轮 |
-| 大输出外置 | 超长输出截断后不可读回 | 文本合计 >16K 字符外置，回执 + 头尾各 2K 预览，`tool_output_read` 按字符分页读回 | 保留 7 天、最多 64 份输出，按 32MB 预算轮转（至少保留最新一份），按会话归属；分页读时不把全文装进内存 |
-| 子代理结果 | 一次性返回或截断 | `offset`/`limit` 分页，默认 6000、最多 12000 字符，带 `nextOffset`/`totalChars`/`eof` | 仍受子代理超时与取消限制；分页只解决读法，不延长任务寿命 |
-| 子代理并发 | 无子代理 | 默认 4、可设 1–8，并按设备内存封顶 8/4/2 | 独立上下文会增加内存占用，设高不等于更快 |
+| 同批并发 | 工具按顺序执行 | 只读工具可重叠执行，上限 8；同批同名同参数的只读调用只跑一次并共享结果 | 写操作与语义未知的工具仍是顺序屏障 |
+| `tool_batch` | 无 | 一次提交 1–16 个已规划调用，结果按调用顺序返回 | 成员失败只回错误字段；批内审批照样生效，判定异常时失败关闭 |
+| MCP 瘦身 | 全部 schema 直接进请求 | ≥16 个工具或 ≥20000 字符时换成精简目录 + `tool_search`/`tool_call` | 搜索默认 6 条、最多 8 条；发现陌生工具通常多一轮 |
+| 大输出外置 | 超长输出截断后读不回 | 文本合计 >16K 字符外置，回执 + 头尾各 2K 预览，`tool_output_read` 按字符分页读回 | 保留 7 天、最多 64 份、32MB 预算轮转，按会话归属 |
+| 子代理并发 | 无子代理 | 默认 4、可设 1–8，并按内存封顶 8/4/2 | 独立上下文增加内存占用，设高不等于更快 |
 | 重复调用 | 反复执行、重复进上下文 | 请求内折叠 ≥400 字符的相同结果；连续第 5 次相同调用被拦下 | 只改发给模型的内容，界面与消息保留完整结果；轮询类工具豁免 |
-| 工作区读/搜 | `workspace_read_file` 整文件读 | `offset`/`limit`（默认 2000 行、最多 20000 行）+ `workspace_grep`/`workspace_glob` | 只在文件仍在本机的工作区可用；SSH 明确拒绝并提示用 `workspace_shell` |
-| `run_script` | 无 | 一次调用里用脚本串联多个只读工具，只回日志、返回值和调用元数据 | 32 次调用 / 每次与总计 120 秒 / 并发 8 / 日志与返回值各 8K；看不到 shell、MCP、写、子代理 |
-| 缓存前缀 | 每步重拼系统提示 | Claude messages 断点落在最后一条消息；`AGENTS.md` 按 mtime/size 缓存；记忆清单去掉日期；工具规范按后端固定 | 顶层自动断点只作兜底（显式断点最多 3 个 + 顶层 1 个不超协议上限） |
+| 工作区读/搜 | `workspace_read_file` 整文件读 | `offset`/`limit`（默认 2000 行、最多 20000 行）+ `workspace_grep`/`workspace_glob` | 只在文件仍在本机的工作区可用；SSH 明确拒绝 |
+| `run_script` | 无 | 一次调用里用脚本串联多个只读工具，只回日志、返回值与调用元数据 | 32 次调用 / 每次与总计 120 秒 / 并发 8 / 日志与返回值各 8K；看不到 shell、MCP、写、子代理 |
+| 缓存前缀 | 每步重拼系统提示 | Claude messages 断点在最后一条消息；`AGENTS.md` 按 mtime/size 缓存；记忆清单去掉日期；工具规范按后端固定 | 只是减少重复读取，未测真实供应商命中率 |
 
-`workspace_grep` 参数：正则或 `literal`、`path`、`glob`、`ignore_case`、`output_mode`（`files_with_matches`/`content`/`count`）、`context` 0–20、`head_limit`（默认 100、上限 1000）、`offset`、`include_hidden`；默认跳过 `.git`、`node_modules`、`build` 等目录、含 NUL 的二进制与 >2MB 文件，预算 20000 文件或 15 秒（超出标 `truncated`）。`workspace_glob` 按修改时间新→旧。
-
-`run_script` 白名单只读：`workspace_read_file`、`workspace_grep`、`workspace_glob`、`memory_read`、`memory_list`、`search_web`、`scrape_web`、`recent_chats`、`conversation_search`、`conversation_read`、`use_skill`、`get_time_info`、`get_current_time`。每次嵌套调用前还会再判一次该调用的审批要求，白名单只是第一道闸。
-
-入口：`run_script` = **助手详情 → 本地工具 → 代码模式**（按助手开关，默认关闭；开启后在有可用只读工具时注入）；子代理并发 = **设置 → 高级与长任务 → 子代理**；工作区读/搜无需开关，默认放行审批，可在工作区详情页按工作区覆盖。
-
-源码：[ToolBatch](../ai/src/main/java/me/rerere/ai/agent/ToolBatch.kt)、[ToolRepetition](../ai/src/main/java/me/rerere/ai/agent/ToolRepetition.kt)、[BuiltinToolScheduling](../app/src/main/java/me/rerere/rikkahub/data/ai/tools/BuiltinToolScheduling.kt)、[CompactMcpTools](../app/src/main/java/me/rerere/rikkahub/data/ai/tools/CompactMcpTools.kt)、[ToolOutputStore](../app/src/main/java/me/rerere/rikkahub/data/ai/tools/ToolOutputStore.kt)、[ScriptTool](../app/src/main/java/me/rerere/rikkahub/data/ai/tools/local/ScriptTool.kt)、[WorkspaceTools](../app/src/main/java/me/rerere/rikkahub/data/ai/tools/WorkspaceTools.kt)、[WorkspaceSearch](../workspace/src/main/java/me/rerere/workspace/WorkspaceSearch.kt)、[SubagentRunner](../app/src/main/java/me/rerere/rikkahub/data/ai/subagent/SubagentRunner.kt)、[WorkspaceReminderTransformer](../app/src/main/java/me/rerere/rikkahub/data/ai/transformers/WorkspaceReminderTransformer.kt)。
+**入口**：`run_script` = 助手详情 → 本地工具 → 代码模式（按助手开关，默认关闭）；子代理并发 = 高级与长任务 → 子代理；工作区读/搜无需开关，默认放行审批，可在工作区详情页按工作区覆盖。
 
 ## 另列的稳定性与兼容修复
 
-流式 1.5 秒节流落库、节点差分写入、超大消息完整分片回退、跨分支备份 staging 对齐、用量表归一化、记忆路径冲突保留、FTS 自检与对齐、工具全文可读性、技能元数据校验、通知身份和生命周期、SSH/HTTP 路由边界等。
-
-fork.43 另修了流式工具调用的 id 归属（不属于本步的输出直接丢弃，不再串到别的调用上）、参数增量缺失时的回退，以及分页窗口的偏移在裁剪前先转整型；MCP 调用不再因为服务器自称 `idempotentHint` 就被同批合并。见 [RELEASE-fork43.md](RELEASE-fork43.md)。
-
-fork.41 修复 PRoot 里的命令结束不了：停止任务、shell 超时与取消、结束后台命令时，结束命令启动的整棵进程树，见 [RELEASE-fork41.md](RELEASE-fork41.md)。
-
-fork.38 还用真实 Android 原生窗口发现了 requery 的特殊错误文本：只在精确的 `Couldn't read row N column M` 与 `CursorWindow.nativeGet*` 堆栈同时匹配时回退，分片失败仍整体抛错。没有新增 UI 懒分页，不能承诺无限大历史不 OOM。
+流式 1.5 秒节流落库、节点差分写入、超大消息分片回退、跨分支备份 staging 对齐、用量表归一化、记忆路径冲突保留、FTS 自检与对齐、工具全文可读性、技能元数据校验、通知身份与生命周期、SSH/HTTP 路由边界；fork.43 的流式工具调用 id 归属与参数增量回退；fork.41 结束 PRoot 里整棵进程树。不计入新增功能数。
 
 ## 来自官方，不计入分支新增
 
@@ -162,12 +123,8 @@ fork.38 还用真实 Android 原生窗口发现了 requery 的特殊错误文本
 
 ## 验证与取舍
 
-稳定基线 r3 的完整构建、测试与覆盖升级结果见 [r3 验收](RELEASE-r3.md#验证)；r6 的本轮结果、SHA 与边界见 [r6 发布说明](RELEASE-r6.md) 和 [verification/r6.json](verification/r6.json)。r8 正式签名构建、2025 个生产输入核对、r7→r8 覆盖与 21 张界面复核通过；最终 JVM 2103 项零失败／1 项跳过、Android 139 项全过。一次早期 Compose 测试宿主失败及 3 次隔离复跑/最终完整重跑如实记录，不宣称查明根因，见 [verification/r8.json](verification/r8.json)。下列为历史版本的已验范围。
+r11 有 16 个套件、168 项定向单元测试通过（0 失败 / 0 错误 / 0 跳过），Debug 变体编译通过；正式发布沿用这些已有测试结果，没有重跑测试。**没有**真机或模拟器界面回归，**没有**用真实提供商测缓存命中率与真实模型后台调用。r10 及更早的已验范围见各自 `RELEASE-rN.md` 与 `verification/rN.json`，例如 r8 的正式签名构建、2025 个生产输入核对与 21 张界面复核。
 
-fork.43（[GitHub Actions run 41325551257](https://github.com/682012/rikkahub/actions/runs/41325551257)）：JVM **1561 项，1560 通过，0 失败、0 错误，1 项跳过**；Android API34 x86_64 **54 项全部通过**；R8 + lintVital、签名与版本核对通过。用户真机升级与端到端模型性能未测量。
+这个分支用更多设置、工具和后台逻辑换取可操作性；不提升模型智力，也不保证更快或更便宜。不需要这些增量时，官方版更省心。
 
-fork.38 另做过 Python 11、SQLite 模拟 38 及 Unicode 分片检查。用户真机生产数据库升级、厂商通知与锁屏保活始终未验。
-
-这个分支用更多设置、工具和后台逻辑换取可操作性；不提升模型本身的智力，也不保证更快或更便宜。新增的并发、去重、外置与分页是为了少重复、少浪费上下文，不是已测出的性能收益。不需要这些增量时，官方版更省心。
-
-[本版更新与说明](RELEASE-r3.md) · [上一版更新与验收](RELEASE-r2.md) · [历史记录](CHANGES.md) · [维护方法](README.md) · [修改声明](../NOTICE.md)
+[当前版本说明](RELEASE-r11.md) · [构建与发布](README.md) · [历史记录](CHANGES.md) · [仓库首页](../README.md) · [修改声明](../NOTICE.md)

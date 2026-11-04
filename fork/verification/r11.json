@@ -2,9 +2,9 @@
   "versionName": "3.1.1-r11",
   "versionCode": 3000058,
   "baseCommit": "c2f331dfdfa26dc0bca3cd5246e890f20f3d5fa5",
-  "sourceId": "5f1d6a17bcc032013ea8d148334cbb98aaf7056459584d89869ab66206e478f4",
+  "sourceId": "cff4e59ba9c8b39b4c280f3dcac5bf908f00506669f0b8e3f08325fb3689a815",
   "sourceFilesAndLinksCompared": 2326,
-  "sourceSnapshotSha256": "20e308ac59ed601c7f5ce5bee54561d256faab2df7fa1efee937e020f346f961",
+  "sourceSnapshotSha256": "9c311784928dc070da199ed1544337095e87f905f80965569db48cebd9f1815d",
   "test": {
     "jobId": "idem-15de4e979d91f4c8143997fc",
     "task": "r11-test",
@@ -14,7 +14,9 @@
     "errors": 0,
     "skipped": 0,
     "fullSuite": false,
-    "node": "win"
+    "node": "win",
+    "rerunForFormalRelease": false,
+    "evidenceScope": "Previously passed targeted tests; not a new test run."
   },
   "firebase": {
     "debugCompileJob": "idem-942647d513c18ac15cb74d6b",
@@ -25,22 +27,61 @@
     "fixtureTestsPassed": 6
   },
   "apk": {
-    "jobId": "idem-2721d0402c3e5541a3aa8a2e",
-    "buildMode": "fast (no R8), development APK, not a formal release",
-    "localPath": "/workspace/rk-sync/r11/rikkahub-3.1.1-r11-fast.apk",
-    "bytes": 50614178,
-    "sha256": "2ba6f4109130cecd76cfea5e91a4cc3fb24bbd067c05cd3d5588f5679217fca8",
+    "jobId": "idem-7fb1d45128015b1d42db3982",
+    "buildMode": "release (R8 + lintVital)",
+    "buildCommit": "5e0e92fcdf92d16d79eaa1a849ac7406276688c3",
+    "bytes": 20547584,
+    "sha256": "4e961477588f92accb62c140a4d58eef5b32e67dbeeb12a45c58df4a47882854",
     "package": "me.rerere.rikkahub.fork",
+    "versionName": "3.1.1-r11",
+    "versionCode": 3000058,
     "certificateSha256": "cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89",
-    "abis": ["arm64-v8a", "x86_64"],
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ],
+    "debuggable": false,
     "zipCRCVerified": true,
     "signatureVerified": true,
-    "remoteLocalSha256Match": true
+    "remoteLocalSha256Match": true,
+    "r8TaskVerified": true,
+    "mappingSha256": "ba99672af305fab8b6b8b22b4de611d4a80b397ed6995b66c124470bae1e842c",
+    "testsRerun": false,
+    "buildDurationMs": 987664,
+    "name": "rikkahub-3.1.1-r11.apk"
   },
   "instrumentationRun": false,
   "installedOnPhone": false,
-  "publishedToGitHub": false,
   "providerCacheHitRateMeasured": false,
-  "knownBuildWarnings": ["Fast-build D8 startup profile references missing methods; build and lintVital completed. No startup speed claim."],
-  "note": "This verification file was added after the tested source snapshot; no production source changed after APK verification."
+  "knownBuildWarnings": [
+    "The earlier fast build logged D8 startup-profile missing-method warnings. That is not evidence of a startup-speed improvement."
+  ],
+  "note": "Formal R8 build uses the same production inputs as the 168 passing targeted tests. The final documentation commit changes only Markdown and this evidence JSON; no new app tests, device install, UI regression or provider-cache measurement were run.",
+  "buildCommit": "5e0e92fcdf92d16d79eaa1a849ac7406276688c3",
+  "sourceComparison": {
+    "testSourceId": "5f1d6a17bcc032013ea8d148334cbb98aaf7056459584d89869ab66206e478f4",
+    "releaseSourceId": "cff4e59ba9c8b39b4c280f3dcac5bf908f00506669f0b8e3f08325fb3689a815",
+    "releaseSnapshotSha256": "9c311784928dc070da199ed1544337095e87f905f80965569db48cebd9f1815d",
+    "releaseBuildCommit": "5e0e92fcdf92d16d79eaa1a849ac7406276688c3",
+    "entriesUnchanged": 2326,
+    "changed": [],
+    "added": [
+      "fork/verification/r11.json"
+    ],
+    "removed": [],
+    "productionInputsChanged": false,
+    "testsRerun": false
+  },
+  "developmentApk": {
+    "jobId": "idem-2721d0402c3e5541a3aa8a2e",
+    "buildMode": "fast (no R8), development APK, not a formal release",
+    "bytes": 50614178,
+    "sha256": "2ba6f4109130cecd76cfea5e91a4cc3fb24bbd067c05cd3d5588f5679217fca8"
+  },
+  "release": {
+    "tag": "v3.1.1-r11",
+    "channel": "formal",
+    "url": "https://github.com/682012/rikkahub/releases/tag/v3.1.1-r11",
+    "recordScope": "Build/package evidence sealed before publication; release availability is verified via GitHub."
+  }
 }
