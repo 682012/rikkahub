@@ -46,6 +46,7 @@ class ConversationSession(
     private val store: ConversationStore,
     private val onIdle: (Uuid) -> Unit,
     private val onGenerationFinished: (Uuid, Throwable?) -> Unit = { _, _ -> },
+    val inbox: ConversationInbox = ConversationInbox(),
 ) {
     // 会话状态
     private val _state = MutableStateFlow(initial)
@@ -69,7 +70,8 @@ class ConversationSession(
     var incarnation = 0
         private set
 
-    val inbox = ConversationInbox()
+    @Volatile
+    var awaitingNetworkRecovery: Boolean = false
 
     /**
      * 页面切换和 SSE 重连只加载一次。[load] 返回 null 表示数据库里没有这个会话，改用 [create] 新建。
@@ -236,7 +238,7 @@ class ConversationSession(
     val isGenerating: Boolean get() = _generationJob.value?.isActive == true
     val isInUse: Boolean
         get() = refCount.get() > 0 || _generationJob.value != null ||
-            inbox.state.value.items.isNotEmpty()
+            inbox.state.value.items.isNotEmpty() || inbox.state.value.inFlight != null || awaitingNetworkRecovery
 
     // 空闲检查任务
     private var idleCheckJob: Job? = null

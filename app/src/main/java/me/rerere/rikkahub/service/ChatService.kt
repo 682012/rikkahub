@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.StringRes
 import androidx.core.net.toUri
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -30,6 +31,8 @@ import kotlinx.coroutines.withContext
 import me.rerere.ai.agent.AgentEvent
 import me.rerere.ai.agent.AgentFinishReason
 import me.rerere.ai.agent.RetryAttempt
+import me.rerere.rikkahub.data.ai.retryPolicy
+import me.rerere.common.http.NetworkHandover
 import me.rerere.ai.agent.runAgent
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.provider.BuiltInTools
@@ -86,6 +89,8 @@ import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
 import me.rerere.rikkahub.web.BadRequestException
 import me.rerere.rikkahub.web.NotFoundException
+import java.io.File
+import java.io.IOException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.util.concurrent.ConcurrentHashMap
@@ -131,6 +136,7 @@ class ChatService(
     private val backgroundShellManager: BackgroundShellManager,
     private val subagentRunner: me.rerere.rikkahub.data.ai.subagent.SubagentRunner,
     private val backgroundToolManager: me.rerere.rikkahub.data.ai.tools.background.BackgroundToolManager,
+    private val networkHandover: NetworkHandover,
 ) {
     /** 一轮生成的结果 */
     private sealed interface TurnResult {
@@ -159,6 +165,9 @@ class ChatService(
         }
     }
 
+    private val inboxDirectory = File(context.filesDir, "conversation-inbox")
+    private val reconnectTickets = ConcurrentHashMap<Uuid, ChatReconnectTicket>()
+
     private val sessionManager = ConversationSessionManager(
         scope = appScope,
         store = conversationStore,
@@ -167,6 +176,7 @@ class ChatService(
         },
         onGenerationFinished = ::onSessionGenerationFinished,
         onSessionRemoved = memoryConsolidationScheduler::onConversationLeft,
+        createInbox = { id -> ConversationInbox(FileConversationInboxStorage(inboxDirectory, id)) },
     )
 
     // 流式生成期间定期落库，进程被强杀时最多丢最近一次落库之后的内容
@@ -229,13 +239,49 @@ class ChatService(
         }
     }
 
+    init {
+        appScope.launch(Dispatchers.IO) {
+            settingsStore.awaitLoaded()
+            // Pending user input is owned by the service, including conversations with no open page.
+            inboxDirectory.listFiles().orEmpty().filter { it.extension == "json" }.forEach { file ->
+                val id = runCatching { Uuid.parse(file.nameWithoutExtension) }.getOrNull() ?: return@forEach
+                try {
+                    val session = sessionManager.getOrCreate(id)
+                    session.inbox.restore()
+                    if (networkHandover.state.value.available && settingsStore.settingsFlow.value.retryPolicy().maxRetries > 0)
+                        session.inbox.resumeAfterNetwork()
+                    dispatchInbox(id)
+                } catch (e: Exception) {
+                    addError(e, id, title = context.getString(R.string.r18_queue_restore_failed))
+                }
+            }
+            networkHandover.state.collect { route ->
+                if (!route.available) return@collect
+                delay(NetworkHandover.STABILIZE_MILLIS)
+                if (!networkHandover.state.value.available) return@collect
+                sessionManager.snapshot().forEach { session ->
+                    try {
+                        if (!tryReconnect(session) && reconnectTickets[session.id] == null &&
+                            settingsStore.settingsFlow.value.retryPolicy().maxRetries > 0 && session.inbox.resumeAfterNetwork()) {
+                            session.processingStatus.value = null
+                            dispatchInbox(session.id)
+                        }
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        addError(e, session.id)
+                    }
+                }
+            }
+        }
+    }
+
     private fun onSessionGenerationFinished(session: ConversationSession, cause: Throwable?) {
         // 取消只来自停止（已自行暂停）或删除，这里再暂停会盖掉停止后用户发送时恢复的队列
-        if (cause != null && cause !is CancellationException) session.inbox.pause()
+        if (cause != null && cause !is CancellationException && !session.awaitingNetworkRecovery) session.inbox.pause()
         if (session.state.value.isAwaitingToolApproval) {
             session.inbox.failReplyWaiters(context.getString(R.string.chat_page_voice_tool_approval))
         }
-        appScope.launch { dispatchInbox(session.id) }
+        appScope.launch(Dispatchers.IO) { if (!tryReconnect(session)) dispatchInbox(session.id) }
     }
 
     // 保留 UI/Web 的入口，生命周期和状态查询统一交给 SessionManager。
@@ -311,7 +357,7 @@ class ChatService(
     private suspend fun ensureInitialized(session: ConversationSession) {
         session.initialize(
             load = { loadConversation(session.id) },
-            create = { newConversation(session.id) },
+            create = { newConversation(session.id, session.inbox.state.value.ownerAssistantId ?: session.state.value.assistantId) },
         )
     }
 
@@ -325,15 +371,18 @@ class ChatService(
             load = { loadConversation(conversationId) },
             create = {
                 if (!createIfMissing) throw NotFoundException("Conversation not found")
-                newConversation(conversationId)
+                newConversation(conversationId, session.inbox.state.value.ownerAssistantId ?: session.state.value.assistantId)
             },
         )
         block(session)
     }
 
     // 新建对话, 并添加预设消息
-    private suspend fun newConversation(conversationId: Uuid): Conversation {
-        val assistant = settingsStore.awaitLoaded().getCurrentAssistant()
+    private suspend fun newConversation(conversationId: Uuid, assistantId: Uuid? = null): Conversation {
+        val settings = settingsStore.awaitLoaded()
+        val assistant = if (assistantId == null) settings.getCurrentAssistant()
+            else settings.assistants.firstOrNull { it.id == assistantId }
+                ?: error("The assistant owning this pending message no longer exists")
         return Conversation.ofId(
             id = conversationId,
             assistantId = assistant.id,
@@ -430,40 +479,52 @@ class ChatService(
     }
 
     fun resumeInbox(conversationId: Uuid) {
-        sessionManager.get(conversationId)?.inbox?.resume()
-        dispatchInbox(conversationId)
-    }
-
-    fun sendMessage(conversationId: Uuid, content: List<UIMessagePart>, answer: Boolean = true) {
-        if (content.isEmptyInputMessage()) return
-        val session = sessionManager.getOrCreate(conversationId)
-        synchronized(session) {
-            // 没有排队的用户输入时，新消息就是用户要继续的意思；等待中的通知跟着这一轮发出
-            if (session.inbox.state.value.messages.isEmpty()) session.inbox.resume()
-            session.inbox.enqueue(content, answer)
-            dispatchInbox(conversationId)
+        appScope.launch(Dispatchers.IO) {
+            val session = sessionManager.get(conversationId) ?: return@launch
+            session.inbox.resume()
+            if (!tryReconnect(session, force = true)) dispatchInbox(conversationId)
         }
     }
 
-    /**
-     * 同 [sendMessage]，额外返回「这条输入是否已经落库」的确认，给输入草稿决定何时清理用：
-     * `true` 表示用户消息已经写进会话（可以清草稿），`false` 表示初始化失败/被撤回，草稿要留着。
-     * 内容为空时返回 null（本来就不会入队）。其他调用者忽略返回值即可。
-     */
+    fun sendMessage(conversationId: Uuid, content: List<UIMessagePart>, answer: Boolean = true) {
+        sendMessageWithReceipt(conversationId, content, answer)
+    }
+
+    /** Receipt means durable queue acceptance, NOT waiting for an older generation to finish. */
     fun sendMessageWithReceipt(
         conversationId: Uuid,
         content: List<UIMessagePart>,
         answer: Boolean = true,
+        assistantId: Uuid? = null,
     ): CompletableDeferred<Boolean>? {
         if (content.isEmptyInputMessage()) return null
-        val session = sessionManager.getOrCreate(conversationId)
-        val persisted = CompletableDeferred<Boolean>()
-        synchronized(session) {
-            if (session.inbox.state.value.messages.isEmpty()) session.inbox.resume()
-            session.inbox.enqueue(content, answer, persisted = persisted)
-            dispatchInbox(conversationId)
+        val accepted = CompletableDeferred<Boolean>()
+        val parts = content.toList()
+        appScope.launch(Dispatchers.IO) {
+            var acceptedByQueue = false
+            try {
+                val session = sessionManager.getOrCreate(conversationId)
+                session.inbox.restore()
+                session.inbox.bindOwner(assistantId ?: session.state.value.assistantId)
+                ensureInitialized(session)
+                synchronized(session) {
+                    reconnectTickets.remove(conversationId)
+                    session.awaitingNetworkRecovery = false
+                    // Sending a new user message is explicit permission to continue an old paused queue.
+                    session.inbox.resume()
+                    val queued = session.inbox.enqueue(parts, answer, persisted = CompletableDeferred())
+                    acceptedByQueue = queued != null
+                    accepted.complete(acceptedByQueue)
+                    dispatchInbox(conversationId)
+                }
+            } catch (e: Exception) {
+                accepted.complete(false)
+                if (e is CancellationException) throw e
+                addError(e, conversationId, title = context.getString(
+                    if (acceptedByQueue) R.string.r18_queue_dispatch_failed else R.string.r18_queue_accept_failed))
+            }
         }
-        return persisted
+        return accepted
     }
 
     /** Enqueue immediately; the result belongs to this item even after edits or later turns. */
@@ -500,6 +561,12 @@ class ChatService(
         synchronized(session) {
             // A pending tool approval is still part of the current turn.
             if (session.getJob() != null || session.state.value.isAwaitingToolApproval) return null
+            if (session.awaitingNetworkRecovery) return null
+            if (!networkHandover.state.value.available && settingsStore.settingsFlow.value.retryPolicy().maxRetries > 0) {
+                session.inbox.pause(InboxPauseReason.NETWORK)
+                session.processingStatus.value = context.getString(R.string.r18_waiting_network)
+                return null
+            }
             return when (val next = session.inbox.takeNext() ?: return null) {
                 is InboxTurn.Message -> {
                     session.submittingMessage = next.message
@@ -528,15 +595,19 @@ class ChatService(
 
                 // 添加消息到列表
                 val previousIds = session.state.value.currentMessages.mapTo(HashSet()) { it.id }
-                session.update {
-                    it.copy(
-                        messageNodes = it.messageNodes + UIMessage(
-                            role = MessageRole.USER,
-                            parts = processedContent,
-                        ).toMessageNode(),
-                    )
+                if (session.state.value.messageNodes.none { node -> node.messages.any { it.id == queued.id } }) {
+                    session.update {
+                        it.copy(
+                            messageNodes = it.messageNodes + UIMessage(
+                                id = queued.id,
+                                role = MessageRole.USER,
+                                parts = processedContent,
+                            ).toMessageNode(),
+                        )
+                    }
                 }
                 session.flush()
+                session.inbox.acknowledge(queued.id)
                 session.submittingMessage = null
                 // 用户消息已经写进会话：输入草稿这时才可以清掉
                 queued.persisted?.complete(true)
@@ -558,6 +629,8 @@ class ChatService(
                 if (queued.reply == null) _generationDoneFlow.emit(conversationId)
             } catch (e: Exception) {
                 queued.reply?.completeExceptionally(e)
+                runCatching { session.inbox.requeueInFlight("initialization or persistence failed") }
+                    .onFailure { addError(it, conversationId) }
                 // 没写进会话：草稿要留着，别把它当成已经发出去了
                 queued.persisted?.complete(false)
                 e.printStackTrace()
@@ -724,6 +797,9 @@ class ChatService(
         session.replyMessageId.value = null
         // 生成开始前失败时通知只用来取消 Live Update，用不到发送者名称
         var senderName = ""
+        val attemptEpoch = networkHandover.state.value.epoch
+        var reconnectCheckpoint: ChatReconnectCheckpoint? = null
+        var activeReplyNodeId: Uuid? = null
         try {
             val settings = settingsStore.awaitLoaded()
             // fork: 上下文到阈值时先插入摘要检查点，不删除历史
@@ -751,6 +827,8 @@ class ChatService(
                 regenerateNodeId != null -> regenerateNodeId
                 else -> Uuid.random()
             }
+            activeReplyNodeId = replyNodeId
+            reconnectCheckpoint = ChatReconnectCheckpoint(history.lastOrNull()?.takeIf { it.role == MessageRole.ASSISTANT })
             // 接着上一条助手消息写时就是它，否则等第一次输出。要在 createContext 之前换掉，
             // 它会挂起也可能失败，期间或失败后不能还指着上一轮的回复
             session.replyMessageId.value = history.lastOrNull()?.takeIf { it.role == MessageRole.ASSISTANT }?.id
@@ -780,6 +858,7 @@ class ChatService(
                 runAgent(request, hooks).flowOn(Dispatchers.IO).collect { event ->
                     when (event) {
                         is AgentEvent.MessageUpdated -> {
+                            reconnectCheckpoint?.observe(event.message)
                             // 生成过程中只有网络重试的提示会留着，收到新内容说明重试已经成功
                             session.processingStatus.value = null
                             session.update { it.upsertMessage(replyNodeId, event.message) }
@@ -843,6 +922,8 @@ class ChatService(
                 sessionManager.launchWithSession(conversationId) { generateSuggestion(conversationId) }
                 if (turn.assistant.enableMemory) memoryConsolidationScheduler.onTurnFinished(session.state.value)
             }
+            reconnectTickets.remove(conversationId)
+            session.awaitingNetworkRecovery = false
             return TurnResult.Finished(reason)
         } catch (e: CancellationException) {
             appEventBus.tryEmit(AppEvent.ChatGenerationEnded(conversationId, senderName, null))
@@ -859,12 +940,74 @@ class ChatService(
         } catch (e: Exception) {
             // 兜底取消 Live Update 通知（生成开始前失败时上面的 finally 不会执行）
             appEventBus.tryEmit(AppEvent.ChatGenerationEnded(conversationId, senderName, null))
-            session.inbox.pause()
+            val retry = settingsStore.settingsFlow.value.retryPolicy()
+            val checkpoint = reconnectCheckpoint
+            val recoverable = retry.maxRetries > 0 && retry.retryOn(e) &&
+                e !is java.io.FileNotFoundException && e !is InboxPersistenceException &&
+                checkpoint?.canResume == true && activeReplyNodeId != null
+            if (recoverable) {
+                val current = session.state.value.currentMessages
+                reconnectTickets[conversationId] = ChatReconnectTicket(
+                    failedEpoch = attemptEpoch, incarnation = session.incarnation,
+                    userMessage = current.lastOrNull { it.role == MessageRole.USER },
+                    replyNodeId = checkNotNull(activeReplyNodeId), checkpoint = checkpoint?.message,
+                    failedTail = current.lastOrNull(),
+                )
+                session.awaitingNetworkRecovery = true
+                session.inbox.pause(InboxPauseReason.NETWORK)
+                session.processingStatus.value = context.getString(R.string.r18_waiting_network)
+            } else session.inbox.pause()
             e.printStackTrace()
             addError(e, conversationId, title = context.getString(R.string.error_title_generation))
             Logging.log(TAG, "runTurn: $e")
             Logging.log(TAG, e.stackTraceToString())
             return TurnResult.Failed
+        }
+    }
+
+    private fun tryReconnect(session: ConversationSession, force: Boolean = false): Boolean {
+        synchronized(session) {
+            val ticket = reconnectTickets[session.id] ?: return false
+            if (session.getJob() != null || session.state.value.isAwaitingToolApproval) return false
+            val pause = session.inbox.state.value
+            if (!force && (pause.pauseReason != InboxPauseReason.NETWORK || !pause.paused)) return false
+            val route = networkHandover.state.value
+            val current = session.state.value.currentMessages
+            val user = current.lastOrNull { it.role == MessageRole.USER }
+            val unchanged = session.incarnation == ticket.incarnation && user == ticket.userMessage &&
+                current.lastOrNull() == ticket.failedTail
+            if (!unchanged || settingsStore.settingsFlow.value.retryPolicy().maxRetries <= 0) {
+                reconnectTickets.remove(session.id)
+                session.awaitingNetworkRecovery = false
+                session.inbox.pause(InboxPauseReason.ERROR)
+                return false
+            }
+            if (!route.available || (!force && !ticket.canResume(route.epoch, true, session.incarnation, user))) return false
+            session.inbox.resumeAfterNetwork()
+            reconnectTickets.remove(session.id)
+            session.awaitingNetworkRecovery = false
+            val job = launchGenerationJob(conversationId = session.id) {
+                try {
+                    // Restore the completed-step checkpoint, replacing only the interrupted branch.
+                    session.update { conversation ->
+                        conversation.copy(messageNodes = conversation.messageNodes.mapNotNull { node ->
+                            if (node.id != ticket.replyNodeId) return@mapNotNull node
+                            val retained = node.messages.mapNotNull { message ->
+                                if (message.id == ticket.failedTail?.id) ticket.checkpoint else message
+                            }
+                            if (retained.isEmpty()) null else node.copy(messages = retained,
+                                selectIndex = node.selectIndex.coerceAtMost(retained.lastIndex))
+                        })
+                    }
+                    session.flush()
+                    _errors.update { errors -> errors.filterNot { it.conversationId == session.id &&
+                        it.error is IOException && it.error !is InboxPersistenceException } }
+                    runTurn(session)
+                    _generationDoneFlow.emit(session.id)
+                } catch (e: Exception) { reportFailure(session, e, R.string.error_title_generation) }
+            }
+            session.setJob(job)
+            return true
         }
     }
 
@@ -1631,7 +1774,10 @@ class ChatService(
     }
 
     private fun discardQueuedMessages(session: ConversationSession) {
-        session.inbox.pause()
+        reconnectTickets.remove(session.id)
+        session.awaitingNetworkRecovery = false
+        session.inbox.pause(InboxPauseReason.USER)
+        session.inbox.state.value.inFlight?.let { session.inbox.acknowledge(it.id) }
         session.inbox.state.value.messages.forEach { queued ->
             (session.inbox.remove(queued.id) as? QueuedMessage)?.let(::cleanupQueuedAttachments)
         }
@@ -1762,7 +1908,10 @@ class ChatService(
     suspend fun stopGeneration(conversationId: Uuid) {
         val session = sessionManager.get(conversationId) ?: return
         val jobs = synchronized(session) {
-            session.inbox.pause()
+            reconnectTickets.remove(conversationId)
+            session.awaitingNetworkRecovery = false
+            session.processingStatus.value = null
+            session.inbox.pause(InboxPauseReason.USER)
             session.cancelJobs()
         }
         if (jobs.isEmpty()) return

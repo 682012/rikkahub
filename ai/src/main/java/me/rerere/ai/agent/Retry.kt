@@ -4,7 +4,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import me.rerere.ai.provider.NetworkRouteChangedException
 import me.rerere.ai.provider.NetworkUnavailableException
+import me.rerere.ai.provider.stream.StreamTruncatedException
+import me.rerere.common.http.NetworkChangedException
 import me.rerere.common.http.NetworkHandover
 import java.io.IOException
 import kotlin.random.Random
@@ -119,12 +122,18 @@ data class RetryAttempt(
 )
 
 /**
- * 请求根本没离开设备（没有可用路由）时最多容忍几轮等待。
+ * 把真实异常折算成 [FailureFacts]。
  *
- * 这类失败不该算「一次失败的重试」——离线时把 3 次预算烧完，等网络回来也来不及重连了；
- * 但也不能无限等，所以给一个有界次数（每轮仍按用户配置的间隔等待，换网会立刻唤醒）。
+ * [withRetry] 和 ChatService 必须用同一个折算：两边各写一套 is/else 一旦分叉，
+ * 最难查的就是「界面显示已停止，队列还在后台重发」这种事故。
  */
-private const val MAX_UNSENT_ATTEMPTS = 10
+fun failureFacts(error: Throwable, cancelled: Boolean = false): FailureFacts = FailureFacts(
+    cancelled = cancelled,
+    notSent = error is NetworkUnavailableException,
+    routeRetired = error is NetworkRouteChangedException || error is NetworkChangedException,
+    truncatedStream = error is StreamTruncatedException,
+    transport = error is IOException,
+)
 
 /**
  * 按 [policy] 执行 [block]：失败且允许重试时先调用 [onRetry]，等待后再执行一次。
@@ -133,8 +142,10 @@ private const val MAX_UNSENT_ATTEMPTS = 10
  * 就交给它提前结束等待，而不是干等完整退避。没有网络事件时仍然等 [RetryPolicy.delayFor] 给的时长，
  * 所以"最多重试几次"和"哪些错误重试"的语义都没变。
  *
- * 唯一的例外是 [NetworkUnavailableException]：请求根本没发出去，不算一次失败的尝试，
- * 也就不会把预算耗在完全离线的时间里（仍受 [MAX_UNSENT_ATTEMPTS] 限制）。
+ * 记账交给 [RetryBudget]：只有真正失败的尝试才消耗 [RetryPolicy.maxRetries]。
+ * 请求根本没发出去（[NetworkUnavailableException]）和连接被换网作废
+ * （[NetworkRouteChangedException] / [NetworkChangedException]）各有一份独立的有界预算——
+ * 拿用户的三次机会去扣这两类失败，正是「切一下 Wi-Fi 就再也不重连」的直接原因。
  */
 suspend fun <T> withRetry(
     policy: RetryPolicy,
@@ -142,8 +153,7 @@ suspend fun <T> withRetry(
     block: suspend () -> T,
 ): T {
     val handover = policy.networkHandover
-    var retries = 0
-    var unsent = 0
+    val budget = RetryBudget(policy.maxRetries)
     while (true) {
         // 已取消/已停止的协程不能再被拉起；正常取消在这里直接抛出，不消耗重试次数
         currentCoroutineContext().ensureActive()
@@ -158,18 +168,10 @@ suspend fun <T> withRetry(
             if (error is CancellationException || !policy.retryOn(error)) {
                 throw error
             }
-            val notSent = error is NetworkUnavailableException
-            if (notSent) {
-                unsent++
-                // 关掉自动重试（maxRetries == 0）时无网就是直接失败，不进等待循环
-                if (policy.maxRetries <= 0 || unsent > MAX_UNSENT_ATTEMPTS) throw error
-            } else {
-                if (retries >= policy.maxRetries) throw error
-                retries++
-            }
-            val attempt = maxOf(retries, 1)
-            val backoff = policy.delayFor(attempt)
-            onRetry(RetryAttempt(error, attempt, policy.maxRetries, backoff))
+            val kind = RecoveryPolicy.classify(failureFacts(error))
+            if (!budget.record(kind, epoch)) throw error
+            val backoff = policy.delayFor(budget.attempt)
+            onRetry(RetryAttempt(error, budget.attempt, policy.maxRetries, backoff))
             // 网络切换导致的失败不必干等完整退避；没有网络事件时 awaitRetry 同样按 backoff 等满。
             // 等待本身可取消，停止生成不会被这里的等待拖住。
             if (handover == null) delay(backoff) else handover.awaitRetry(epoch, backoff)

@@ -3,7 +3,7 @@
 專案功能與安裝說明統一維護於 [README](README.md)，避免多份說明版本不同步。
 
 - [最新正式 APK](https://github.com/682012/rikkahub/releases/latest)
-- [r17 更新說明](fork/RELEASE-r17.md)
+- [r18 更新說明](fork/RELEASE-r18.md)
 - [與官方的差異](fork/FEATURES.md)
 - [版本歷史](fork/CHANGES.md)
 - [建置、簽章與回復舊版](fork/README.md)

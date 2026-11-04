@@ -36,6 +36,23 @@ object ChatSendDraftPolicy {
         sent: ChatDraft,
     ): Boolean = persisted && ownsInput(originKey, currentKey) && stillSameContent(current, sent)
 
+    /** A durable queue acceptance clears the submitted prefix but keeps text/attachments added afterwards. */
+    fun remainingInputAfterAcceptance(
+        originKey: String?, currentKey: String?, accepted: Boolean, current: ChatDraft, sent: ChatDraft,
+    ): ChatDraft? {
+        if (!accepted || !ownsInput(originKey, currentKey)) return null
+        if (current.sameContent(sent)) return ChatDraft()
+        if (current.editingMessage != null || sent.editingMessage != null || current.reasoning != sent.reasoning) return null
+        if (!current.text.startsWith(sent.text) || current.parts.take(sent.parts.size) != sent.parts) return null
+        val remaining = current.copy(
+            text = current.text.removePrefix(sent.text),
+            parts = current.parts.drop(sent.parts.size),
+            selectionStart = (current.selectionStart - sent.text.length).coerceAtLeast(0),
+            selectionEnd = (current.selectionEnd - sent.text.length).coerceAtLeast(0),
+        )
+        return remaining.takeIf { !it.sameContent(current) }
+    }
+
     /**
      * 这次确认要 ack 的 key：原 key，加上（如果 key 已经迁移到本会话的会话 key）迁移后的那份。
      * 返回顺序稳定，重复去重；不含其它会话的 key。

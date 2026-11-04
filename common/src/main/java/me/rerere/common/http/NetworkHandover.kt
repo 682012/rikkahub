@@ -178,9 +178,19 @@ class NetworkHandover(
         // A VPN can recover while this wait is already in progress. Do not miss that event.
         val changed = waiter.awaitChange(state, attemptEpoch, budget)
         if (changed) {
-            val remaining = stabilizeRemaining(start, budget)
-            val usable = state.value.available || waiter.awaitAvailable(state, remaining)
-            if (usable) waiter.sleep(remaining)
+            if (!state.value.available) {
+                // 退避期间掉线了：这不是「换到新网络」，不能把剩下几秒的预算当作已用完、
+                // 立刻拿旧配置去撞一次必然失败的请求（那会白白记一次「没发出去」）。
+                // 用这次预算剩下的部分等恢复，恢复后再补一个稳定期。
+                val remainingBudget = (budget - (waiter.nowMillis() - start)).coerceAtLeast(0L)
+                if (waiter.awaitAvailable(state, remainingBudget)) {
+                    waiter.sleep(stabilizeRemaining(start, budget))
+                }
+            } else {
+                val remaining = stabilizeRemaining(start, budget)
+                val usable = state.value.available || waiter.awaitAvailable(state, remaining)
+                if (usable) waiter.sleep(remaining)
+            }
         }
         return waiter.elapsedSince(start)
     }

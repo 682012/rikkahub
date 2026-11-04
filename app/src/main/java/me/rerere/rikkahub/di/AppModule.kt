@@ -181,6 +181,7 @@ val appModule = module {
             backgroundShellManager = get(),
             subagentRunner = get(),
             backgroundToolManager = get(),
+            networkHandover = get(),
         )
     }
 

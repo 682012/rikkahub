@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r18_waiting_network">等待网络恢复，待发送消息会自动继续</string>
+    <string name="r18_queue_accept_failed">消息未能加入队列，输入内容已保留</string>
+    <string name="r18_queue_restore_failed">待发送消息恢复失败</string>
+    <string name="r18_queue_dispatch_failed">消息已可靠加入队列，暂时未能开始发送</string>
+</resources>

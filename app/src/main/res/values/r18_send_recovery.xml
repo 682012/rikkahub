@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r18_waiting_network">Waiting for network; pending input will continue when it returns</string>
+    <string name="r18_queue_accept_failed">Message was not queued; your draft is kept</string>
+    <string name="r18_queue_restore_failed">Unable to restore pending messages</string>
+    <string name="r18_queue_dispatch_failed">Message is safely queued, but dispatch could not start</string>
+</resources>

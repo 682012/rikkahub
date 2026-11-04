@@ -373,8 +373,8 @@ class ChatVM(
      * 返回 true 表示已经交给 [ChatService]；false 表示没发（空内容、连点同一份、或 answer=true
      * 但没有可用模型），这时输入必须留着。
      *
-     * 点发送**不清输入框**：先把这份快照持久保存，再等 ChatService 的落库确认。
-     * 确认成功且输入框里仍是发出去的那份（同一 key、同一内容）才清空并存空草稿；
+     * 点发送先保留快照，ChatService 将消息可靠存入待发送队列后就清掉已提交内容，不再等待模型空闲。
+     * 确认成功后清已提交的内容（同一 key），追加的新文字和附件保留；
      * 确认失败或者内容已经变了就什么都不做——用户等确认期间打的新字不会被清掉，
      * 失败的输入也还在原地，不用重打。
      *
@@ -401,7 +401,7 @@ class ChatVM(
         if (key != null) draftStore.saveNow(key, sent)
 
         analytics.logEvent("ai_send_message", null)
-        val receipt = chatService.sendMessageWithReceipt(_conversationId, content, answer)
+        val receipt = chatService.sendMessageWithReceipt(_conversationId, content, answer, assistantId = assistant.value.id)
         if (receipt == null) {
             synchronized(draftLock) { sendingDrafts.removeAll { it.sameContent(sent) } }
             return false
@@ -422,7 +422,7 @@ class ChatVM(
         return true
     }
 
-    /** 落库确认回来：成功才清「仍是这一份」的草稿，失败保持原样（输入框本来就没清）。 */
+    /** 队列受理确认回来：成功才清「仍是这一份」的草稿，失败保持原样（输入框本来就没清）。 */
     private suspend fun finishSend(key: String?, sent: ChatDraft, persisted: Boolean) {
         synchronized(draftLock) { sendingDrafts.removeAll { it.sameContent(sent) } }
         if (!persisted) return
@@ -433,10 +433,12 @@ class ChatVM(
         // 迁移刚好落在挂起中间时 stillSameKey 变 false，发送成功但输入框不清——就是用户看到的那条。
         withContext(Dispatchers.Main.immediate) {
             val keyNow = synchronized(draftLock) { draftKey }
-            if (ChatSendDraftPolicy.shouldClearInput(key, keyNow, persisted, inputState.snapshotDraft(), sent)) {
-                inputState.clearInput()
-                // 输入框已清：马上把空稿入队，别让 debounce 里的那份旧稿再写回盘
-                if (keyNow != null) draftStore.saveNow(keyNow, ChatDraft())
+            ChatSendDraftPolicy.remainingInputAfterAcceptance(
+                key, keyNow, persisted, inputState.snapshotDraft(), sent,
+            )?.let { remaining ->
+                inputState.applyDraft(remaining)
+                // 受理后清掉已提交部分；后来输入的字和附件保留，旧 debounce 不得写回。
+                if (keyNow != null) draftStore.saveNow(keyNow, remaining)
             }
             // 落盘层只清「内容仍是这一份」的草稿（ack 内部按内容比对）：
             // 用户在等确认期间续写的字不会被清掉（续写不清）。

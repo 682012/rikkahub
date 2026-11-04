@@ -22,6 +22,7 @@ class ConversationSessionManager(
     private val onGenerationFinished: (ConversationSession, Throwable?) -> Unit,
     // 会话没有页面引用也不在生成，被回收了
     private val onSessionRemoved: (Uuid) -> Unit = {},
+    private val createInbox: (Uuid) -> ConversationInbox = { ConversationInbox() },
 ) {
     private val lock = Any()
     private val sessions = MutableStateFlow<Map<Uuid, ConversationSession>>(emptyMap())
@@ -39,6 +40,7 @@ class ConversationSessionManager(
             scope = scope,
             store = store,
             onIdle = { removeIfIdle(session) },
+            inbox = createInbox(conversationId),
             onGenerationFinished = { id, cause ->
                 if (get(id) === session) onGenerationFinished(session, cause)
             },
