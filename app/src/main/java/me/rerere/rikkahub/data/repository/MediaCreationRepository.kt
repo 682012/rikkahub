@@ -8,8 +8,11 @@ import androidx.paging.map
 import androidx.room.withTransaction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import me.rerere.mediagen.model.MediaKind
@@ -26,8 +29,10 @@ import me.rerere.rikkahub.data.model.MediaCreationParams
 import me.rerere.rikkahub.data.model.MediaCreationRecord
 import me.rerere.rikkahub.data.model.MediaCreationSession
 import me.rerere.rikkahub.data.model.MediaCreationStatus
+import me.rerere.rikkahub.data.organization.ImageMediaPaths
 import me.rerere.rikkahub.data.organization.MediaOutputDeleteRules
 import java.io.File
+import java.nio.file.Files
 import java.time.Instant
 import kotlin.uuid.Uuid
 
@@ -46,6 +51,12 @@ class MediaCreationRepository(
     private val json: Json,
 ) {
     private val activeStatuses = MediaCreationStatus.ACTIVE.map { it.name }
+
+    /** 删除 / 恢复串行：隔离文件在磁盘上只有一个名字，两个流程不能交错。 */
+    private val deletionMutex = Mutex()
+
+    /** 进程内第一次删除时把整个 `media_creation/` 的 `.deleting` 残留扫一遍，之后只扫当前记录目录。 */
+    private var recoveredAll = false
 
     // ---- 文件 ----
 
@@ -244,22 +255,54 @@ class MediaCreationRepository(
      *    事务失败就把临时文件 rename 回原路径，磁盘和数据库都保持原样。
      *
      * 返回 [MediaOutputRemoval]；`removed == false` 时 [MediaOutputRemoval.message] 可以直接显示给用户。
+     *
+     * 同一时刻只跑一个删除 / 恢复流程：隔离文件在磁盘上只有一个名字，恢复和删除绝不能交错。
+     * 开始前先收拾上一次被打断留下的 `.deleting` 残留（见 [recoverInterruptedOutputDeletions]），
+     * 所以「上次删到一半被杀掉」的状态会被这次删除顺带修好。
      */
     suspend fun removeImageOutput(relativePath: String): MediaOutputRemoval = withContext(Dispatchers.IO) {
+        deletionMutex.withLock { removeImageOutputLocked(relativePath) }
+    }
+
+    /** [removeImageOutput] 的主体；调用方已经持有 [deletionMutex]。 */
+    private suspend fun removeImageOutputLocked(relativePath: String): MediaOutputRemoval {
         val path = relativePath.trim()
         if (path.isEmpty()) {
-            return@withContext MediaOutputRemoval(
+            return MediaOutputRemoval(
                 removed = false,
                 reason = MediaOutputRemovalReason.UNSAFE_PATH,
                 message = "没有给出要删除的产出路径",
             )
         }
 
+        // 先收拾上一次被打断的删除：`*.deleting` 会在这里按确定规则还原 / 补删，之后再看这次要删的图。
+        // 放在最前面是因为「上次已经提交、只是没来得及 unlink」的那张图在数据库里已经查不到了，
+        // 走到下面的 NOT_IN_RECORD 就直接返回了，没人会去看它的残渣。
+        // 整个 media_creation 扫一次就够（进程内第一次删除时），之后按这次路径推出来的目录扫。
+        val recovery = try {
+            if (!recoveredAll) {
+                recoverLocked(scope = null).also { recoveredAll = it.clean }
+            } else {
+                val hinted = File(context.filesDir, path).parentFile
+                if (hinted != null && ImageMediaPaths.isConfinedTo(
+                        File(context.filesDir, FileFolders.MEDIA_CREATION), hinted)) {
+                    recoverLocked(scope = hinted)
+                } else ImageDeletionRecovery()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return MediaOutputRemoval(false, MediaOutputRemovalReason.ISOLATION_FAILED,
+                "上次图片删除中断，恢复失败：${e.message.orEmpty()}。文件已保留")
+        }
+        if (!recovery.clean) return MediaOutputRemoval(false, MediaOutputRemovalReason.ISOLATION_FAILED,
+            "上次图片删除中断，仍有 ${recovery.unresolved.size} 项无法恢复，文件已保留")
+
         val matches = dao.getRecordsMentioningOutput(path)
             .map { it.toRecord() }
             .filter { record -> record.outputs.any { it.path == path } }
         if (matches.isEmpty()) {
-            return@withContext MediaOutputRemoval(
+            return MediaOutputRemoval(
                 removed = false,
                 reason = MediaOutputRemovalReason.NOT_IN_RECORD,
                 message = "没有记录还列着这张图，未做改动",
@@ -267,7 +310,7 @@ class MediaCreationRepository(
         }
         if (matches.size > 1) {
             // 正常不会发生（每条记录有自己的目录），真遇到就不猜
-            return@withContext MediaOutputRemoval(
+            return MediaOutputRemoval(
                 removed = false,
                 reason = MediaOutputRemovalReason.AMBIGUOUS,
                 message = "有多条记录都列着这张图，未做改动",
@@ -277,7 +320,7 @@ class MediaCreationRepository(
         val owner = matches.single()
         val output = owner.outputs.first { it.path == path }
         if (!output.mimeType.startsWith("image/") || output.posterPath != null || output.lastFramePath != null) {
-            return@withContext MediaOutputRemoval(
+            return MediaOutputRemoval(
                 removed = false,
                 reason = MediaOutputRemovalReason.NOT_IMAGE,
                 message = "这条产出不是一张能单独删的图（不是图片，或还带着封面/尾帧）",
@@ -286,7 +329,7 @@ class MediaCreationRepository(
             )
         }
         if (owner.status.isActive) {
-            return@withContext MediaOutputRemoval(
+            return MediaOutputRemoval(
                 removed = false,
                 reason = MediaOutputRemovalReason.RECORD_ACTIVE,
                 message = "这条记录还在生成中，等它完成后再删",
@@ -296,7 +339,7 @@ class MediaCreationRepository(
         }
 
         val target = when (val check = MediaOutputDeleteRules.resolveTarget(context.filesDir, recordDir(owner.sessionId, owner.id), path)) {
-            is MediaOutputDeleteRules.TargetCheck.Rejected -> return@withContext MediaOutputRemoval(
+            is MediaOutputDeleteRules.TargetCheck.Rejected -> return MediaOutputRemoval(
                 removed = false,
                 reason = MediaOutputRemovalReason.UNSAFE_PATH,
                 message = check.message,
@@ -310,7 +353,7 @@ class MediaCreationRepository(
         // 先查一次引用：被引用时没必要动文件；事务里还会再确认一次（防止这中间又有人引用）
         val references = referencesTo(path, target.canonicalPath, owner.id)
         if (references.isNotEmpty()) {
-            return@withContext MediaOutputRemoval(
+            return MediaOutputRemoval(
                 removed = false,
                 reason = MediaOutputRemovalReason.STILL_REFERENCED,
                 message = "这张图还被${references.joinToString("、")}引用，已跳过",
@@ -322,7 +365,7 @@ class MediaCreationRepository(
         // 同目录改名做隔离：rename 不搬数据，失败说明目录不可写，此时数据库还没动
         val parentDir = target.file.parentFile
         if (parentDir == null) {
-            return@withContext MediaOutputRemoval(
+            return MediaOutputRemoval(
                 removed = false,
                 reason = MediaOutputRemovalReason.UNSAFE_PATH,
                 message = "找不到文件所在目录，已拒绝删除",
@@ -330,9 +373,9 @@ class MediaCreationRepository(
                 sessionId = owner.sessionId,
             )
         }
-        val keep = File(parentDir, "${target.file.name}.${Uuid.random()}.deleting")
+        val keep = File(parentDir, MediaOutputIsolation.isolatedName(target.file.name))
         if (!target.file.renameTo(keep)) {
-            return@withContext MediaOutputRemoval(
+            return MediaOutputRemoval(
                 removed = false,
                 reason = MediaOutputRemovalReason.ISOLATION_FAILED,
                 message = "无法把文件挪到临时位置，未改动记录",
@@ -385,8 +428,22 @@ class MediaCreationRepository(
                 true
             }
         } catch (e: CancellationException) {
-            // 页面被关掉 / 协程被取消：文件必须还原回去，再把取消原样抛出去
-            restoreIsolatedFile(keep, target.file)
+            // 页面被关掉 / 协程被取消。取消可能落在 rename 之后、事务提交之前，也可能落在事务已经提交、
+            // 协程还没来得及恢复的那一下——两种情况的磁盘处理正好相反，所以先在不允许取消的上下文里
+            // 读一次记录，看清事务到底提交没有，再决定「还原」还是「补删」，最后照常把取消抛出去。
+            withContext(NonCancellable) {
+                val live = runCatching { dao.getRecord(owner.id.toString())?.toRecord() }.getOrNull()
+                when {
+                    // 记录已经没了：文件没人认，留给恢复流程按「没有引用」补删，这里什么也不动
+                    live == null -> Unit
+
+                    // outputs 里已经没有这一条：事务其实提交成功了，隔离文件就是残渣
+                    live.outputs.none { it.path == path } -> runCatching { keep.delete() }
+
+                    // 事务回滚了（或者被取消挡在提交前）：文件必须还原回去，数据库和磁盘都保持原样
+                    else -> restoreIsolatedFile(keep, target.file)
+                }
+            }
             throw e
         } catch (e: Exception) {
             failure = MediaOutputRemoval(
@@ -408,7 +465,7 @@ class MediaCreationRepository(
                 recordId = owner.id,
                 sessionId = owner.sessionId,
             )
-            return@withContext if (restored) {
+            return if (restored) {
                 base.copy(message = "${base.message}；文件已还原")
             } else {
                 base.copy(
@@ -435,6 +492,101 @@ class MediaCreationRepository(
     }
 
     /**
+     * 收拾上一次删除被打断留下的 `.deleting` 隔离文件（进程被杀、任务被系统杀掉、还原失败都会留下）。
+     *
+     * 规则是确定的，只读数据库和文件系统，重复执行结果一致：
+     * 1. 原文件名已经有文件了 → 数据库和界面认的是那个文件，隔离的这份没人引用，删掉；
+     * 2. 原名不在、但数据库里还有谁指着它（记录的输入 / 产出 / 封面 / 尾帧、会话草稿）→ 说明事务没提交，
+     *    把隔离文件改回原名；
+     * 3. 原名不在、也没有任何引用 → 说明事务已经提交、只是没来得及 unlink，删掉补完这次删除；
+     * 4. 名字不是我们生成的形状、改名失败、路径解析不了 → 原位留着不动，记进 [ImageDeletionRecovery.unresolved]。
+     *
+     * 不删记录、不删时间线项、不删相册、不碰记录目录以外的文件；同一个文件删两次只有第一次有副作用。
+     */
+    suspend fun recoverInterruptedOutputDeletions(): ImageDeletionRecovery = withContext(Dispatchers.IO) {
+        deletionMutex.withLock { recoverLocked(scope = null).also { recoveredAll = it.clean } }
+    }
+
+    /** [recoverInterruptedOutputDeletions] 的主体；[scope] 为 null 时扫整个 `media_creation/`。调用方持有 [deletionMutex]。 */
+    private suspend fun recoverLocked(scope: File?): ImageDeletionRecovery {
+        val root = scope ?: File(context.filesDir, FileFolders.MEDIA_CREATION)
+        if (!root.isDirectory) return ImageDeletionRecovery()
+        // 只认我们自己的命名，别的文件（含别的功能的临时文件）一律不碰；不跟进 symlink 目录
+        val leftovers = root.walkTopDown()
+            .onEnter { dir -> !Files.isSymbolicLink(dir.toPath()) }
+            .onFail { _, error -> throw error }
+            .filter { it.isFile && !Files.isSymbolicLink(it.toPath()) && MediaOutputIsolation.isIsolatedName(it.name) }
+            .toList()
+        if (leftovers.isEmpty()) return ImageDeletionRecovery()
+
+        var restored = 0
+        var finished = 0
+        val unresolved = mutableListOf<String>()
+
+        leftovers.forEach { isolated ->
+            val label = runCatching { relativePath(isolated) }.getOrElse { isolated.name }
+            val originalName = MediaOutputIsolation.originalNameOf(isolated.name)
+            val dir = isolated.parentFile
+            if (originalName == null || dir == null) {
+                unresolved += "$label（不是删除隔离的临时名，未处理）"
+                return@forEach
+            }
+            val original = File(dir, originalName)
+            val originalPath = runCatching { relativePath(original) }.getOrNull()
+            if (originalPath == null) {
+                unresolved += "$label（路径不在应用目录里，未处理）"
+                return@forEach
+            }
+
+            // 名字被别的文件占了：数据库、界面认的都是那个文件，隔离的这份没有引用，直接补删
+            if (original.exists()) {
+                if (runCatching { isolated.delete() }.getOrDefault(false)) {
+                    finished += 1
+                } else {
+                    unresolved += "$label（原名已被占用，隔离文件删不掉）"
+                }
+                return@forEach
+            }
+
+            // 读不到引用就按「还有引用」处理：宁可还原，也不删可能还有人用的图
+            val referenced = referencedAnywhere(originalPath, original)
+            if (!referenced) {
+                if (runCatching { isolated.delete() }.getOrDefault(false)) {
+                    finished += 1
+                } else {
+                    unresolved += "$label（事务已提交，但隔离文件删不掉）"
+                }
+                return@forEach
+            }
+            if (isolated.renameTo(original)) {
+                restored += 1
+            } else {
+                unresolved += "$label（要还原成 $originalPath，但改名失败）"
+            }
+        }
+
+        return ImageDeletionRecovery(
+            scanned = leftovers.size,
+            restored = restored,
+            finished = finished,
+            unresolved = unresolved,
+        )
+    }
+
+    /** 数据库里还有没有谁指着 [path]（含记录自己的产出）。[file] 用来做 canonical 比对。读不到就按「有引用」处理。 */
+    private suspend fun referencedAnywhere(path: String, file: File): Boolean {
+        val canonical = runCatching { file.canonicalPath }.getOrNull() ?: return true
+        return try {
+            referencesTo(path, canonical, ownerRecordId = null).isNotEmpty()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (ignored: Exception) {
+            // 查不了引用就当「还有人在用」，宁可还原文件，也不删可能还有人要的图
+            true
+        }
+    }
+
+    /**
      * 把隔离中的临时文件改回原路径；成功返回 true。
      *
      * 只有「原路径还是空的」才改回去，避免覆盖这中间又被写出来的同名文件。
@@ -447,12 +599,14 @@ class MediaCreationRepository(
      * 还有谁指着 [canonicalPath]：别的记录的输入素材、别的产出（含视频封面/尾帧）、会话草稿里的素材。
      *
      * [ownerRecordId] 自己那一条 `path == [path]` 的产出不算引用（它就是待删的那个），其余全算。
+     * [ownerRecordId] 为 null 时不排除任何一条：恢复流程要判断「有没有人还指着这个文件」，
+     * 记录自己那条产出正是最重要的引用。
      * 只读数据库里的 JSON 字段，不扫磁盘、不扫相册。
      */
     private suspend fun referencesTo(
         path: String,
         canonicalPath: String,
-        ownerRecordId: Uuid,
+        ownerRecordId: Uuid?,
     ): List<String> {
         val filesDir = context.filesDir
         val found = linkedSetOf<String>()
@@ -586,4 +740,47 @@ enum class MediaOutputRemovalReason {
 
     /** 数据库更新失败，磁盘已经还原。 */
     DB_UPDATE_FAILED,
+}
+
+/**
+ * [MediaCreationRepository.recoverInterruptedOutputDeletions] 的结果。
+ *
+ * [unresolved] 里的条目是「相对应用目录的路径 + 原因」，下次再扫还会重试；它不影响别的条目。
+ */
+data class ImageDeletionRecovery(
+    /** 扫到的 `*.deleting` 隔离文件个数。 */
+    val scanned: Int = 0,
+    /** 事务没提交、被改回原名的个数。 */
+    val restored: Int = 0,
+    /** 事务已经提交、被补删掉的个数。 */
+    val finished: Int = 0,
+    /** 没能处理完的（路径 + 原因），原样留在磁盘上。 */
+    val unresolved: List<String> = emptyList(),
+) {
+    val clean: Boolean get() = unresolved.isEmpty()
+}
+
+/**
+ * 删除隔离文件的名字规则：`<原名>.<uuid>.deleting`，和原文件放在同一个目录里（rename 不搬数据）。
+ *
+ * 加 uuid 是为了同一张图在极端情况下连着删两次也不会撞名；`.deleting` 一眼能看出是「删到一半」的残渣。
+ * 解析只认这个形状，别的文件名一律当陌生文件、不碰。
+ */
+internal object MediaOutputIsolation {
+    private const val SUFFIX = ".deleting"
+
+    private val pattern = Regex(
+        """^(.+)\.([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\.deleting$"""
+    )
+
+    /** 隔离时用的临时文件名。 */
+    fun isolatedName(originalName: String, token: Uuid = Uuid.random()): String =
+        "$originalName.$token$SUFFIX"
+
+    /** [name] 是不是我们生成的隔离文件名。 */
+    fun isIsolatedName(name: String): Boolean = pattern.matches(name)
+
+    /** 从隔离文件名还原原文件名；不是这个形状就返回 null（不猜，不动）。 */
+    fun originalNameOf(isolatedName: String): String? =
+        pattern.matchEntire(isolatedName)?.groupValues?.get(1)
 }

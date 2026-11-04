@@ -96,7 +96,7 @@ class ConversationSelectionR16Test {
         val conversations = listOf(
             conversation("Old project", 30),
             conversation("Old notes", 3),
-            conversation("New project", 30),
+            conversation("New project", 3),
         )
 
         val visible = filterConversations(

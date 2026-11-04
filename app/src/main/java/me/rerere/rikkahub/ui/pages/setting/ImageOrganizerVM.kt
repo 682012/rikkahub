@@ -82,14 +82,7 @@ class ImageOrganizerVM(
     private var scanJob: Job? = null
     private val deleteMutex = Mutex()
     private var deleting = false
-
-    /**
-     * 本次 VM 生命周期内用户明确改过的保留标记。
-     *
-     * 只写缓存的协程是异步的，刷新时如果只信磁盘，可能把刚勾的「保留」读回旧值。
-     * 这里按稳定 id 记住最后一次操作，刷新时优先用它。
-     */
-    private val protectedOverrides = mutableMapOf<String, Boolean>()
+    private var pendingSaves = 0
 
     // ---- 对外方法 ----
 
@@ -100,6 +93,10 @@ class ImageOrganizerVM(
             updateState { it.copy(scanning = true, error = null) }
             try {
                 withContext(Dispatchers.IO) { cleanStaleTempFiles() }
+                val recovery = mediaCreationRepository?.recoverInterruptedOutputDeletions()
+                if (recovery?.unresolved?.isNotEmpty() == true) {
+                    updateState { it.copy(error = "有 ${recovery.unresolved.size} 张中断删除的图片尚未恢复，文件已保留") }
+                }
                 val result = sources.scan()
                 val protectedIds = cache.protectedIds()
                 val items = result.items.map { item ->
@@ -109,8 +106,8 @@ class ImageOrganizerVM(
                     }
                     val shared = result.references[item.path] ?: 0
                     item.copy(
-                        // 内存里的最后一次勾选优先：写缓存的协程可能还没落盘，刷新不能把「保留」丢掉
-                        protected = protectedOverrides[item.id] ?: (item.id in protectedIds),
+                        // Only persisted protection counts; failed saves never appear successful.
+                        protected = item.id in protectedIds,
                         category = category,
                         description = entry?.description,
                         classifiedAt = entry?.at,
@@ -151,8 +148,21 @@ class ImageOrganizerVM(
 
     /** 记录识别模型；null 表示清除。写自己的 JSON，不动全局设置。 */
     fun setModel(modelId: Uuid?) {
-        updateState { it.copy(selectedModelId = modelId, error = null) }
-        viewModelScope.launch(Dispatchers.IO) { modelStore.write(modelId) }
+        if (_state.value.busy) return
+        pendingSaves++
+        updateState { it.copy(error = null) }
+        viewModelScope.launch {
+            try {
+                if (withContext(Dispatchers.IO) { modelStore.write(modelId) }) {
+                    updateState { it.copy(selectedModelId = modelId) }
+                } else {
+                    updateState { it.copy(error = modelStore.lastFailure ?: "识别模型选择没能保存") }
+                }
+            } finally {
+                pendingSaves--
+                updateState { it }
+            }
+        }
     }
 
     /**
@@ -216,13 +226,23 @@ class ImageOrganizerVM(
 
     /** 标记保留。保留标记单独持久化，删图时永远跳过。 */
     fun setProtected(ids: Set<String>, protected: Boolean) {
-        if (ids.isEmpty()) return
-        ids.forEach { protectedOverrides[it] = protected }
-        updateState { s ->
-            s.copy(items = s.items.map { if (it.id in ids) it.copy(protected = protected) else it })
-        }
+        if (ids.isEmpty() || _state.value.busy) return
+        pendingSaves++
+        updateState { it.copy(error = null) }
         viewModelScope.launch {
-            runCatching { cache.setProtected(ids, protected) }
+            try {
+                withContext(Dispatchers.IO) { cache.setProtected(ids, protected) }
+                updateState { s ->
+                    s.copy(items = s.items.map { if (it.id in ids) it.copy(protected = protected) else it })
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                updateState { it.copy(error = e.message ?: "保留标记没能保存，请重试") }
+            } finally {
+                pendingSaves--
+                updateState { it }
+            }
         }
     }
 
@@ -233,11 +253,15 @@ class ImageOrganizerVM(
      */
     suspend fun delete(ids: Set<String>): ImageDeleteResult = deleteMutex.withLock {
         if (ids.isEmpty()) return@withLock ImageDeleteResult()
+        if (pendingSaves > 0) return@withLock ImageDeleteResult(
+            warnings = listOf("保留标记或模型设置仍在保存，请稍后再删"),
+        )
         deleting = true
         updateState { it.copy(error = null) }
         try {
             val (plan, itemById) = withContext(Dispatchers.IO) {
-                val current = _state.value.items
+                val protectedIds = cache.protectedIds()
+                val current = _state.value.items.map { it.copy(protected = it.id in protectedIds) }
                 ImageDeletePlanner.plan(current, ids) to current.associateBy { it.id }
             }
             val deleted = mutableListOf<String>()
@@ -257,8 +281,13 @@ class ImageOrganizerVM(
             }
 
             deleted.forEach { id ->
-                itemById[id]?.let { runCatching { cache.remove(cacheKey(it)) } }
-                protectedOverrides.remove(id)
+                try {
+                    itemById[id]?.let { withContext(Dispatchers.IO) { cache.remove(cacheKey(it)) } }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    updateState { it.copy(error = "图片已删除，但分类缓存未清理：${e.message.orEmpty()}") }
+                }
             }
             updateState { s -> s.copy(items = s.items.filterNot { it.id in deleted }) }
             ImageDeleteResult(
@@ -300,20 +329,28 @@ class ImageOrganizerVM(
         val key = cacheKey(item)
         updateState { s -> s.copy(progress = ImageProgress(total, done.get(), failed.get(), item.name)) }
 
-        val cachedEntry = runCatching { cache.get(key) }.getOrNull()
-        val cachedCategory = cachedEntry?.let { entry ->
-            ImageCategory.entries.firstOrNull { it.name == entry.category }
-        }
-        if (cachedEntry != null && cachedCategory != null) {
-            applyResult(item.id, cachedCategory, cachedEntry.description, cached = true, failed = false)
-            publishProgress(total, done.incrementAndGet(), failed.get(), item.name)
-            return
-        }
-
         try {
+            val cachedEntry = cache.get(key)
+            val cachedCategory = cachedEntry?.let { entry ->
+                ImageCategory.entries.firstOrNull { it.name == entry.category }
+            }
+            if (cachedEntry != null && cachedCategory != null) {
+                applyResult(item.id, cachedCategory, cachedEntry.description, cached = true, failed = false)
+                publishProgress(total, done.incrementAndGet(), failed.get(), item.name)
+                return
+            }
+
             val parsed = classifier.classify(item.file, model, providerSetting)
+            var persistError: String? = null
             if (parsed.category != ImageCategory.UNRECOGNIZED) {
-                runCatching { cache.put(key, parsed.category, parsed.description) }
+                try {
+                    cache.put(key, parsed.category, parsed.description)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    persistError = e.message ?: "识别结果已返回，但缓存未能保存"
+                    updateState { it.copy(error = persistError) }
+                }
             }
             applyResult(
                 id = item.id,
@@ -321,6 +358,7 @@ class ImageOrganizerVM(
                 description = parsed.description,
                 cached = false,
                 failed = parsed.category == ImageCategory.UNRECOGNIZED,
+                error = persistError,
             )
             publishProgress(
                 total = total,
@@ -384,21 +422,18 @@ class ImageOrganizerVM(
                 if (!ImageMediaPaths.isConfinedTo(filesDir, item.file)) {
                     error("路径不在应用目录内，已拒绝删除")
                 }
-                if (!item.file.exists()) return
-                if (!item.file.delete()) error("文件删除失败，已保留索引")
                 val id = item.id.removePrefix("upload:").toLongOrNull()
                     ?: error("无法解析上传文件 ID")
-                if (!filesManager.delete(id, deleteFromDisk = false)) error("索引删除失败")
+                if (!filesManager.delete(id, deleteFromDisk = true)) error("文件或索引删除失败")
             }
 
             ImageSource.GEN_MEDIA -> {
                 if (!ImageMediaPaths.isConfinedTo(filesManager.getImagesDir(), item.file)) {
                     error("路径不在生成图目录内，已拒绝删除")
                 }
-                if (!item.file.exists()) return
-                if (!item.file.delete()) error("文件删除失败，已保留索引")
                 val id = item.id.removePrefix("gen:").toIntOrNull()
                     ?: error("无法解析生成图 ID")
+                if (item.file.exists() && !item.file.delete()) error("文件删除失败，已保留索引")
                 genMediaRepository.deleteMedia(id)
             }
 
@@ -421,7 +456,7 @@ class ImageOrganizerVM(
     private fun updateState(transform: (ImageOrganizerState) -> ImageOrganizerState) {
         _state.update { current ->
             val next = transform(current)
-            next.copy(busy = next.scanning || next.progress != null || deleting)
+            next.copy(busy = next.scanning || next.progress != null || deleting || pendingSaves > 0)
         }
     }
 

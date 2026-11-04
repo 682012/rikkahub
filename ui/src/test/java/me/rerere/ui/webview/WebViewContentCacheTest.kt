@@ -16,7 +16,7 @@ class WebViewContentCacheTest {
 
     @Test
     fun `stores large content outside navigation state`() {
-        val content = "<html>${\"preview\".repeat(50_000)}</html>"
+        val content = "<html>${"preview".repeat(50_000)}</html>"
 
         val id = WebViewContentCache.store(temporaryFolder.root, content)
 

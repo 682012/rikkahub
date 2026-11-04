@@ -27,6 +27,8 @@ import kotlinx.coroutines.runBlocking
 import me.rerere.common.android.appTempFolder
 import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.ai.tools.pruneToolOutputs
+import me.rerere.rikkahub.data.companion.CompanionPersonaCatalog
+import me.rerere.rikkahub.data.companion.CompanionPersonas
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.files.FileFolders
 import me.rerere.rikkahub.data.files.FilesManager
@@ -55,6 +57,9 @@ import org.koin.core.context.startKoin
 import java.io.File
 
 private const val TAG = "RikkaHubApp"
+
+/** 只读内置人设目录（assets 相对路径）。 */
+private const val COMPANION_PERSONA_ASSET = "companions/personas/companions-personas.json"
 
 const val CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID = "chat_completed"
 const val CHAT_LIVE_UPDATE_NOTIFICATION_CHANNEL_ID = "chat_live_update"
@@ -110,6 +115,9 @@ class RikkaHubApp : Application() {
         // Extract builtin skills from assets after install/update
         extractBuiltinSkills()
 
+        // Read-only full persona catalog: loaded once from assets, never rewritten at runtime.
+        loadCompanionPersonas()
+
         // Load models.dev data for model capability matching, then refresh it in background
         updateModelsDev()
 
@@ -154,6 +162,11 @@ class RikkaHubApp : Application() {
 
     private fun resumeMediaCreations() {
         get<AppScope>().launch(Dispatchers.IO) {
+            runCatching {
+                val recovered = get<me.rerere.rikkahub.data.repository.MediaCreationRepository>()
+                    .recoverInterruptedOutputDeletions()
+                if (!recovered.clean) Log.w(TAG, "Interrupted image deletions unresolved: ${recovered.unresolved.size}")
+            }.onFailure { Log.w(TAG, "Image deletion recovery failed; originals retained", it) }
             runCatching {
                 get<MediaCreationService>().resumePending()
             }.onFailure {
@@ -237,6 +250,23 @@ class RikkaHubApp : Application() {
     private fun extractBuiltinSkills() {
         get<AppScope>().launch(Dispatchers.IO) {
             get<SkillManager>().ensureBuiltinSkillsExtracted()
+        }
+    }
+
+    /**
+     * 六小只完整人设：只在启动时从 assets 读一次（r16）。
+     *
+     * 目录是只读的，不写数据库、不进用户设置；读失败也不影响启动，解析会退回原来的短兜底文案。
+     * 之后需要热更新时，重新 [CompanionPersonas.install] 会让 revision +1，界面据此让旧 run 失效。
+     */
+    private fun loadCompanionPersonas() {
+        try {
+            val text = assets.open(COMPANION_PERSONA_ASSET).bufferedReader(Charsets.UTF_8).use { it.readText() }
+            val catalog = CompanionPersonaCatalog.parse(text)
+            val revision = CompanionPersonas.install(catalog)
+            Log.i(TAG, "companion personas loaded: ${catalog.entries.size} entries, pack ${catalog.packVersion}, revision $revision")
+        } catch (e: Exception) {
+            Log.e(TAG, "companion personas unavailable, keeping fallback copy", e)
         }
     }
 

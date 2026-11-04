@@ -81,7 +81,25 @@ class CompanionAiController(
     private var cancelReason: CompanionCancelReason = CompanionCancelReason.LEFT_WINDOW
     private var lastTrigger: CompanionTrigger? = null
     private var lastCompanion: FloatingCompanionSettings = FloatingCompanionSettings()
-    private var characterIdentity: Triple<String, String, String>? = null
+
+    /**
+     * 当前角色会话的身份键（r16）。
+     *
+     * 除了角色键和名字，还带上解析出来的内置卡 id/版本/hash 和来源：
+     * 用户改名、改自写覆盖、切角色，或者内置目录换了版本/hash，都会让旧 run 失效，
+     * 迟到结果不能写进新设定。自动互动预算不在这个键里，切角色不会把预算重置。
+     */
+    private data class CompanionSessionIdentity(
+        val characterKey: String,
+        val name: String,
+        val personaId: String?,
+        val personaVersion: String,
+        val personaHash: String,
+        val source: PersonaSource,
+    )
+
+    private var characterIdentity: CompanionSessionIdentity? = null
+    private var currentPersona: ResolvedCompanionPersona? = null
 
     /**
      * 当前角色会话里已经被接受的点击次数（TAP 序号）。
@@ -98,9 +116,18 @@ class CompanionAiController(
     /** Change only the companion session; provider choices and rate/budget limits stay intact. */
     fun switchCharacter(companion: FloatingCompanionSettings) {
         val settings = companion.normalized()
-        val identity = Triple(settings.characterKey, settings.name, settings.aiPersonaPrompt)
+        val resolved = CompanionPersonas.resolve(settings)
+        val identity = CompanionSessionIdentity(
+            characterKey = settings.characterKey,
+            name = settings.name,
+            personaId = resolved.id,
+            personaVersion = resolved.version,
+            personaHash = resolved.hash,
+            source = resolved.source,
+        )
         val previousJob = synchronized(tokenLock) {
             lastCompanion = settings
+            currentPersona = resolved
             if (characterIdentity == identity) return
             val first = characterIdentity == null
             characterIdentity = identity
@@ -117,6 +144,17 @@ class CompanionAiController(
             old
         }
         previousJob?.cancel()
+    }
+
+    /**
+     * 内置人设目录换了版本（覆盖安装、将来的热导入）。
+     *
+     * 由界面观察 [CompanionPersonas.revision] 后调用：会重新解析当前设置的身份键，
+     * 版本/hash 变了就按切角色同一路径处理——先失效 run token，再取消旧 job、清当前记忆。
+     * 不动自动互动预算，也不换模型。
+     */
+    fun personaCatalogChanged() {
+        switchCharacter(lastCompanion)
     }
 
     /** 本次 run 解析出来的模型；取消时用它写互动记录，和这一轮真正请求的模型一致。 */
@@ -159,19 +197,21 @@ class CompanionAiController(
 
     /** 用户主动操作（点击角色、在面板里说一句）。点击本身即授权，不再需要额外开关。 */
     fun submit(trigger: CompanionTrigger, companion: FloatingCompanionSettings): Boolean {
-        switchCharacter(companion)
+        val normalized = companion.normalized()
         val now = clock()
         var rejected: CompanionSkipReason? = null
         var acceptedJob: Job? = null
         synchronized(tokenLock) {
+            switchCharacter(normalized)
+            val personaSnapshot = checkNotNull(currentPersona)
             // 检查和占位在同一把锁里：界面点击（主线程）和自动事件（appScope）不会同时通过
             val busy = job?.isActive == true || _state.value.busy
             val reason = policy.evaluate(
                 trigger = trigger,
                 now = now,
                 visible = visible,
-                aiEnabled = companion.aiEnabled,
-                autoEnabled = companion.autoEventsEnabled,
+                aiEnabled = normalized.aiEnabled,
+                autoEnabled = normalized.autoEventsEnabled,
                 busy = busy,
             )
             if (reason != null) {
@@ -186,12 +226,12 @@ class CompanionAiController(
                 cancelReason = CompanionCancelReason.LEFT_WINDOW
                 runModel = null
                 // 接受时才算这一下的“即兴方向”：被拒绝/冷却的点击不占号，两个人在同一时刻看到的方向也不同
-                val improvHint = nextTapImprovHint(companion, trigger)
+                val improvHint = nextTapImprovHint(normalized, trigger)
                 _state.value = _state.value.copy(phase = CompanionAiPhase.THINKING, skipped = null,
                     text = "", thinking = "", failure = null, cancelReason = null,
                     trigger = trigger, startedAtMillis = now, finishedAtMillis = null)
                 acceptedJob = scope.launch(start = CoroutineStart.LAZY) {
-                    run(runId, trigger, companion, now, improvHint)
+                    run(runId, trigger, normalized, now, improvHint, personaSnapshot)
                 }
                 job = acceptedJob
             }
@@ -260,6 +300,7 @@ class CompanionAiController(
         companion: FloatingCompanionSettings,
         startedAt: Long,
         tapImprovHint: String?,
+        personaSnapshot: ResolvedCompanionPersona,
     ) {
         if (!isWritable(runId)) return
         _state.update { current ->
@@ -281,7 +322,7 @@ class CompanionAiController(
 
         val outcome: Attempt? = try {
             // 模型解析也在超时窗口里：解析卡住同样会按 TIMEOUT 结束，不会一直挂在 THINKING
-            withTimeoutOrNull(timeoutMillis) { attempt(runId, trigger, companion, tapImprovHint) }
+            withTimeoutOrNull(timeoutMillis) { attempt(runId, trigger, companion, tapImprovHint, personaSnapshot) }
         } catch (cancel: CancellationException) {
             finish(
                 runId = runId,
@@ -374,6 +415,7 @@ class CompanionAiController(
         trigger: CompanionTrigger,
         companion: FloatingCompanionSettings,
         tapImprovHint: String?,
+        resolvedPersona: ResolvedCompanionPersona,
     ): Attempt {
         currentCoroutineContext().ensureActive()
         val model = describeModelSafely()
@@ -383,18 +425,24 @@ class CompanionAiController(
         if (!model.available) {
             return Attempt(model = model, failure = model.failure ?: CompanionFailure.ModelMissing)
         }
+        // r16：界面与请求共用同一个解析结果；非空自写覆盖整段优先，否则用完整内置卡。
+        // Use exactly the normalized persona accepted with this run token, not a later catalog value.
+        if (CompanionPersonas.resolve(companion) != resolvedPersona) {
+            personaCatalogChanged()
+            throw CancellationException("Companion persona changed before request")
+        }
         val request = CompanionPromptBuilder.build(
-            persona = companion.aiPersonaPrompt.ifBlank {
-                CompanionPersonas.builtIn(companion.effectivePreset)
-            },
-            name = companion.displayName(CompanionPersonas.defaultName(companion.effectivePreset)),
+            persona = resolvedPersona.prompt,
+            name = resolvedPersona.name,
             trigger = trigger,
             memory = synchronized(tokenLock) { memory.snapshot() },
             sessionId = Uuid.random(),
             languageTag = languageTag(),
             // 点击的“即兴方向”：只有 TAP 有，且每次不同；Builder 只把它放进 userPrompt，不进人设。
             tapImprovHint = tapImprovHint,
-            useBuiltInStyle = companion.aiPersonaPrompt.isBlank(),
+            // 完整内置卡自带口吻与长度规则，不再叠旧版内置风格；只有旧短兜底才用。
+            useBuiltInStyle = resolvedPersona.source == PersonaSource.FALLBACK,
+            resolvedPersona = resolvedPersona,
             // 界面显示的模型和真正发出去的请求必须是同一个：实现会拿这份快照比对
         ).copy(expectedModel = model.snapshot)
         currentCoroutineContext().ensureActive()
@@ -518,10 +566,10 @@ class CompanionAiController(
     ): String? {
         if (trigger.kind != CompanionTriggerKind.TAP) return null
         tapTurn = if (tapTurn == Int.MAX_VALUE) 1 else tapTurn + 1
+        val resolved = CompanionPersonas.resolve(companion)
         return CompanionTapImagination.hint(
-            profileId = if (companion.aiPersonaPrompt.isBlank()) {
-                CompanionCatalog.profile(companion.effectivePreset)?.id
-            } else null,
+            // 只有真的用内置卡时才按角色轮换方向；自写覆盖/兜底用通用方向，免得借别的角色性格。
+            profileId = resolved.id.takeIf { resolved.source == PersonaSource.BUILTIN },
             turn = tapTurn,
             hasHistory = memory.size > 0,
         )

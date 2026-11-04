@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r16: 六小只完整人设的查看/复制/编辑入口（只读资产，不联网） -->
+    <string name="r16_persona_section_title">完整人设</string>
+    <string name="r16_persona_section_desc">内置卡全文和真正在用的提示词，都能看全文。查看和复制都在本机完成：不发模型请求，关掉AI回应也照样能看。</string>
+    <string name="r16_persona_item_title">%1$s · 人设</string>
+    <string name="r16_persona_builtin_summary">内置简介：%1$s</string>
+    <string name="r16_persona_state_builtin">内置 · 版本 %1$s · %2$d 字符</string>
+    <string name="r16_persona_state_override">你写的正文 · %1$d 字符</string>
+    <string name="r16_persona_state_fallback">兜底文案 · %1$d 字符</string>
+    <string name="r16_persona_version_unknown">未知</string>
+    <string name="r16_persona_view_builtin">内置全文</string>
+    <string name="r16_persona_view_effective">当前生效</string>
+    <string name="r16_persona_edit">以此为基础编辑</string>
+    <string name="r16_persona_restore">恢复内置</string>
+    <string name="r16_persona_restore_title">恢复内置人设？</string>
+    <string name="r16_persona_restore_text">只清除保存给 %1$s 的自写人设；名字、图片、模型、开关和其他角色都不动。</string>
+    <string name="r16_persona_restore_confirm">恢复</string>
+    <string name="r16_persona_restore_cancel">取消</string>
+    <string name="r16_persona_save_failed">没有保存成功：%1$s</string>
+
+    <string name="r16_persona_view_builtin_title">内置人设全文 · %1$s</string>
+    <string name="r16_persona_view_effective_title">当前生效提示词 · %1$s</string>
+    <string name="r16_persona_label_source">来源：%1$s</string>
+    <string name="r16_persona_label_card">卡 %1$s · 版本 %2$s</string>
+    <string name="r16_persona_label_name">名字：%1$s</string>
+    <string name="r16_persona_label_length">长度：%1$d 个 UTF-16 字符</string>
+    <string name="r16_persona_label_hash">SHA-256：%1$s</string>
+    <string name="r16_persona_source_builtin">内置卡</string>
+    <string name="r16_persona_source_override">自定义覆盖</string>
+    <string name="r16_persona_source_fallback">兜底文案</string>
+    <string name="r16_persona_copy">复制全文</string>
+    <string name="r16_persona_copy_failed">写剪贴板失败。</string>
+    <string name="r16_persona_copied">已复制</string>
+    <string name="r16_persona_copy_system">复制完整 system</string>
+    <string name="r16_persona_system_toggle">App 固定 system 附加边界</string>
+    <string name="r16_persona_system_desc">每次请求还会带上这段固定边界，用的就是实际发请求的同一个函数。语言标记 %1$s。</string>
+    <string name="r16_persona_close">关闭</string>
+    <string name="r16_persona_empty">（空）</string>
+    <string name="r16_persona_local_only">这里的内容不会发给任何人。</string>
+
+    <string name="r16_persona_editor_title">编辑人设 · %1$s</string>
+    <string name="r16_persona_editor_owner">只保存到 %1$s。中途切换角色不会把这份草稿写到别的角色身上。</string>
+    <string name="r16_persona_editor_origin">这里打开的是当前生效的提示词，复制成了本机草稿；内置卡仍是只读的。</string>
+    <string name="r16_persona_editor_counter">%1$d / %2$d 个 UTF-16 字符</string>
+    <string name="r16_persona_editor_counter_note">这是字符数，不是模型 token 数。</string>
+    <string name="r16_persona_editor_over_limit">超出上限 %1$d 个（上限 %2$d）。请自己删减后再保存，不会替你截断。</string>
+    <string name="r16_persona_editor_blank">正文是空的。要回到内置卡，请用设置里的「恢复内置」。</string>
+    <string name="r16_persona_editor_save">保存</string>
+    <string name="r16_persona_editor_cancel">取消</string>
+    <string name="r16_persona_editor_saving">正在保存…</string>
+    <string name="r16_persona_editor_discard_title">放弃这份草稿？</string>
+    <string name="r16_persona_editor_discard_text">%1$s 的修改还没保存。</string>
+    <string name="r16_persona_editor_keep">继续编辑</string>
+    <string name="r16_persona_editor_discard">放弃</string>
+</resources>

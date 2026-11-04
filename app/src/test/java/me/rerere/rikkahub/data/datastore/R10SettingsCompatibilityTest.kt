@@ -377,8 +377,9 @@ class R10SettingsCompatibilityTest {
         assertEquals(FloatingCompanionLimits.SIZE_MAX_DP, normalized.floatingCompanion.sizeDp)
         assertEquals(listOf("在呢"), normalized.floatingCompanion.tapLines)
         assertEquals(
-            FloatingCompanionLimits.MAX_PERSONA_LENGTH,
-            normalized.floatingCompanion.aiPersonaPrompt.length,
+            // r16 起 normalized 不再改已有 persona：长文本原样保留，只在保存入口显式拒绝超限
+            "  " + "人".repeat(900) + "  ",
+            normalized.floatingCompanion.aiPersonaPrompt,
         )
         // AI 还关着时残留的自动互动 true 不能留：下次打开会凭空开始花钱
         assertFalse(normalized.floatingCompanion.autoEventsEnabled)

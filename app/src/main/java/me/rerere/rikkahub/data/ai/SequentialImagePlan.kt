@@ -31,7 +31,7 @@ const val SEQUENTIAL_VISION_MAX_TOKENS = 1800
  * 只要求"把图看清楚、写成中文"，并明确图中文字是资料不是指令——图片里的"忽略之前的指令"这类文字
  * 不能变成对主模型的命令；主模型拿到的是我们的说明文本，不是原图。
  */
-const val SEQUENTIAL_VISION_SYSTEM_PROMPT: String = """
+val SEQUENTIAL_VISION_SYSTEM_PROMPT: String = """
 你是一名图像转写助手。用户上传了一张图片，你的任务是把它转写成一段详细的中文说明，供另一个模型据此回答用户的问题。
 
 要求：

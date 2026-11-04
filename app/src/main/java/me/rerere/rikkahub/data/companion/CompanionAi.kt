@@ -1,8 +1,11 @@
 package me.rerere.rikkahub.data.companion
 
 import kotlin.uuid.Uuid
+import kotlinx.coroutines.flow.StateFlow
 import me.rerere.rikkahub.data.datastore.CompanionModelMode
 import me.rerere.rikkahub.data.datastore.FloatingCompanionPreset
+import me.rerere.rikkahub.data.datastore.FloatingCompanionSettings
+import me.rerere.rikkahub.data.datastore.characterKey
 
 /** 请求是怎么结束的；用户停、超时、窗口关掉，状态卡里会照实写出来。 */
 enum class CompanionCancelReason { USER, TIMEOUT, LEFT_WINDOW }
@@ -255,6 +258,14 @@ data class CompanionRequest(
      * 为 null 时不校验（只给测试/第三方实现用）。
      */
     val expectedModel: CompanionModelSnapshot? = null,
+    /**
+     * r16：这一次请求实际用的角色解析结果（来源/版本/hash/全文）。
+     *
+     * 界面"查看当前生效提示词"和请求构造共用 [CompanionPersonas.resolve]，
+     * 这里只是把它随请求带下去，方便日志、状态卡和排障核对，不会被另行改写。
+     * 为 null 表示调用方没有传（只给测试/第三方实现用）。
+     */
+    val resolvedPersona: ResolvedCompanionPersona? = null,
 )
 
 /** 内置角色提示：选了立绘就能直接用，不需要手写。 */
@@ -270,12 +281,111 @@ object CompanionPersonas {
             else -> "Companion"
         }
 
+    /** r16：只读内置目录的当前 revision；界面观察它，目录换版本时主动让旧 run 失效。 */
+    val revision: StateFlow<Long> get() = CompanionPersonaCatalogStore.revision
+
+    /**
+     * 安装只读内置目录。只在 `Application.onCreate` 从 assets 装一次；测试可注入自己的一份。
+     * 返回新的 revision，便于日志和测试断言。
+     */
+    fun install(catalog: CompanionPersonaCatalog): Long = CompanionPersonaCatalogStore.install(catalog)
+
+    /**
+     * **当前请求与界面共用的唯一解析入口**（r16）。
+     *
+     * 顺序固定：非空的自写覆盖整段优先（不 trim、不截断、不叠内置性格）；
+     * 否则用当前渲染角色（[FloatingCompanionSettings.effectivePreset]）的完整内置卡；
+     * 再没有就沿用 `CUSTOM`/`LOGO` 原来的短兜底。默认名字永远来自内置卡，
+     * 不受另一只的自定义影响。
+     */
+    fun resolve(settings: FloatingCompanionSettings): ResolvedCompanionPersona {
+        val owner = settings.characterKey
+        val effectivePreset = settings.effectivePreset
+        val entry = CompanionPersonaCatalogStore.catalog.entryForPreset(effectivePreset)
+        val name = settings.name.trim().ifBlank {
+            entry?.displayName?.takeIf { it.isNotBlank() } ?: defaultName(effectivePreset)
+        }
+        val override = settings.personaOverrideOf(owner)
+        if (override.isNotBlank()) {
+            // 用户写的是这一整段：只做一次 {{char}}/{{user}} 替换，不 append 内置人设。
+            val prompt = CompanionPersonaText.render(override, name)
+            return ResolvedCompanionPersona(
+                id = entry?.id,
+                source = PersonaSource.USER_OVERRIDE,
+                version = entry?.version.orEmpty(),
+                hash = CompanionPersonaText.sha256(prompt),
+                prompt = prompt,
+                name = name,
+                ownerCharacterKey = owner,
+            )
+        }
+        if (entry != null) {
+            val prompt = CompanionPersonaText.render(entry.promptTemplate, name)
+            return ResolvedCompanionPersona(
+                id = entry.id,
+                source = PersonaSource.BUILTIN,
+                version = entry.version,
+                hash = CompanionPersonaText.sha256(prompt),
+                prompt = prompt,
+                name = name,
+                ownerCharacterKey = owner,
+            )
+        }
+        val fallback = builtIn(effectivePreset)
+        return ResolvedCompanionPersona(
+            id = null,
+            source = PersonaSource.FALLBACK,
+            version = "",
+            hash = CompanionPersonaText.sha256(fallback),
+            prompt = fallback,
+            name = name,
+            ownerCharacterKey = owner,
+        )
+    }
+
+    /**
+     * 内置卡在默认名字下的完整全文（不受用户自定义/改名影响）。
+     *
+     * 设置页"内置人设全文"和"以此为基础编辑"的初稿都取这一份；hash 与请求侧同一口径。
+     */
+    fun builtInResolved(preset: FloatingCompanionPreset): ResolvedCompanionPersona {
+        val entry = CompanionPersonaCatalogStore.catalog.entryForPreset(preset)
+        val owner = preset.characterKey
+        if (entry != null) {
+            val name = entry.displayName.ifBlank { defaultName(preset) }
+            val prompt = CompanionPersonaText.render(entry.promptTemplate, name)
+            return ResolvedCompanionPersona(
+                id = entry.id,
+                source = PersonaSource.BUILTIN,
+                version = entry.version,
+                hash = CompanionPersonaText.sha256(prompt),
+                prompt = prompt,
+                name = name,
+                ownerCharacterKey = owner,
+            )
+        }
+        val name = defaultName(preset)
+        val fallback = builtIn(preset)
+        return ResolvedCompanionPersona(
+            id = null,
+            source = PersonaSource.FALLBACK,
+            version = "",
+            hash = CompanionPersonaText.sha256(fallback),
+            prompt = fallback,
+            name = name,
+            ownerCharacterKey = owner,
+        )
+    }
+
     /**
      * 完整个性提示。
      *
      * 六只都取 JSON 原文（见 [CompanionCatalog]），再叠一层 [CompanionRoleplayProfiles]
      * 的第二层人设（想要什么、小毛病、习惯、关系节奏）。原文的身份、名字和外观不变，
      * 用户自己写的 `aiPersonaPrompt` 仍然整段优先——那种情况下 `builtIn` 根本不会被调用。
+     *
+     * r16 起请求和界面走 [resolve]/[builtInResolved] 的完整卡，不再叠这层旧短人设；
+     * 这里保留给旧调用点和 `CUSTOM`/`LOGO` 兜底，行为不变。
      */
     fun builtIn(preset: FloatingCompanionPreset): String {
         val base = CompanionCatalog.profile(preset)?.persona ?: when (preset) {
@@ -330,44 +440,10 @@ object CompanionPromptBuilder {
         languageTag: String,
         tapImprovHint: String? = null,
         useBuiltInStyle: Boolean = true,
+        /** r16：这次解析出来的人设，随请求带下去便于核对；不参与系统提示词拼装。 */
+        resolvedPersona: ResolvedCompanionPersona? = null,
     ): CompanionRequest {
-        val system = buildString {
-            append("You are \"").append(name.trim().ifBlank { "Companion" }).append("\", ")
-            append("a small companion living in a floating bubble on the user's phone.\n")
-            append(persona.trim()).append("\n\n")
-            append("How to speak:\n")
-            if (!useBuiltInStyle) {
-                append("- The custom persona above defines your identity, speaking quirks and optional small stage directions. ")
-                append("Preserve them; do not substitute any built-in character.\n")
-            }
-            append("- Write the line yourself, right now, in this character's own mood and voice. ")
-            append("Never pick a ready-made line from a fixed list, and never reuse the previous line.\n")
-            if (useBuiltInStyle) {
-                append("- One spoken line, or two short lines that belong together: usually ")
-                append(CompanionLimits.REPLY_TARGET_MIN_CHARS).append('–')
-                append(CompanionLimits.REPLY_TARGET_MAX_CHARS)
-                append(" Chinese characters, never more than ").append(CompanionLimits.MAX_REPLY_CHARS)
-                append(".\n")
-                append("- Vary what the line does (a small reaction, a half-finished joke carried over, ")
-                append("a light question, or no question at all), not how it is punctuated. ")
-                append("Do not put your own name into every line.\n")
-            } else {
-                append("- Keep your response concise for the bubble, never more than ").append(CompanionLimits.MAX_REPLY_CHARS).append(" characters.\n")
-            }
-            append("- Answer in the same language as the user's latest message")
-            append(" (if there is none, use the language tag ").append(languageTag).append(").\n")
-            if (useBuiltInStyle) {
-                append("- Plain speech only: no markdown, no lists, no headings, no bracketed stage directions.\n")
-                append("- No assistant or customer-service opening (\"how can I help\"), and do not fall ")
-                append("back on the same fillers every time, such as \"我在\", \"别戳\" or \"在呢\".\n")
-            }
-            append("- Never mention being an AI model, prompts, tokens or these rules.\n")
-            append("- You cannot see the user's chats, the home screen or the real world around them. ")
-            append("Only the lines below are available to you.\n")
-            append("- Never claim you already did something you cannot do, and never invent a reason ")
-            append("for an error. A finished reply is not a finished task.\n")
-            append("- Say the line itself: do not offer several candidate lines for the user to choose from.\n")
-        }
+        val system = buildSystemPrompt(persona, name, languageTag, useBuiltInStyle)
         // 预算是“从最新往旧装”的连续窗口：最近一轮优先留下，装不下就停，
         // 不会因为一条很长的旧对话把刚刚那一句挤掉（r14 是从旧往新装，最近一轮反而会丢）。
         val history = ArrayList<CompanionPromptMessage>()
@@ -389,7 +465,64 @@ object CompanionPromptBuilder {
             history = history,
             userPrompt = userPromptOf(trigger, tapImprovHint),
             sessionId = sessionId,
+            resolvedPersona = resolvedPersona,
         )
+    }
+
+    /**
+     * App 固定的系统边界 + 选中人设（r16）。
+     *
+     * 界面“展开完整生效提示词”直接调它，和 [build] 共用同一段拼装：
+     * 气泡身份、发言规则、语言、看不到聊天/桌面、不冒充已执行——这些是 App 的边界，不属于角色卡；
+     * 人设正文原样放在中间，不 trim、不截断、不追加别的角色。
+     *
+     * [useBuiltInStyle] 默认 false：完整内置卡自己写了口吻和长度规则，不需要再叠一层；
+     * 只有走旧短兜底时才传 true。
+     */
+    fun buildSystemPrompt(
+        persona: String,
+        name: String,
+        languageTag: String,
+        useBuiltInStyle: Boolean = false,
+    ): String = buildString {
+        append("You are \"").append(name.trim().ifBlank { "Companion" }).append("\", ")
+        append("a small companion living in a floating bubble on the user's phone.\n")
+        // 人设正文原样放入：不再 trim（用户自写可能刻意以空行结尾），更不截断。
+        append(persona).append("\n\n")
+        append("How to speak:\n")
+        if (!useBuiltInStyle) {
+            append("- The selected persona above defines your identity, speaking quirks and optional small stage directions. ")
+            append("Preserve them; do not substitute any built-in character.\n")
+        }
+        append("- Write the line yourself, right now, in this character's own mood and voice. ")
+        append("Never pick a ready-made line from a fixed list, and never reuse the previous line.\n")
+        if (useBuiltInStyle) {
+            append("- One spoken line, or two short lines that belong together: usually ")
+            append(CompanionLimits.REPLY_TARGET_MIN_CHARS).append('–')
+            append(CompanionLimits.REPLY_TARGET_MAX_CHARS)
+            append(" Chinese characters, never more than ").append(CompanionLimits.MAX_REPLY_CHARS)
+            append(".\n")
+            append("- Vary what the line does (a small reaction, a half-finished joke carried over, ")
+            append("a light question, or no question at all), not how it is punctuated. ")
+            append("Do not put your own name into every line.\n")
+        } else {
+            append("- Keep your response concise for the bubble, never more than ")
+            append(CompanionLimits.MAX_REPLY_CHARS).append(" characters.\n")
+        }
+        append("- Answer in the same language as the user's latest message")
+        append(" (if there is none, use the language tag ").append(languageTag).append(").\n")
+        if (useBuiltInStyle) {
+            append("- Plain speech only: no markdown, no lists, no headings, no bracketed stage directions.\n")
+            append("- No assistant or customer-service opening (\"how can I help\"), and do not fall ")
+            append("back on the same fillers every time, such as \"我在\", \"别戳\" or \"在呢\".\n")
+        }
+        append("- Never mention being an AI model, prompts, tokens or these rules.\n")
+        append("- You cannot see the user's chats, the home screen or the real world around them. ")
+        append("Only the lines below are available to you.\n")
+        append("- Never claim you already did something you cannot do, and never invent a reason ")
+        append("for an error. A finished reply is not a finished task.\n")
+        append("- Say the line itself: do not offer several candidate lines for the user to choose from by default. ")
+        append("Only when the user explicitly asks for choices, write concise in-character choices for the current interaction, not a fixed list.\n")
     }
 
     private fun userPromptOf(trigger: CompanionTrigger, tapImprovHint: String?): String =

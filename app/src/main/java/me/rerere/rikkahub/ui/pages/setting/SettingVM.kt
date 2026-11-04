@@ -38,7 +38,22 @@ class SettingVM(
 
     suspend fun persistFloatingCompanion(companion: me.rerere.rikkahub.data.datastore.FloatingCompanionSettings) {
         settingsStore.update { latest ->
-            latest.copy(displaySetting = latest.displaySetting.copy(floatingCompanion = companion.normalized()))
+            val active = latest.displaySetting.floatingCompanion
+            // Persona writes have their own owner-bound editor. Old visual controls must never
+            // overwrite a just-saved prompt with the recomposition snapshot they captured.
+            val submitted = companion.normalized()
+            val owners = (submitted.characterOverrides.keys + active.characterOverrides.keys +
+                active.characterKey + submitted.characterKey).toSet()
+            val merged = submitted.copy(
+                aiPersonaPrompt = active.personaOverrideOf(submitted.characterKey),
+                characterOverrides = owners.associateWith { owner ->
+                    val visual = submitted.characterOverrides[owner]
+                        ?: active.characterOverrides[owner]
+                        ?: me.rerere.rikkahub.data.datastore.FloatingCompanionOverrides()
+                    visual.copy(aiPersonaPrompt = active.personaOverrideOf(owner))
+                },
+            )
+            latest.copy(displaySetting = latest.displaySetting.copy(floatingCompanion = merged))
         }
     }
 

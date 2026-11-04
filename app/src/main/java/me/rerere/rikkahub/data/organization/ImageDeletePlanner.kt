@@ -68,7 +68,7 @@ object ImageReferenceIndex {
     fun build(filesDir: File, blobs: List<String>): Map<String, Int> {
         val counts = mutableMapOf<String, Int>()
         blobs.forEach { blob ->
-            blob.split('\n', '\r', ',')
+            blob.split('\n', '\r')
                 .map { it.trim() }
                 .filter { it.isNotEmpty() }
                 .forEach { raw ->

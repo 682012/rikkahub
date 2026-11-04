@@ -71,7 +71,9 @@ data class FloatingCompanionOverrides(
         name = name.trim().take(FloatingCompanionLimits.MAX_NAME_LENGTH),
         tapLines = tapLines.map { it.trim().take(FloatingCompanionLimits.MAX_TAP_LINE_LENGTH) }
             .filter { it.isNotEmpty() }.distinct().take(FloatingCompanionLimits.MAX_TAP_LINES),
-        aiPersonaPrompt = aiPersonaPrompt.trim().take(FloatingCompanionLimits.MAX_PERSONA_LENGTH),
+        // r16: 用户自写人设是“整段优先”，normalized 不再 trim/take——
+        // 旧版在这里静默截到 800 字，重进设置就把长人设改坏了。长度只在保存入口显式校验。
+        aiPersonaPrompt = aiPersonaPrompt,
         customImagePath = normalizeOwnedPath(customImagePath),
         customTapImagePath = normalizeOwnedPath(customTapImagePath),
     )
@@ -188,6 +190,37 @@ data class FloatingCompanionSettings(
     fun tapLinesOr(fallback: List<String>): List<String> =
         tapLines.ifEmpty { fallback }.filter { it.isNotBlank() }
 
+    /**
+     * 当前打开的角色格里的自写人设（原始值，不 trim）。
+     *
+     * [ownerCharacterKey] 是编辑器打开时记下的所有者；保存/读取都认这一格，
+     * 不会因为此刻又切了角色就写到另一只身上。
+     */
+    fun personaOverrideOf(ownerCharacterKey: String): String {
+        val owner = ownerCharacterKey.trim()
+        if (owner == characterKey) return aiPersonaPrompt
+        return characterOverrides[owner]?.aiPersonaPrompt.orEmpty()
+    }
+
+    /**
+     * 把用户编辑的整段人设保存到 [ownerCharacterKey] 那一格（r16）。
+     *
+     * - 只改这一只的覆盖格，名字、图片、模型、开关和其他角色都不动；
+     * - 超过 [FloatingCompanionLimits.MAX_PERSONA_LENGTH] 时 `require` 失败，**绝不 take**；
+     * - 不 trim、不改写用户已有的换行和空格；空/全空白才表示“恢复内置”。
+     */
+    fun withPersonaOverride(ownerCharacterKey: String, prompt: String): FloatingCompanionSettings {
+        val owner = ownerCharacterKey.trim()
+        require(owner.isNotEmpty()) { "persona owner must not be blank" }
+        require(prompt.length <= FloatingCompanionLimits.MAX_PERSONA_LENGTH) {
+            "persona is ${prompt.length} UTF-16 units, limit is ${FloatingCompanionLimits.MAX_PERSONA_LENGTH}"
+        }
+        val saved = if (prompt.isBlank()) "" else prompt
+        if (owner == characterKey) return copy(aiPersonaPrompt = saved)
+        val existing = characterOverrides[owner] ?: FloatingCompanionOverrides()
+        return copy(characterOverrides = characterOverrides + (owner to existing.copy(aiPersonaPrompt = saved)))
+    }
+
     fun normalized(): FloatingCompanionSettings = copy(
         customImagePath = normalizeOwnedPath(customImagePath),
         customTapImagePath = normalizeOwnedPath(customTapImagePath),
@@ -199,7 +232,8 @@ data class FloatingCompanionSettings(
             .take(FloatingCompanionLimits.MAX_TAP_LINES),
         sizeDp = safeSizeDp,
         animationEnabled = animationEnabled,
-        aiPersonaPrompt = aiPersonaPrompt.trim().take(FloatingCompanionLimits.MAX_PERSONA_LENGTH),
+        // r16: 同上，读设置不再改已有 persona；超长只会在保存入口被显式拒绝。
+        aiPersonaPrompt = aiPersonaPrompt,
         characterOverrides = characterOverrides.mapValues { (_, value) -> value.normalized() },
         // 自动互动依赖 AI 回应：关掉 AI 后残留的 true 不应该在下次打开时凭空开始花钱
         autoEventsEnabled = autoEventsEnabled && aiModelMode != CompanionModelMode.OFF,
@@ -231,8 +265,14 @@ object FloatingCompanionLimits {
     const val MAX_TAP_LINES = 8
     const val MAX_TAP_LINE_LENGTH = 80
 
-    /** 个性提示的字符上限：够写清楚人设，也不会把设置文件撑大。 */
-    const val MAX_PERSONA_LENGTH = 800
+    /**
+     * 人设编辑/导入的上限（Kotlin `String.length`，即 UTF-16 code units）。
+     *
+     * r15 及以前是 800，完整内置卡（约 4500 字符）会被静默截掉大半。
+     * r16 起内置卡走只读资产目录、不经过这个上限；用户自写覆盖保存到这里校验。
+     * 12000 是素材包要求的下限，16000 给用户留出改写空间，仍远小于设置文件的风险线。
+     */
+    const val MAX_PERSONA_LENGTH = 16_000
 
     /** 手指位移超过 touchSlop 的这么多倍就当成拖窗口，不触发点击。 */
     const val DRAG_SLOP_FACTOR = 1.0f

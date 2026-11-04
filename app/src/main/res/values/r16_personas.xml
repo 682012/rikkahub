@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r16: 六小只完整人设的查看/复制/编辑入口（只读资产，不联网） -->
+    <string name="r16_persona_section_title">Complete personas</string>
+    <string name="r16_persona_section_desc">The whole built-in card and the prompt actually in use, in full. Viewing and copying stay on this device: no model request is made, and they work with AI replies off.</string>
+    <string name="r16_persona_item_title">%1$s · persona</string>
+    <string name="r16_persona_builtin_summary">Built-in summary: %1$s</string>
+    <string name="r16_persona_state_builtin">Built-in · version %1$s · %2$d characters</string>
+    <string name="r16_persona_state_override">Your own text · %1$d characters</string>
+    <string name="r16_persona_state_fallback">Fallback text · %1$d characters</string>
+    <string name="r16_persona_version_unknown">unknown</string>
+    <string name="r16_persona_view_builtin">Built-in</string>
+    <string name="r16_persona_view_effective">In use</string>
+    <string name="r16_persona_edit">Edit from this text</string>
+    <string name="r16_persona_restore">Restore built-in</string>
+    <string name="r16_persona_restore_title">Restore the built-in persona?</string>
+    <string name="r16_persona_restore_text">Only the custom persona saved for %1$s is cleared. Name, pictures, model, switches and the other characters stay as they are.</string>
+    <string name="r16_persona_restore_confirm">Restore</string>
+    <string name="r16_persona_restore_cancel">Cancel</string>
+    <string name="r16_persona_save_failed">Nothing was saved: %1$s</string>
+
+    <string name="r16_persona_view_builtin_title">Built-in persona · %1$s</string>
+    <string name="r16_persona_view_effective_title">Prompt in use · %1$s</string>
+    <string name="r16_persona_label_source">Source: %1$s</string>
+    <string name="r16_persona_label_card">Card %1$s · version %2$s</string>
+    <string name="r16_persona_label_name">Name: %1$s</string>
+    <string name="r16_persona_label_length">Length: %1$d UTF-16 characters</string>
+    <string name="r16_persona_label_hash">SHA-256: %1$s</string>
+    <string name="r16_persona_source_builtin">built-in card</string>
+    <string name="r16_persona_source_override">your own text</string>
+    <string name="r16_persona_source_fallback">fallback text</string>
+    <string name="r16_persona_copy">Copy text</string>
+    <string name="r16_persona_copy_failed">Could not write to the clipboard.</string>
+    <string name="r16_persona_copied">Copied</string>
+    <string name="r16_persona_copy_system">Copy full system prompt</string>
+    <string name="r16_persona_system_toggle">App-fixed system boundary</string>
+    <string name="r16_persona_system_desc">Every request also carries this fixed boundary, built by the same function the app sends with. Language tag %1$s.</string>
+    <string name="r16_persona_close">Close</string>
+    <string name="r16_persona_empty">(empty)</string>
+    <string name="r16_persona_local_only">Nothing here is sent anywhere.</string>
+
+    <string name="r16_persona_editor_title">Edit persona · %1$s</string>
+    <string name="r16_persona_editor_owner">Saves to %1$s only. Switching characters does not move this draft.</string>
+    <string name="r16_persona_editor_origin">The text opened here is the prompt in use, copied into a local draft. The built-in card stays read-only.</string>
+    <string name="r16_persona_editor_counter">%1$d / %2$d UTF-16 characters</string>
+    <string name="r16_persona_editor_counter_note">This is a character count, not a model token count.</string>
+    <string name="r16_persona_editor_over_limit">%1$d over the %2$d limit. Shorten it yourself before saving; nothing is cut for you.</string>
+    <string name="r16_persona_editor_blank">The text is empty. To go back to the built-in card, use Restore built-in in the settings list.</string>
+    <string name="r16_persona_editor_save">Save</string>
+    <string name="r16_persona_editor_cancel">Cancel</string>
+    <string name="r16_persona_editor_saving">Saving…</string>
+    <string name="r16_persona_editor_discard_title">Discard this draft?</string>
+    <string name="r16_persona_editor_discard_text">Your edits for %1$s are not saved yet.</string>
+    <string name="r16_persona_editor_keep">Keep editing</string>
+    <string name="r16_persona_editor_discard">Discard</string>
+</resources>

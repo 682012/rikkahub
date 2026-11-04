@@ -108,9 +108,6 @@ class NetworkHandover(
     /** 是否已经见过第一条非空 key（决定第一条 key 算不算「换代」）。 */
     private var seenAnyKey: Boolean = false
 
-    /** 上次「同句柄链路刷新」换代的时间，用来合并链路噪声。 */
-    private var lastRefreshMillis: Long? = null
-
     /**
      * 更新默认网络状态。[key] 为网络标识，[available] 为该网络当前是否可用。
      *
@@ -193,23 +190,19 @@ class NetworkHandover(
      * 句柄没变所以 [updateRoute] 看不到换代，这里显式按「换代」处理，让等待中的重试和
      * 在途请求立刻知道要走新路由。
      *
-     * 只有当前路由可用时才换代（离线期间交给恢复路径）；[MIN_REFRESH_GAP_MILLIS] 内的重复
-     * 刷新合并成一次，避免策略/VPN 的链路噪声把重试打成风暴。
+     * 只有当前路由可用时才换代（离线期间交给恢复路径）。重复属性由 [NetworkRouteTracker]
+     * 按签名去重；这里不加时间窗，以免 Wi-Fi→蜂窝的连续真实路由变化被误吞。
      */
     @Synchronized
     fun notifyRouteRefreshed() {
         val previous = _state.value
         if (!previous.available) return
-        val now = waiter.nowMillis()
-        val last = lastRefreshMillis
-        if (last != null && now - last in 0 until MIN_REFRESH_GAP_MILLIS) return
-        lastRefreshMillis = now
         _state.value = previous.copy(epoch = previous.epoch + 1L)
     }
 
-    /** 等待预算：用户真实的这次间隔；为 0 时至少补一个稳定期，避免忙等风暴。 */
+    /** 等待预算：用户真实的这次间隔（设置范围 1–600 秒）；为 0 时至少补一个稳定期，避免忙等风暴。 */
     private fun waitBudget(regularDelay: Duration): Long {
-        val configured = regularDelay.inWholeMilliseconds.coerceIn(0L, OFFLINE_RECOVERY_MILLIS)
+        val configured = regularDelay.inWholeMilliseconds.coerceIn(0L, MAX_CONFIGURED_DELAY_MILLIS)
         return if (configured > 0L) configured else STABILIZE_MILLIS
     }
 
@@ -229,10 +222,10 @@ class NetworkHandover(
          */
         const val STABILIZE_MILLIS: Long = 250L
 
-        /** 单次等待的硬上限（防止外部传离谱的间隔）。不是默认等待时长。 */
-        const val OFFLINE_RECOVERY_MILLIS: Long = 120_000L
+        /** 设置页允许的最大重连间隔：600 秒。 */
+        const val MAX_CONFIGURED_DELAY_MILLIS: Long = 600_000L
 
-        /** 同一个 handle 的链路刷新换代最小间隔，合并 VPN/策略层的重复链路回调。 */
-        const val MIN_REFRESH_GAP_MILLIS: Long = 1_000L
+        /** 单次离线等待的硬上限，至少覆盖最大用户配置。 */
+        const val OFFLINE_RECOVERY_MILLIS: Long = MAX_CONFIGURED_DELAY_MILLIS
     }
 }

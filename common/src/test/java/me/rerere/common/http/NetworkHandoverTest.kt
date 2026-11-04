@@ -230,18 +230,17 @@ class NetworkHandoverTest {
     }
 
     @Test
-    fun `same handle route refresh bumps exactly one generation`() = runBlocking {
+    fun `distinct same handle route refreshes are never swallowed by a time throttle`() = runBlocking {
         val waiter = VirtualTimeWaiter()
         val handover = NetworkHandover(waiter)
         handover.updateRoute("vpn", true)
         val before = handover.state.value.epoch
 
-        // VPN 内部路由变了但 handle 没变：monitor 通过 notifyRouteRefreshed 告知
+        // 同 handle 的两次真实路由刷新（例如先失去 Wi-Fi 底层、再接上蜂窝）都要可见。
+        // LinkProperties/underlying 集合在 monitor 侧按值去重，这里不再用 1s 时间窗误吞第二次变化。
         handover.notifyRouteRefreshed()
-        assertEquals(before + 1L, handover.state.value.epoch)
-        // 链路噪声在同一窗口内被合并，不会连续涨代际
         handover.notifyRouteRefreshed()
-        assertEquals(before + 1L, handover.state.value.epoch)
+        assertEquals(before + 2L, handover.state.value.epoch)
         assertTrue(handover.state.value.available)
     }
 

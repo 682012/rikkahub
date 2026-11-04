@@ -60,22 +60,22 @@ class NetworkRouteTrackerTest {
     }
 
     @Test
-    fun `link noise inside the coalescing window does not churn generations`() {
+    fun `distinct link signatures each produce a handover`() {
         tracker.onRouteState("vpn", true)
         tracker.onLinkChanged("vpn", "tun0|a")
         val epoch = handover.state.value.epoch
 
+        // 链路签名由 tracker 按值去重；不同签名代表真实路由变化，即使连续到达也不能吞掉。
         clock.now = 1_500L
         tracker.onLinkChanged("vpn", "tun0|b")
         assertEquals(epoch + 1L, handover.state.value.epoch)
 
-        // 同一秒内的链路抖动被合并，不会把在途请求反复打断
         clock.now = 1_800L
         tracker.onLinkChanged("vpn", "tun0|c")
-        assertEquals(epoch + 1L, handover.state.value.epoch)
+        assertEquals(epoch + 2L, handover.state.value.epoch)
 
         clock.now = 3_000L
-        tracker.onLinkChanged("vpn", "tun0|d")
+        tracker.onLinkChanged("vpn", "tun0|c")
         assertEquals(epoch + 2L, handover.state.value.epoch)
     }
 

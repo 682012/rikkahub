@@ -4,29 +4,36 @@
 
 与官方团队没有隶属关系；上游版权与 AGPL-3.0 许可保持不变；不提供官方或面向终端用户的技术支持。
 
-当前源码 **3.1.1-r12 / 3000059** · 包名 `me.rerere.rikkahub.fork`。r12 是六角色个人非商业适配，尚未公开发布；公开 Latest 与维护分支仍为 r11。应用名、图标、包名与签名沿用已有安装包。图片来源许可独立于代码，见 [r12 说明](fork/COMPANIONS-r12.md)。
+当前源码 **3.1.1-r16 / 3000063** · 包名 `me.rerere.rikkahub.fork`。在 r14 基线上合入 r15 即兴互动与完整六角色人设，再加入批量整理、网页预览和发送/重连修复。应用名、图标、包名与签名沿用旧版。图片与人设文字的许可独立于代码，见 [r16 说明](fork/RELEASE-r16.md)。
 
 ## 下载与安装
 
-**[下载 r11 正式 APK](https://github.com/682012/rikkahub/releases/download/v3.1.1-r11/rikkahub-3.1.1-r11.apk)** · [r11 更新与校验值](https://github.com/682012/rikkahub/releases/tag/v3.1.1-r11) · [最新正式版](https://github.com/682012/rikkahub/releases/latest) · [历史版本](https://github.com/682012/rikkahub/releases)
+**[下载最新正式 APK](https://github.com/682012/rikkahub/releases/latest)** · [r16 更新说明](fork/RELEASE-r16.md) · [历史版本](https://github.com/682012/rikkahub/releases)
+
+源码分支与下载渠道分开：只有完成正式 R8 构建和验包的版本才标为 Latest；实际发布状态、安装包与校验值以 Release 页面为准。
 
 - 下载通用 APK 即可安装，支持 ARM64 手机与 x86_64；正式包启用 R8 压缩与优化，和此前供开发使用的 fast 包区分。
 - 本分支包名与官方不同，**不能覆盖安装官方版**；同包名、同签名的本分支旧版可以按常规覆盖升级。
 - 升级前备份聊天与设置，不要为了升级先卸载（卸载会连应用数据一起丢）。从早期 `fork.*` 版本过来请直接下载安装，旧更新器不认识 `r` 系列版本号。
 - 下载安装不需要构建环境；聊天模型与服务账号仍由你自己配置，不提供共享 API 额度。
 
-## r12：六小只与 2D 动态
+## r16：整理、预览与完整小助手人设
 
-六只均接入已确认的待机/点击原图、名字、个性与 8 句固定台词。设置 → 偏好设置 → 通知 → 悬浮角色，可选「2D 动态」或「静态」。每角色独立保存自定义内容，切角色取消旧请求并隔离临时记忆；模型与所有开关不随角色改变。不是 Live2D 或骨骼模型。
+- **会话批量整理**：按助手、搜索和 7/30/90 天未使用筛选；多选删除，全选跳过置顶，失败项保留选择。
+- **图片整理**：自选视觉模型分类 App 上传图、旧生成图和媒体创作输出，人工勾选删除或标记保留。先确认外发与计费，不扫描系统相册、不自动删除。
+- **轻量网页预览**：聊天里的 http(s) 链接在系统 WebView 内打开，有地址、进度、重试与外部打开；不内置另一套浏览器内核。工作区离线 HTML 沙箱仍独立。
+- **公式与多图**：归一化常见 LaTeX 写法，解析失败保留源码；多图发送可选逐张识别后汇总，避免供应商一次多图不兼容。逐张识别会增加视觉请求数，发送前由用户选择。
+- **发送和网络**：输入框与错误按会话隔离，已发内容按草稿快照清理，不清后来输入；网络恢复/切换唤醒等待重试，常规失败沿用所设间隔，工具和图片生成不自动重放。
+- **六小只完整人设**：内置只读目录与用户覆盖分开，全文可看、复制、以此编辑或恢复默认；显示来源、版本、SHA-256 与 UTF-16 长度。AI 开启时每次有效点击现场生成，8 句只留作离线台词。模型、开关、自定义图片、每角色配置、动态/静态设置均保留。
 
-[r12 功能、兼容与素材来源](fork/COMPANIONS-r12.md)。本轮验证结果以 r12 交付记录为准，不把下方 r11 的历史测试当作 r12 已通过。
+[r16 功能、范围与验证入口](fork/RELEASE-r16.md)。r12–r15 的有效改动一并保留，包括压缩弹窗权限修复、图片预览与即兴点击；不含新增 24 张表情的动画接线，也不是 Live2D。
 
 ## r11 保留的改动
 
 这一版主要让切换对话不丢草稿、长任务不用守着等、文件可以直接看。包名、签名与数据库结构不变。
 
 1. **长正文折叠有默认值**：设置 → 偏好设置 → 界面偏好设置 → 长正文默认状态，可选「默认收起」或「默认展开」。本次进程内，每条消息的手动选择优先；重启后按设置的默认值显示，流式生成中不自动折叠。
-2. **输入草稿持久化**：文字、附件引用、光标位置与编辑态保存到应用私有目录；已有对话按对话存，新对话按助手存。切换对话/助手、离开页面再回来，草稿还在。
+2. **输入草稿持久化**：文字、附件引用、光标位置与编辑态保存到应用私有目录；已有对话按会话存，新会话草稿同时绑定助手与会话 ID。切换对话/助手、离开页面再回来，草稿还在。
 3. **记忆与提示词更稳定**：相同内容不重复写入、不无故提升记忆版本；记忆清单按路径稳定排序；`AGENTS` 相同内容只注入一次，并按文件变化复核。
 4. **文件预览更全**：工作区里的 HTML/HTM/XHTML/SVG 在隔离 WebView 中预览并可切源码；新增 Markdown 阅读、CSV/TSV 表格、JSON 格式化、EPUB 按目录提取章节文本。普通聊天里的 HTML/PDF/文本附件也能应用内预览。原有 PDF、Office 文本、压缩包清单、图片与音视频入口保留。
 5. **Pi/CodeMode 工具指引整理**：静态工具说明集中注入一次，不按工具重复；已知入口直接复用、定位后分页读取。只改工具机制，不改助手人格。
@@ -51,7 +58,9 @@
 | 压缩完成通知 | 偏好设置 → 通知 → 压缩完成通知 |
 | 每模型上下文、自动压缩、并发上限 | 提供商 → 编辑模型 → 基本 |
 | 布局、壁纸、沉浸聊天 | 偏好设置 → 主题 |
-| 悬浮角色与 AI 互动 | 偏好设置 → 通知 → 悬浮角色 → AI 互动 |
+| 悬浮角色、人设全文与 AI 互动 | 偏好设置 → 通知 → 悬浮角色 |
+| 批量整理会话 | 历史记录 → 整理 |
+| 分类、保留或批量删图 | 设置 → 文件管理 → 图片整理 |
 | 子代理并发 | 高级与长任务 → 子代理 |
 | 代码模式（`run_script`） | 助手详情 → 本地工具 → 代码模式 |
 | 自动重试与等待时间 | 网络 → 自动重试 |
@@ -78,7 +87,7 @@
 
 ## 能力边界（先看这几条）
 
-- **r11 基线验证范围（不替代 r12 验证）**：r11 有 16 个套件、168 项定向单元测试通过（0 失败 / 0 错误 / 0 跳过），调试变体编译及正式 R8 + lintVital 打包通过，版本、签名与包完整性已核对。发布沿用已有测试，没有重跑。**没有**做真机或模拟器界面回归，**没有**用真实提供商测缓存命中率，也没有跑全量测试套件。界面行为目前只在代码与单元测试层面确认。
+- **历史 r11 基线验证范围（不替代 r16 验证）**：r11 有 16 个套件、168 项定向单元测试通过（0 失败 / 0 错误 / 0 跳过），调试变体编译及正式 R8 + lintVital 打包通过，版本、签名与包完整性已核对。发布沿用已有测试，没有重跑。**没有**做真机或模拟器界面回归，**没有**用真实提供商测缓存命中率，也没有跑全量测试套件。界面行为目前只在代码与单元测试层面确认。
 - **后台不等于永不掉线**：Android 厂商强杀或系统重启会中断仍在跑的后台请求与工具，前台服务只是提高存活机会。被中断的任务标为未知/已中断，不自动重放副作用。
 - **非文本结果跨重启有限**：图片等附件在进程重启后能从任务回执恢复的范围有限；正文保留受存储预算限制，超出时明确标注。
 - **Office / EPUB 不还原完整排版**：Office 与 EPUB 是文本/章节提取，不还原版式、不读 DRM；HTML 用 Android 系统 WebView，脚本可运行但没有 JS 桥与本地文件系统访问，外部资源默认关闭、需手动放行；表格预览最多 300 行 / 40 列，完整内容切源码看。
@@ -89,8 +98,8 @@
 
 ## 文档导航
 
-- 当前源码：[r12 六角色与动态说明](fork/COMPANIONS-r12.md)
-- 当前公开版：[r11 说明与边界](fork/RELEASE-r11.md) · [r11 机器可读验收](fork/verification/r11.json)
+- 当前源码：[r16 说明与边界](fork/RELEASE-r16.md) · [正式包与机器可读验收](https://github.com/682012/rikkahub/releases/latest)
+- 六角色素材历史：[r12 立绘与动态](fork/COMPANIONS-r12.md) · [r15 即兴互动](fork/COMPANIONS-r15.md)
 - 横向对比：[完整功能对比](fork/FEATURES.md) · [版本历史](fork/CHANGES.md)
 - 维护：[构建、签名与回退](fork/README.md) · [修改声明](NOTICE.md) · [免责声明](DISCLAIMER.md)
 - 历史版本：r1–r10 的逐版说明见 [CHANGES.md](fork/CHANGES.md) 目录，以及 `fork/RELEASE-rN.md` 与 `fork/verification/rN.json`（例如 [r10](fork/RELEASE-r10.md)、[r8](fork/RELEASE-r8.md)、[r3 历史稳定版](fork/RELEASE-r3.md)）。首页只保留当前版本，历史细节留在这些文件里。
@@ -103,4 +112,4 @@
 
 ### English summary
 
-Unofficial personal fork of RikkaHub **3.1.1**. Keeps the upstream client and adds subagents, workspace background jobs, optional HTTP execution, automatic context compression, ZIP workspace migration, configurable retries, a per-chat usage panel, and a reworked tool-calling layer (batched read-only calls, compact MCP catalog, offloaded paged tool output, `workspace_grep`/`workspace_glob`, read-only `run_script`). **r11** adds a configurable default for long-message collapsing, durable per-conversation/per-assistant drafts, stable memory and `AGENTS` injection, isolated WebView HTML preview plus Markdown/CSV/TSV/JSON/EPUB text previews, consolidated tool guidance, a 1–3600 s threshold (default 30 s) for moving slow tool calls to the background with `background_tool`, and background manual compression with an optional completion notification. The formal R8/lintVital build and package checks pass; the 168 previously passed targeted tests across 16 suites were not rerun. No device/UI regression and no real-provider cache-hit measurements have been run. Package name, app name, icon and signing key are unchanged. Licensed under AGPL-3.0.
+Unofficial personal fork of RikkaHub **3.1.1**. Keeps the upstream client and adds subagents, workspace background jobs, optional HTTP execution, automatic context compression, ZIP workspace migration, configurable retries, a per-chat usage panel, and a reworked tool-calling layer (batched read-only calls, compact MCP catalog, offloaded paged tool output, `workspace_grep`/`workspace_glob`, read-only `run_script`). **r16** adds conversation/image organization, system-WebView link previews, math normalization, sequential image recognition, conversation-bound sending, immediate network-recovery wakeups, and six complete read-only companion personas with full-text viewing/copying/editing. AI taps generate fresh text; user overrides and original settings remain separate. See the r16 notes and release assets for current validation. **r11 (historical baseline)** adds a configurable default for long-message collapsing, durable per-conversation/per-assistant drafts, stable memory and `AGENTS` injection, isolated WebView HTML preview plus Markdown/CSV/TSV/JSON/EPUB text previews, consolidated tool guidance, a 1–3600 s threshold (default 30 s) for moving slow tool calls to the background with `background_tool`, and background manual compression with an optional completion notification. The formal R8/lintVital build and package checks pass; the 168 previously passed targeted tests across 16 suites were not rerun. No device/UI regression and no real-provider cache-hit measurements have been run. Package name, app name, icon and signing key are unchanged. Licensed under AGPL-3.0.

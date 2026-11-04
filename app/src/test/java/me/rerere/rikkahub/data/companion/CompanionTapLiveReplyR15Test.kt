@@ -154,7 +154,7 @@ class CompanionTapLiveReplyR15Test {
         if (overlay.isNotBlank()) assertFalse(system.contains(overlay.take(20)))
         assertFalse(system.contains("no bracketed stage directions"))
         assertFalse(system.contains("No assistant or customer-service opening"))
-        assertTrue(system.contains("The custom persona above defines your identity"))
+        assertTrue(system.contains("The selected persona above defines your identity"))
         val genericHint = CompanionTapImagination.hint(null, 1, false)
         assertTrue(source.requests.single().userPrompt.contains(genericHint))
         val dragonHint = CompanionTapImagination.hint("gpt", 1, false)

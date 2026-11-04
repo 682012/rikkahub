@@ -39,6 +39,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
@@ -50,6 +51,7 @@ import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.conversationIntent
 import me.rerere.rikkahub.data.companion.CompanionAiController
 import me.rerere.rikkahub.data.companion.CompanionDelta
+import me.rerere.rikkahub.data.companion.CompanionPersonas
 import me.rerere.rikkahub.data.companion.CompanionReplySource
 import me.rerere.rikkahub.data.companion.CompanionRequest
 import me.rerere.rikkahub.data.companion.CompanionTrigger
@@ -152,6 +154,13 @@ class ChatFloatingWindows(
         appScope.launch {
             settingsStore.settingsFlow.map { it.displaySetting.floatingCompanion }
                 .distinctUntilChanged().collect { companionController.switchCharacter(it) }
+        }
+        // 只读内置人设目录换了版本（覆盖安装、将来的热导入）：先让旧 run 失效，再按当前设置重建会话身份。
+        // 目录没变时 revision 保持不动，这里不会取消任何请求；自动互动预算和模型选择不跟着重置。
+        appScope.launch {
+            CompanionPersonas.revision.drop(1).collect {
+                companionController.personaCatalogChanged()
+            }
         }
         // 模型相关的设置变了（换模式/换模型/关掉 AI）：先停在途请求再刷新，
         // 状态卡里的模型和下一句真正用的模型才是同一个

@@ -60,8 +60,6 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Delete02
 import me.rerere.hugeicons.stroke.Image02
 import me.rerere.rikkahub.R
-import me.rerere.rikkahub.data.companion.CompanionPersonas
-import me.rerere.rikkahub.data.companion.CompanionCatalog
 import me.rerere.rikkahub.data.companion.CompanionImageOrigin
 import me.rerere.rikkahub.data.companion.CompanionImageResolution
 import me.rerere.rikkahub.data.companion.CompanionImageSlot
@@ -98,6 +96,8 @@ fun FloatingCompanionSettingsCard(
     providers: List<ProviderSetting> = emptyList(),
 ) {
     val current = remember(companion) { companion.normalized() }
+    // 人设编辑/恢复走 SettingsStore 的原子更新（只改 owner 那一格），不经过这里的整份 onChange。
+    val personaSaver = rememberCompanionPersonaOwnerSaver()
     val latest by rememberUpdatedState(current)
     val latestPersist by rememberUpdatedState(persistChange)
     val changeScope = rememberCoroutineScope()
@@ -512,42 +512,16 @@ fun FloatingCompanionSettingsCard(
                     headlineContent = { Text(stringResource(R.string.companion_auto_title)) },
                     supportingContent = { Text(stringResource(R.string.companion_auto_desc)) },
                 )
-                formItem(
-                    headlineContent = { Text(stringResource(R.string.companion_persona_title)) },
-                    supportingContent = {
-                        Text(
-                            stringResource(
-                                R.string.companion_persona_desc,
-                                builtInPersonaSummary(current.effectivePreset),
-                            )
-                        )
-                    },
-                ) {
-                    OutlinedTextField(
-                        value = current.aiPersonaPrompt,
-                        onValueChange = { value ->
-                            update {
-                                it.copy(aiPersonaPrompt = value.take(FloatingCompanionLimits.MAX_PERSONA_LENGTH))
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        minLines = 2,
-                        maxLines = 5,
-                        placeholder = { Text(builtInPersonaSummary(current.effectivePreset)) },
-                    )
-                    if (current.aiPersonaPrompt.isNotEmpty()) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                        ) {
-                            TextButton(onClick = { update { it.copy(aiPersonaPrompt = "") } }) {
-                                Text(stringResource(R.string.companion_persona_reset))
-                            }
-                        }
-                    }
-                }
             }
         }
+
+        // r16：完整人设的查看/复制/编辑放在 AI 开关之外——AI 回应关着也能看全文、复制，
+        // 而且编辑保存只走 owner 那一格，不再经过这里的整份 onChange，避免顺手覆盖别的角色。
+        CompanionPersonaSection(
+            companion = current,
+            saveOverride = personaSaver::save,
+            restoreOverride = personaSaver::restoreBuiltIn,
+        )
 
         CardGroup(title = { Text(stringResource(R.string.floating_companion_section_behavior)) }) {
             formItem(
@@ -732,23 +706,6 @@ private fun CompanionImageRow(
         modifier = Modifier.padding(top = 4.dp),
     )
 }
-
-/** 内置人设的一句话说明；个性输入框留空时就是它在起作用。 */
-@Composable
-private fun builtInPersonaSummary(preset: FloatingCompanionPreset): String =
-    CompanionCatalog.profile(preset)?.shortDescription ?: stringResource(
-    when (CompanionPersonas.summaryKey(preset)) {
-        "dragon_girl" -> R.string.companion_persona_builtin_dragon_girl
-        "sun_reader" -> R.string.companion_persona_builtin_sun_reader
-        "whale_maid" -> R.string.companion_persona_builtin_whale_maid
-        "cat" -> R.string.companion_persona_builtin_cat
-        "gemini_cat" -> R.string.r12_persona_summary_gemini
-        "glm_fox" -> R.string.r12_persona_summary_glm
-        "qwen_girl" -> R.string.r12_persona_summary_qwen
-        "logo" -> R.string.companion_persona_builtin_logo
-        else -> R.string.companion_persona_builtin_custom
-    }
-)
 
 /**
  * 放进设置页 LazyColumn 用：

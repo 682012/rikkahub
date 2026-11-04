@@ -1,0 +1,9 @@
+{
+ "schema": "six-companions-personas/v1",
+ "pack_version": "1.0.0",
+ "source": "six-companions-personas/v1 (persona-pack v1.0.0)",
+ "source_sha256": "86bc65060098fe2fa4c090a638ec952b975c915ad273f40fb9dd182cc0e9a97d",
+ "assets_path": "companions/personas/companions-personas.json",
+ "editor_limit_utf16": 16000,
+ "note": "Read-only built-in persona directory. Users edit a per-character override only; the files here are never rewritten at runtime."
+}
