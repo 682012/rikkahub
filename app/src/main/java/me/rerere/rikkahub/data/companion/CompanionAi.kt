@@ -302,9 +302,8 @@ object CompanionPersonas {
         val owner = settings.characterKey
         val effectivePreset = settings.effectivePreset
         val entry = CompanionPersonaCatalogStore.catalog.entryForPreset(effectivePreset)
-        val name = settings.name.trim().ifBlank {
-            entry?.displayName?.takeIf { it.isNotBlank() } ?: defaultName(effectivePreset)
-        }
+        // r17: UI 与请求统一使用当前正式角色名；非空的用户自定义名完全保留。
+        val name = settings.name.trim().ifBlank { defaultName(effectivePreset) }
         val override = settings.personaOverrideOf(owner)
         if (override.isNotBlank()) {
             // 用户写的是这一整段：只做一次 {{char}}/{{user}} 替换，不 append 内置人设。
@@ -352,7 +351,7 @@ object CompanionPersonas {
         val entry = CompanionPersonaCatalogStore.catalog.entryForPreset(preset)
         val owner = preset.characterKey
         if (entry != null) {
-            val name = entry.displayName.ifBlank { defaultName(preset) }
+            val name = defaultName(preset)
             val prompt = CompanionPersonaText.render(entry.promptTemplate, name)
             return ResolvedCompanionPersona(
                 id = entry.id,

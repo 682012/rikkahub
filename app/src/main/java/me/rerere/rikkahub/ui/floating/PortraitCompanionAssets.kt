@@ -40,7 +40,8 @@ internal fun portraitTapLines(preset: FloatingCompanionPreset): List<String> =
 
 /** 角色名：六只的名字来自 JSON 原文，`CUSTOM`/`LOGO` 沿用旧资源。 */
 @Composable
-internal fun portraitName(preset: FloatingCompanionPreset): String = stringResource(
+internal fun portraitName(preset: FloatingCompanionPreset): String =
+    CompanionCatalog.portraitDisplayName(preset) ?: stringResource(
     when (preset) {
         FloatingCompanionPreset.DRAGON_GIRL, FloatingCompanionPreset.DRAGON -> R.string.r12_name_gpt
         FloatingCompanionPreset.SUN_READER -> R.string.r12_name_claude

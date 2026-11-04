@@ -93,6 +93,7 @@ private fun Settings.withValuesInRange(): Settings = copy(
     backgroundToolSettings = backgroundToolSettings.normalized(),
     displaySetting = displaySetting.copy(
         appearance = displaySetting.appearance.normalized(),
+        multiImageSend = displaySetting.multiImageSend.normalized(),
         floatingCompanion = displaySetting.floatingCompanion.normalized(),
     ),
 )

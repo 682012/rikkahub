@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r16：图片整理页面，单独一个文件，避免和后端资源冲突。 -->
+    <string name="r16_images_title">图片整理</string>
+    <string name="r16_images_search_hint">搜索名字或描述</string>
+    <string name="r16_images_all_sources">全部来源</string>
+    <string name="r16_images_all_categories">全部类别</string>
+    <string name="r16_images_source_upload">聊天上传</string>
+    <string name="r16_images_source_generated">生成图</string>
+    <string name="r16_images_source_media">媒体创作</string>
+    <string name="r16_images_cat_portrait">人物/动漫</string>
+    <string name="r16_images_cat_screenshot">截图/文字</string>
+    <string name="r16_images_cat_scenery">风景/实物</string>
+    <string name="r16_images_cat_design">设计/图表</string>
+    <string name="r16_images_cat_other">其他</string>
+    <string name="r16_images_cat_unrecognized">未识别</string>
+    <string name="r16_images_selected">已选 %1$d 张 · %2$s</string>
+    <string name="r16_images_select_all">全选</string>
+    <string name="r16_images_clear_selection">清选</string>
+    <string name="r16_images_keep">保留</string>
+    <string name="r16_images_unkeep">取消保留</string>
+    <string name="r16_images_classify">识别</string>
+    <string name="r16_images_delete">删除</string>
+    <string name="r16_images_refresh">重新扫描</string>
+    <string name="r16_images_more">更多</string>
+    <string name="r16_images_scanning">正在扫描 App 内的图片…</string>
+    <string name="r16_images_empty">还没有 App 内的图片。聊天里上传的图、生成的图会出现在这里。</string>
+    <string name="r16_images_empty_filtered">当前筛选下没有图片。</string>
+    <string name="r16_images_filter_clear">清除筛选</string>
+    <string name="r16_images_preview_desc">%1$s 预览</string>
+    <string name="r16_images_no_model_title">还没选识别模型</string>
+    <string name="r16_images_no_model_message">识别前先选一个支持图片输入的模型。这里的模型选择只列出能看图的模型，不会改动聊天用的模型。</string>
+    <string name="r16_images_classify_filtered">识别当前筛选全部（%1$d 张）</string>
+    <string name="r16_images_classify_title">发送 %1$d 张缩略图？</string>
+    <string name="r16_images_classify_message">缩略图会发送给 %1$s · %2$s 做识别，费用按该供应商计费。识别结果只是建议，保留还是删除由你自己决定，不会自动删图。</string>
+    <string name="r16_images_classify_confirm">发送</string>
+    <string name="r16_images_cancel">取消</string>
+    <string name="r16_images_progress">已识别 %1$d/%2$d · 失败 %3$d</string>
+    <string name="r16_images_progress_stop">停止</string>
+    <string name="r16_images_delete_title">删除 %1$d 张图片？</string>
+    <string name="r16_images_delete_message">%1$s 会被永久删除。这些是 App 里的图片本体，用过它们的聊天和记录会失去这张图，删除后不可撤销。</string>
+    <string name="r16_images_delete_skipped_note">其中 %1$d 张已标记保留，会被自动跳过。</string>
+    <string name="r16_images_delete_result">已删除 %1$d 张 · 失败 %2$d 张 · 跳过 %3$d 张</string>
+    <string name="r16_images_delete_failed_kept">失败的图仍然保持勾选。</string>
+    <string name="r16_images_kept_badge">保留</string>
+    <string name="r16_images_failed_badge">失败</string>
+    <string name="r16_images_nothing_deletable">选中的图都已标记保留，或在这里不能删除。</string>
+</resources>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r17_images_title">多图发送</string>
+    <string name="r17_images_enabled">自动分批识别</string>
+    <string name="r17_images_description">直接发送，不再弹窗。各批依次识别，再合并成一次回答；使用当前视觉模型，可能增加费用，也可能丢失细小画面信息。</string>
+    <string name="r17_images_threshold">图片超过多少张时启用</string>
+    <string name="r17_images_count">张数</string>
+    <string name="r17_images_threshold_hint">可填 0–100。超过 %1$d 张才分批，等于或少于时一起发；模型不支持看图时沿用普通发送。</string>
+    <string name="r17_images_batch_size">每批识别几张</string>
+    <string name="r17_images_batch_hint">可填 1–100，最后一批不足时按剩余张数发送。各批依次请求；上游容易拒绝多图时建议填 1。</string>
+</resources>

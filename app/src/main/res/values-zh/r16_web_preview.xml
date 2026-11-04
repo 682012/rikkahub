@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r16：内置网页预览页（地址栏、加载失败、外部协议交接）。单独一个文件，避免和别的资源冲突。 -->
+    <string name="r16_web_title">网页预览</string>
+    <string name="r16_web_address_unknown">正在加载页面</string>
+    <string name="r16_web_progress">%1$d%%</string>
+    <string name="r16_web_stop">停止加载</string>
+    <string name="r16_web_reload">重新加载</string>
+    <string name="r16_web_forward">前进</string>
+    <string name="r16_web_more">更多选项</string>
+    <string name="r16_web_open_browser">在浏览器中打开</string>
+    <string name="r16_web_console">控制台日志</string>
+    <string name="r16_web_console_empty">没有控制台消息</string>
+    <string name="r16_web_close">关闭</string>
+
+    <string name="r16_web_error_title">页面打不开</string>
+    <string name="r16_web_error_ssl_title">证书错误，已阻止</string>
+    <string name="r16_web_error_ssl_hint">这个网站的证书不受信任，预览已停止加载，不会继续访问。</string>
+    <string name="r16_web_error_network_hint">可能是网络不可用，或对方服务器拒绝了这次请求。</string>
+    <string name="r16_web_error_renderer_title">预览引擎已停止</string>
+    <string name="r16_web_error_renderer_hint">系统 WebView 进程已退出，这个页面无法复用它。</string>
+    <string name="r16_web_error_detail">详情：%1$s</string>
+    <string name="r16_web_error_url">地址：%1$s</string>
+    <string name="r16_web_retry">重试</string>
+
+    <string name="r16_web_missing_title">预览内容已过期</string>
+    <string name="r16_web_missing_hint">这条预览的临时内容已被清理，请回到对话重新生成。</string>
+    <string name="r16_web_missing_back">返回</string>
+
+    <string name="r16_web_external_title">在其它应用中打开？</string>
+    <string name="r16_web_external_message">这个链接使用 %1$s 协议，应用内预览打不开。\n%2$s</string>
+    <string name="r16_web_external_open">打开</string>
+    <string name="r16_web_external_cancel">取消</string>
+    <string name="r16_web_external_failed">没有可以处理这个链接的应用</string>
+</resources>

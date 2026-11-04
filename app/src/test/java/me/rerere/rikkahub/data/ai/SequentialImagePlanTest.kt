@@ -255,4 +255,209 @@ class SequentialImagePlanTest {
             file.delete()
         }
     }
+
+    // ---------------------------------------------------------------- 分批 --------------------------------
+
+    @Test
+    fun `mark stores batch size while legacy true still means one image per batch`() {
+        val parts = markSequentialImages(
+            listOf(image("file:///tmp/1.jpg"), image("file:///tmp/2.jpg")),
+            batchSize = 3,
+        )
+        assertEquals(3, parts[0].sequentialVisionBatchSize())
+        assertEquals(3, parts[1].sequentialVisionBatchSize())
+        assertTrue(parts[0].isSequentialVisionImage())
+
+        // r16 旧标记（true）读出来就是每批 1 张，旧消息不用迁移
+        assertEquals(1, image("file:///tmp/1.jpg", flagged = true).sequentialVisionBatchSize())
+        assertEquals(0, image("file:///tmp/1.jpg").sequentialVisionBatchSize())
+        // 默认参数 = r16 行为
+        assertEquals(1, markSequentialImages(listOf(image("file:///tmp/1.jpg")))[0].sequentialVisionBatchSize())
+        // 设置给太大也不会超过上限
+        assertEquals(
+            SEQUENTIAL_VISION_MAX_BATCH_SIZE,
+            markSequentialImages(listOf(image("file:///tmp/1.jpg")), batchSize = 999)[0].sequentialVisionBatchSize(),
+        )
+    }
+
+    @Test
+    fun `batch size survives json round trip`() {
+        val message = UIMessage(
+            role = MessageRole.USER,
+            parts = listOf(UIMessagePart.Text("这几张图里写了什么？"), image("file:///tmp/1.jpg")),
+        ).markSequentialImages(batchSize = 4)
+        val decoded = Json.decodeFromString(
+            UIMessage.serializer(),
+            Json.encodeToString(UIMessage.serializer(), message),
+        )
+
+        assertEquals(4, decoded.parts[1].sequentialVisionBatchSize())
+        assertTrue(decoded.parts[1].isSequentialVisionImage())
+    }
+
+    @Test
+    fun `plan chunks images into real multi image batches in original order`() {
+        val parts = listOf(UIMessagePart.Text("这五张图分别是什么？")) +
+            (1..5).map { image("file:///tmp/$it.jpg") }
+        val messages = listOf(UIMessage(role = MessageRole.USER, parts = markSequentialImages(parts, batchSize = 2)))
+
+        val batches = planSequentialImageBatches(messages, conversationId, "fp", stat = { null })
+
+        assertEquals(listOf(2, 2, 1), batches.map { it.size })
+        assertEquals(listOf(1, 2, 3, 4, 5), batches.flatMap { it.ordinals })
+        assertEquals(listOf("file:///tmp/1.jpg", "file:///tmp/2.jpg"), batches[0].urls)
+        assertEquals(listOf(1, 2, 3), batches.map { it.batchIndex })
+        assertEquals(listOf(3, 3, 3), batches.map { it.batchCount })
+        assertEquals(listOf(5, 5, 5), batches.map { it.total })
+        assertEquals(listOf("1-2", "3-4", "5"), batches.map { it.ordinalLabel })
+        assertEquals("这五张图分别是什么？", batches.first().question)
+
+        // 摊平后仍然是一张图一个任务（序号/位置一对一），同批共享批次 key
+        val tasks = planSequentialImages(messages, conversationId, "fp", stat = { null })
+        assertEquals(listOf(1, 2, 3, 4, 5), tasks.map { it.ordinal })
+        assertEquals(5, tasks.map { it.total }.distinct().single())
+        assertEquals(batches[0].cacheKey, tasks[0].cacheKey)
+        assertEquals(batches[0].cacheKey, tasks[1].cacheKey)
+        assertNotEquals(batches[0].cacheKey, batches[1].cacheKey)
+        assertEquals(listOf(true, false, true, false, true), tasks.map { it.batchLead })
+    }
+
+    @Test
+    fun `batches never cross messages or questions`() {
+        val first = UIMessage(
+            role = MessageRole.USER,
+            parts = markSequentialImages(
+                listOf(UIMessagePart.Text("第一问"), image("file:///tmp/1.jpg"), image("file:///tmp/2.jpg")),
+                batchSize = 5,
+            ),
+        )
+        val second = UIMessage(
+            role = MessageRole.USER,
+            parts = markSequentialImages(
+                listOf(UIMessagePart.Text("第二问"), image("file:///tmp/3.jpg"), image("file:///tmp/4.jpg")),
+                batchSize = 5,
+            ),
+        )
+
+        val batches = planSequentialImageBatches(listOf(first, second), conversationId, "fp", stat = { null })
+
+        assertEquals(2, batches.size)
+        assertEquals(listOf(0, 1), batches.map { it.messageIndex })
+        assertEquals(listOf("第一问", "第二问"), batches.map { it.question })
+        assertEquals(listOf(listOf(1, 2), listOf(3, 4)), batches.map { it.ordinals })
+        assertNotEquals(batches[0].cacheKey, batches[1].cacheKey)
+    }
+
+    @Test
+    fun `batch cache key covers order stats question model conversation and batch size`() {
+        val a = SequentialImageCacheEntry("file:///tmp/1.jpg", SequentialImageFileStat(10, 100))
+        val b = SequentialImageCacheEntry("file:///tmp/2.jpg", SequentialImageFileStat(20, 200))
+        val key = sequentialImageBatchCacheKey(conversationId, "fp", listOf(a, b), "这两张有什么区别？")
+
+        // 单张批次沿用 r16 旧 key：老缓存继续命中
+        assertEquals(
+            sequentialImageCacheKey(conversationId, "fp", a.url, a.fileStat, "这两张有什么区别？"),
+            sequentialImageBatchCacheKey(conversationId, "fp", listOf(a), "这两张有什么区别？"),
+        )
+        // 顺序变了不能命中
+        assertNotEquals(key, sequentialImageBatchCacheKey(conversationId, "fp", listOf(b, a), "这两张有什么区别？"))
+        // 同批张数/内容变了不能命中
+        assertNotEquals(key, sequentialImageBatchCacheKey(conversationId, "fp", listOf(a, a), "这两张有什么区别？"))
+        assertNotEquals(key, sequentialImageBatchCacheKey(conversationId, "fp", listOf(a), "这两张有什么区别？"))
+        assertNotEquals(
+            key,
+            sequentialImageBatchCacheKey(conversationId, "fp", listOf(a, b.copy(fileStat = SequentialImageFileStat(21, 200))), "这两张有什么区别？"),
+        )
+        // 会话/模型/问题隔离
+        assertNotEquals(key, sequentialImageBatchCacheKey(Uuid.random(), "fp", listOf(a, b), "这两张有什么区别？"))
+        assertNotEquals(key, sequentialImageBatchCacheKey(conversationId, "fp2", listOf(a, b), "这两张有什么区别？"))
+        assertNotEquals(key, sequentialImageBatchCacheKey(conversationId, "fp", listOf(a, b), "换了个问法"))
+    }
+
+    @Test
+    fun `replace collapses a batch into one note on the first image`() {
+        val original = listOf(
+            UIMessage(
+                role = MessageRole.USER,
+                parts = markSequentialImages(
+                    listOf(
+                        UIMessagePart.Text("这三张分别是什么？"),
+                        image("file:///tmp/1.jpg"),
+                        image("file:///tmp/2.jpg"),
+                        image("file:///tmp/3.jpg"),
+                    ),
+                    batchSize = 3,
+                ) + image("file:///tmp/keep.jpg"),
+            ),
+        )
+        val batch = planSequentialImageBatches(original, conversationId, "fp", stat = { null }).single()
+        assertEquals(3, batch.size)
+        val notes = mapOf(batch.cacheKey to "第 1 张：A\n第 2 张：B\n第 3 张：C")
+
+        val replaced = original.replaceSequentialImagesWithNotes(batch.tasks, notes)
+
+        val parts = replaced.single().parts
+        assertTrue(parts.none { it.isSequentialVisionImage() })
+        // 一批只留一条说明，同批其余图去掉（内容已在说明里）
+        val images = parts.filterIsInstance<UIMessagePart.Image>()
+        assertEquals(listOf("file:///tmp/keep.jpg"), images.map { it.url })
+        val note = parts.filterIsInstance<UIMessagePart.Text>().last()
+        assertTrue("index=\"1,2,3\"" in note.text)
+        assertTrue("batch_size=\"3\"" in note.text)
+        assertTrue("第 2 张：B" in note.text)
+        // 原消息不变：DB 里的标记图还在
+        assertEquals(3, original.single().parts.count { it.isSequentialVisionImage() })
+    }
+
+    @Test
+    fun `replace keeps the whole batch as images when its note is missing`() {
+        val original = listOf(
+            UIMessage(
+                role = MessageRole.USER,
+                parts = markSequentialImages(
+                    listOf(image("file:///tmp/1.jpg"), image("file:///tmp/2.jpg")),
+                    batchSize = 2,
+                ),
+            ),
+        )
+        val tasks = planSequentialImages(original, conversationId, "fp", stat = { null })
+        val replaced = original.replaceSequentialImagesWithNotes(tasks, emptyMap())
+
+        // 失败不产假 note：两张图都还在
+        assertEquals(2, replaced.single().parts.filterIsInstance<UIMessagePart.Image>().size)
+        assertTrue(replaced.single().parts.none { it is UIMessagePart.Text })
+    }
+
+    @Test
+    fun `single image batch keeps the r16 note wording`() {
+        val messages = listOf(
+            UIMessage(
+                role = MessageRole.USER,
+                parts = listOf(UIMessagePart.Text("图里写了什么？"), image("file:///tmp/1.jpg", flagged = true)),
+            ),
+        )
+        val task = planSequentialImages(messages, conversationId, "fp", stat = { null }).single()
+
+        assertEquals(sequentialImageNoteText(1, 1, "描述"), sequentialImageBatchNoteText(task, "描述"))
+    }
+    @Test
+    fun `configured size above eight is honored and old marks can be cleared`() {
+        val parts = markSequentialImages((1..11).map { image("file:///tmp/$it.jpg") }, 10)
+        val batches = planSequentialImageBatches(listOf(UIMessage(role = MessageRole.USER, parts = parts)),
+            conversationId, "fp", stat = { null })
+        assertEquals(listOf(10, 1), batches.map { it.size })
+        assertTrue(clearSequentialImageFlags(parts).none { it.isSequentialVisionImage() })
+    }
+
+    @Test
+    fun `numbered batch cache cannot reuse different ordinals or configured size`() {
+        val entries = listOf(SequentialImageCacheEntry("a", null), SequentialImageCacheEntry("b", null))
+        val key = sequentialImageBatchCacheKey(conversationId, "fp", entries, "q", 2, listOf(1, 2), 4)
+        assertNotEquals(key, sequentialImageBatchCacheKey(conversationId, "fp", entries, "q", 3, listOf(1, 2), 4))
+        assertNotEquals(key, sequentialImageBatchCacheKey(conversationId, "fp", entries, "q", 2, listOf(3, 4), 4))
+        assertNotEquals(key, sequentialImageBatchCacheKey(conversationId, "fp", entries, "q", 2, listOf(1, 2), 6))
+        assertNotEquals(sequentialImageBatchCacheKey(conversationId, "fp", entries, "x".repeat(200) + "a"),
+            sequentialImageBatchCacheKey(conversationId, "fp", entries, "x".repeat(200) + "b"))
+    }
+
 }

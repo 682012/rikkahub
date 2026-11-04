@@ -32,8 +32,8 @@
     <string name="r16_persona_copy">复制全文</string>
     <string name="r16_persona_copy_failed">写剪贴板失败。</string>
     <string name="r16_persona_copied">已复制</string>
-    <string name="r16_persona_copy_system">复制完整 system</string>
-    <string name="r16_persona_system_toggle">App 固定 system 附加边界</string>
+    <string name="r16_persona_copy_system">复制完整系统提示词</string>
+    <string name="r16_persona_system_toggle">应用附加规则</string>
     <string name="r16_persona_system_desc">每次请求还会带上这段固定边界，用的就是实际发请求的同一个函数。语言标记 %1$s。</string>
     <string name="r16_persona_close">关闭</string>
     <string name="r16_persona_empty">（空）</string>

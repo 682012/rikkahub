@@ -4,12 +4,12 @@
          from the hand-off data/companions.json; kept in their own file so no older
          translation file is touched. -->
 
-    <string name="r12_name_gpt">小白龙</string>
-    <string name="r12_name_claude">小橙</string>
-    <string name="r12_name_deepseek">小鲸</string>
-    <string name="r12_name_gemini">小星</string>
-    <string name="r12_name_glm">眠眠</string>
-    <string name="r12_name_qwen">小云</string>
+    <string name="r12_name_gpt">白祈</string>
+    <string name="r12_name_claude">橙音</string>
+    <string name="r12_name_deepseek">汐澜</string>
+    <string name="r12_name_gemini">星璃</string>
+    <string name="r12_name_glm">墨眠</string>
+    <string name="r12_name_qwen">云笙</string>
 
     <string name="r12_desc_gpt">好奇、爱理思路，被夸会嘴硬一下。</string>
     <string name="r12_desc_claude">心思细，说话轻，幽默像书页里夹的小纸条。</string>

@@ -48,6 +48,25 @@ class CompanionPersonaBackendR16Test {
         CompanionPersonas.install(catalog)
     }
 
+    @Test
+    fun `r17 formal names match ui and default prompt while custom names survive switching`() {
+        installCatalog()
+        val expected = mapOf("gpt" to "白祈", "claude" to "橙音", "deepseek" to "汐澜",
+            "gemini" to "星璃", "glm" to "墨眠", "qwen" to "云笙")
+        defaultPresets.forEach { (preset, id) ->
+            assertEquals(expected[id], CompanionCatalog.portraitDisplayName(preset))
+            assertEquals(expected[id], CompanionPersonas.builtInResolved(preset).name)
+            assertTrue(CompanionPersonas.builtInResolved(preset).prompt.contains("【角色名】${expected[id]}"))
+        }
+        val custom = FloatingCompanionSettings(preset = FloatingCompanionPreset.WHALE_MAID,
+            name = "我的小鲸", aiPersonaPrompt = "只保留我自己的全文")
+        val restored = custom.selectPreset(FloatingCompanionPreset.DRAGON_GIRL)
+            .selectPreset(FloatingCompanionPreset.WHALE_MAID).normalized()
+        assertEquals("我的小鲸", restored.name)
+        assertEquals("我的小鲸", CompanionPersonas.resolve(restored).name)
+        assertEquals("只保留我自己的全文", CompanionPersonas.resolve(restored).prompt)
+    }
+
     @After
     fun tearDown() {
         CompanionPersonaCatalogStore.resetForTest()
@@ -64,11 +83,11 @@ class CompanionPersonaBackendR16Test {
             )
             assertEquals(PersonaSource.BUILTIN, resolved.source)
             assertEquals(id, resolved.id)
-            assertEquals(entry.displayName, resolved.name)
+            assertEquals(CompanionCatalog.profile(preset)!!.displayName, resolved.name)
             assertEquals(entry.version, resolved.version)
             // 默认名字下解析结果与 prompts/<id>.txt 逐字节相同，所以 hash 必须等于包里的 prompt_sha256
-            assertEquals(entry.defaultEffectivePrompt, resolved.prompt)
-            assertEquals(entry.promptSha256, resolved.hash)
+            assertEquals(entry.promptSha256, CompanionPersonaText.sha256(entry.defaultEffectivePrompt))
+            assertEquals(CompanionPersonaText.render(entry.promptTemplate, resolved.name), resolved.prompt)
             assertEquals(CompanionPersonaText.sha256(resolved.prompt), resolved.hash)
             // 只读完整卡，不再叠旧 Catalog 短人设或 r15 角色叠加段
             assertFalse(resolved.prompt.contains("【角色补充设定"))
@@ -88,8 +107,8 @@ class CompanionPersonaBackendR16Test {
         assertEquals(PersonaSource.USER_OVERRIDE, userResolved.source)
 
         val builtIn = CompanionPersonas.builtInResolved(FloatingCompanionPreset.WHALE_MAID)
-        assertEquals("小鲸", builtIn.name)
-        assertEquals(catalog.entryById("deepseek")!!.defaultEffectivePrompt, builtIn.prompt)
+        assertEquals("汐澜", builtIn.name)
+        assertEquals(CompanionPersonaText.render(catalog.entryById("deepseek")!!.promptTemplate, "汐澜"), builtIn.prompt)
         assertFalse("内置全文不能被自定义遮住", builtIn.prompt.contains("用户自己写的另一段"))
     }
 
@@ -132,7 +151,7 @@ class CompanionPersonaBackendR16Test {
         assertEquals(PersonaSource.USER_OVERRIDE, resolved.source)
         assertEquals(raw, resolved.prompt)
         assertEquals(CompanionPersonaText.sha256(raw), resolved.hash)
-        assertEquals("小鲸", resolved.name)
+        assertEquals("汐澜", resolved.name)
         // 用户覆盖就是这一整段：不 append 内置正文，也不借旧 Catalog/角色叠加段
         val builtInEntry = catalog.entryById("deepseek")!!
         assertFalse(resolved.prompt.contains(builtInEntry.promptTemplate.take(60)))
@@ -165,7 +184,7 @@ class CompanionPersonaBackendR16Test {
         val resolved = CompanionPersonas.resolve(edited)
         assertEquals(PersonaSource.BUILTIN, resolved.source)
         assertEquals("claude", resolved.id)
-        assertEquals("小橙", resolved.name)
+        assertEquals("橙音", resolved.name)
         // 切到小鲸时才用那一格；小橙自己的覆盖格没有被写
         val switched = edited.selectPreset(FloatingCompanionPreset.WHALE_MAID)
         assertEquals(PersonaSource.USER_OVERRIDE, CompanionPersonas.resolve(switched).source)

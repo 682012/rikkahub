@@ -73,6 +73,15 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
+                MultiImageSendSettingsCard(settings.displaySetting.multiImageSend) { transform ->
+                    vm.updateSettings { latest ->
+                        latest.copy(displaySetting = latest.displaySetting.copy(
+                            multiImageSend = transform(latest.displaySetting.multiImageSend).normalized(),
+                        ))
+                    }
+                }
+            }
+            item {
                 BackgroundToolsSettingsCard(settings.backgroundToolSettings) { updated ->
                     vm.updateSettings { it.copy(backgroundToolSettings = updated) }
                 }

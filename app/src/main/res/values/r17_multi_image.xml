@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r17_images_title">Multiple images</string>
+    <string name="r17_images_enabled">Automatically recognize in batches</string>
+    <string name="r17_images_description">Send directly without a prompt. Recognize each batch in order, then combine the descriptions into one answer. Uses the current vision model and may cost more; fine visual details may be lost.</string>
+    <string name="r17_images_threshold">Start when image count exceeds</string>
+    <string name="r17_images_count">Images</string>
+    <string name="r17_images_threshold_hint">0–100. Batching starts only above %1$d images; at or below it, send together. No vision support: use the normal send path.</string>
+    <string name="r17_images_batch_size">Images per batch</string>
+    <string name="r17_images_batch_hint">1–100. The last batch may be smaller. Batches are sent one at a time; 1 is safest for providers that reject multiple images.</string>
+</resources>

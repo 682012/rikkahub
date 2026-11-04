@@ -974,7 +974,8 @@ private fun DrawScope.drawHeart(center: Offset, radius: Float, color: Color) {
 
 // 预设名字/默认台词：放在 UI 层，数据层不依赖资源
 @Composable
-private fun presetName(preset: FloatingCompanionPreset): String = stringResource(
+private fun presetName(preset: FloatingCompanionPreset): String =
+    CompanionCatalog.portraitDisplayName(preset) ?: stringResource(
     when (preset) {
         FloatingCompanionPreset.LOGO -> R.string.floating_companion_default_name_logo
         FloatingCompanionPreset.CAT -> R.string.floating_companion_default_name_cat

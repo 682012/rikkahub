@@ -235,6 +235,7 @@ data class DisplaySetting(
     val pasteLongTextAsFile: Boolean = false,
     val pasteLongTextThreshold: Int = 1000,
     val sendOnEnter: Boolean = false,
+    val multiImageSend: MultiImageSendSettings = MultiImageSendSettings(),
     val enableAutoScroll: Boolean = true,
     val enableLatexRendering: Boolean = true,
     val enableQuoteHighlight: Boolean = false,

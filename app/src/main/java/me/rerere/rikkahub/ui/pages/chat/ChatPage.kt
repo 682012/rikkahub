@@ -4,12 +4,10 @@ import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
@@ -21,7 +19,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.adaptive.currentWindowDpSize
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberDrawerState
@@ -55,6 +52,7 @@ import kotlinx.coroutines.launch
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.rikkahub.data.ai.clearSequentialImageFlags
 import me.rerere.rikkahub.data.ai.markSequentialImages
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.R
@@ -330,15 +328,15 @@ private fun ChatPageContent(
     var previewMode by rememberSaveable { mutableStateOf(false) }
     val hazeState = rememberHazeState()
     var showFilesSheet by remember { mutableStateOf(false) }
-    // 多图发送先让用户选路：一次发保持默认语义；逐张识别会额外调用 N 次视觉请求。
-    // 以会话 ID 作 key，切到另一个对话时不把 A 的确认弹窗/张数带过去。
-    var showMultiImageSendDialog by remember(conversation.id) { mutableStateOf(false) }
-    var pendingMultiImageCount by remember(conversation.id) { mutableStateOf(0) }
-    val canUseSequentialImageSend = currentChatModel?.inputModalities?.contains(Modality.IMAGE) == true
-
-    fun submitCurrentInput(answer: Boolean, sequentialImages: Boolean = false) {
-        val currentParts = inputState.getContents()
-        val parts = if (sequentialImages) markSequentialImages(currentParts) else currentParts
+    // r17: 按已保存规则直接发送，不再逐次弹窗。标记随消息固定，重试不会受后来改设置影响。
+    fun submitCurrentInput(answer: Boolean) {
+        val currentParts = clearSequentialImageFlags(inputState.getContents())
+        val policy = setting.displaySetting.multiImageSend.normalized()
+        val supportsVision = currentChatModel?.inputModalities?.contains(Modality.IMAGE) == true
+        val imageCount = currentParts.count { it is UIMessagePart.Image }
+        val parts = if (policy.shouldBatch(imageCount, supportsVision)) {
+            markSequentialImages(currentParts, batchSize = policy.batchSize)
+        } else currentParts
         val accepted = if (inputState.isEditing()) {
             inputState.editingMessage?.let { vm.handleMessageEdit(parts, it) } ?: false
         } else {
@@ -436,16 +434,10 @@ private fun ChatPageContent(
                             toaster.show("请先选择模型", type = ToastType.Error)
                             return@ChatInput
                         }
-                        val imageCount = inputState.getContents().count { it is UIMessagePart.Image }
-                        if (imageCount > 1) {
-                            pendingMultiImageCount = imageCount
-                            showMultiImageSendDialog = true
-                        } else {
-                            submitCurrentInput(answer = true)
-                        }
+                        submitCurrentInput(answer = true)
                     },
                     onLongSendClick = {
-                        // 长按只入队、不发起模型回答，所以沿用一次发送，不启动逐张识别请求。
+                        // 长按只入队，不发识别请求；保存当前分批规则，之后回答时再使用。
                         submitCurrentInput(answer = false)
                     },
                     onUpdateChatModel = vm::setChatModel,
@@ -537,47 +529,7 @@ private fun ChatPageContent(
             )
         }
     }
-    if (showMultiImageSendDialog) {
-        AlertDialog(
-            onDismissRequest = { showMultiImageSendDialog = false },
-            title = {
-                Text(stringResource(R.string.r16_multi_image_title, pendingMultiImageCount))
-            },
-            text = {
-                Text(
-                    if (canUseSequentialImageSend) {
-                        stringResource(R.string.r16_multi_image_message, pendingMultiImageCount)
-                    } else {
-                        stringResource(R.string.r16_multi_image_unsupported)
-                    }
-                )
-            },
-            confirmButton = {
-                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
-                    TextButton(
-                        onClick = {
-                            showMultiImageSendDialog = false
-                            submitCurrentInput(answer = true, sequentialImages = true)
-                        },
-                        enabled = canUseSequentialImageSend,
-                    ) {
-                        Text(stringResource(R.string.r16_multi_image_sequential))
-                    }
-                    TextButton(onClick = {
-                        showMultiImageSendDialog = false
-                        submitCurrentInput(answer = true)
-                    }) {
-                        Text(stringResource(R.string.r16_multi_image_once))
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showMultiImageSendDialog = false }) {
-                    Text(stringResource(R.string.r16_multi_image_cancel))
-                }
-            },
-        )
-    }
+
 }
 
 @Composable
