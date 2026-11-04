@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.takeOrElse
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import me.rerere.bettertext.latex.LatexInline
 import me.rerere.bettertext.markdown.MarkdownBlock
 import me.rerere.bettertext.markdown.MarkdownComponents
 import me.rerere.bettertext.markdown.MarkdownInline
@@ -57,9 +59,14 @@ import me.rerere.bettertext.markdown.Markdown as BetterMarkdown
 /**
  * 用 Material 3 主题渲染 Markdown，解析和排版交给 BetterText 的 Markdown 模块。
  *
- * 默认的组件只依赖 Compose：公式显示源码，代码块不高亮，图片只显示替代文本。聊天里用的
- * [MarkdownBlock] 在这之上接入了代码高亮、图片加载和 LaTeX；悬浮窗这类拿不到导航和 Activity 的地方直接用这个。
+ * 默认的组件只依赖 Compose：代码块不高亮，图片只显示替代文本。公式则交给 BetterText 自带的
+ * LaTeX 渲染（[MathBlock] 和 `LatexInline`，离线、不依赖 WebView），所以思考过程和悬浮窗里
+ * 这类拿不到导航和 Activity 的地方也能显示公式。聊天里用的 [MarkdownBlock] 在这些默认值之上
+ * 接入了代码高亮、图片加载、表格工具栏等能力。
  * 文字要能选中，外面包一层 [SelectableContent]。
+ *
+ * 正文先过 [MathNormalizer]：`\begin{align}` 这类没有定界符的写法会补上 `$$`，
+ * 公式里的空行会被去掉，金额和代码块不动。
  *
  * @param style 正文样式，合并到 `LocalTextStyle` 上；没有颜色时用 `LocalContentColor`
  * @param streaming 内容还在生成时为 true，末尾没写完的语法（如 `**加粗`、`$\frac{`）会被补全或隐藏
@@ -73,7 +80,7 @@ fun MaterialMarkdown(
     modifier: Modifier = Modifier,
     style: TextStyle = LocalTextStyle.current,
     theme: MarkdownTheme = MaterialMarkdownDefaults.theme(style),
-    components: MarkdownComponents = MaterialMarkdownDefaults.components,
+    components: MarkdownComponents = MaterialMarkdownDefaults.defaultComponents(),
     softBreakAsLineBreak: Boolean = true,
     streaming: Boolean = false,
     onLinkClick: ((url: String) -> Unit)? = null,
@@ -84,10 +91,12 @@ fun MaterialMarkdown(
     // sandbox:/workspace/... 直接甩给系统浏览器, 绕过 CustomTabs 和工作区预览
     val defaultLinkClick = rememberMarkdownLinkHandler()
     val linkClick = onLinkClick ?: defaultLinkClick
+    // 公式写法先归一化：补全 $$、去掉公式里的空行；流式没写完的部分保持原样
+    val normalized = remember(content) { MathNormalizer.normalize(content) }
     // 插槽里的组件（代码块、表格工具栏等）用 Material 的 Text，让它们也拿到正文样式
     ProvideTextStyle(resolved) {
         BetterMarkdown(
-            content = content,
+            content = normalized,
             modifier = modifier,
             style = resolved,
             theme = theme,
@@ -107,6 +116,25 @@ object MaterialMarkdownDefaults {
         table = { Table(it) },
         details = { block, summary, content -> Details(block, summary, content) },
     )
+
+    /**
+     * [components] 加上离线 LaTeX 渲染：块级公式居中、超宽横向滚动，行内公式跟着文字走。
+     * 不需要导航、Activity 或 WebView，思考过程、悬浮窗这类地方也能用。
+     */
+    @Composable
+    fun defaultComponents(): MarkdownComponents {
+        val context = LocalContext.current
+        return remember(context) {
+            MarkdownComponents(
+                codeBlock = { CodeBlock(it) },
+                image = { image, link -> Image(image, link) },
+                table = { Table(it) },
+                details = { block, summary, content -> Details(block, summary, content) },
+                mathBlock = { formula -> MathBlock(latex = formula, modifier = Modifier.fillMaxWidth()) },
+                inlineMath = { formula -> LatexInline.cached(formula, context) },
+            )
+        }
+    }
 
     private val HeadingScales = floatArrayOf(1.5f, 1.375f, 1.25f, 1.125f, 1f, 0.875f)
 

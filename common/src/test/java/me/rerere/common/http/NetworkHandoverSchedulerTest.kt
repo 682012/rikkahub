@@ -19,11 +19,40 @@ class NetworkHandoverSchedulerTest {
         advanceTimeBy(2000)
         state.updateRoute("vpn", true)
         runCurrent()
-        advanceTimeBy(750)
+        advanceTimeBy(NetworkHandover.STABILIZE_MILLIS)
         runCurrent()
         assertTrue(wait.isCompleted)
         wait.await()
-        assertEquals(2750L, currentTime)
+        assertEquals(2000L + NetworkHandover.STABILIZE_MILLIS, currentTime)
+        // 用户设的 60s 一秒都没白等：换网后 250ms 内就重连
+        assertTrue(currentTime < 2_500L)
+    }
+
+    @Test
+    fun `same handle route refresh also wakes a waiting retry within 250ms`() = runTest {
+        val state = NetworkHandover().apply { updateRoute("vpn", true) }
+        val wait = async { state.awaitRetry(state.state.value.epoch, 60.seconds) }
+        runCurrent()
+        advanceTimeBy(5000)
+        // VPN 内部路由变了但 Network 句柄没变
+        state.notifyRouteRefreshed()
+        runCurrent()
+        advanceTimeBy(NetworkHandover.STABILIZE_MILLIS)
+        runCurrent()
+        assertTrue(wait.isCompleted)
+        assertEquals(5000L + NetworkHandover.STABILIZE_MILLIS, currentTime)
+    }
+
+    @Test
+    fun `offline wait never silently stretches to two minutes`() = runTest {
+        val state = NetworkHandover().apply { updateRoute("wifi", true); updateRoute(null, false) }
+        val wait = async { state.awaitRetry(1L, 30.seconds) }
+        runCurrent()
+        advanceTimeBy(30_000)
+        runCurrent()
+        // 用户设 30 秒：到点就结束等待，不会挂到 120 秒
+        assertTrue(wait.isCompleted)
+        assertEquals(30_000L, currentTime)
     }
     @Test fun `offline timeout is finite with real coroutine waiter`() = runTest {
         val state = NetworkHandover().apply { updateRoute(null, false) }

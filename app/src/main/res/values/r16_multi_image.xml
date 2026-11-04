@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r16_multi_image_title">Send %1$d images</string>
+    <string name="r16_multi_image_message">Send all images together, or recognize each image separately and combine the descriptions for one answer. Separate mode makes %1$d image-recognition requests plus one answer request, may cost more, and can lose fine visual detail.</string>
+    <string name="r16_multi_image_unsupported">This model does not accept images for separate recognition. You can still send all images together.</string>
+    <string name="r16_multi_image_once">Send together</string>
+    <string name="r16_multi_image_sequential">Recognize one by one</string>
+    <string name="r16_multi_image_cancel">Cancel</string>
+</resources>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r16_organize_conversations">Organize conversations</string>
+    <string name="r16_organize_conversations_desc">Filter old conversations and delete only the ones you select</string>
+    <string name="r16_organize_images">Organize images</string>
+    <string name="r16_organize_images_desc">Classify with a vision model, keep favorites, and delete selected images</string>
+</resources>

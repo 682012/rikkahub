@@ -1,0 +1,442 @@
+package me.rerere.rikkahub.ui.pages.setting
+
+import android.content.Context
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.uuid.Uuid
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
+import me.rerere.ai.provider.ProviderManager
+import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.datastore.findModelById
+import me.rerere.rikkahub.data.datastore.findProvider
+import me.rerere.rikkahub.data.files.FilesManager
+import me.rerere.rikkahub.data.organization.ImageCacheKeys
+import me.rerere.rikkahub.data.organization.ImageCategory
+import me.rerere.rikkahub.data.organization.ImageClassifier
+import me.rerere.rikkahub.data.organization.ImageDeleteFailure
+import me.rerere.rikkahub.data.organization.ImageDeletePlanner
+import me.rerere.rikkahub.data.organization.ImageDeleteResult
+import me.rerere.rikkahub.data.organization.ImageMediaPaths
+import me.rerere.rikkahub.data.organization.ImageOrganizerCache
+import me.rerere.rikkahub.data.organization.ImageOrganizerItem
+import me.rerere.rikkahub.data.organization.ImageOrganizerModelStore
+import me.rerere.rikkahub.data.organization.ImageOrganizerSources
+import me.rerere.rikkahub.data.organization.ImageOrganizerState
+import me.rerere.rikkahub.data.organization.ImageProgress
+import me.rerere.rikkahub.data.organization.ImageSource
+import me.rerere.rikkahub.data.repository.GenMediaRepository
+import me.rerere.rikkahub.data.repository.MediaCreationRepository
+import java.io.File
+
+/**
+ * 图片整理的状态 VM。
+ *
+ * 设计约束（和 UI 约定见 IMAGE-CONTRACT.md）：
+ * - 不自动识别、不在后台定时跑：只有 UI 显式调用 [classify] 才发请求；首次发请求的告知由 UI 负责。
+ * - 一次只跑一批，批内串行推进，最多 [MAX_CONCURRENT_REQUESTS] 个请求同时在飞；单张失败不影响整批。
+ * - 取消（[cancelClassification] / [onCleared]）立即停，已完成的保留，[CancellationException] 原样抛出。
+ * - 删除只处理「明确选中 + 非保留 + 可删 + 无共享引用」的项，实际计划在 [ImageDeletePlanner] 里算（纯 JVM 可测）。
+ */
+class ImageOrganizerVM(
+    context: Context,
+    private val filesManager: FilesManager,
+    private val genMediaRepository: GenMediaRepository,
+    private val providerManager: ProviderManager,
+    private val settingsStore: SettingsStore,
+    private val mediaCreationRepository: MediaCreationRepository? = null,
+) : ViewModel() {
+
+    private val appContext: Context = context.applicationContext ?: context
+    private val filesDir: File get() = appContext.filesDir
+
+    private val cache = ImageOrganizerCache(File(filesDir, "$STORE_DIR/classification_cache.json"))
+    private val modelStore = ImageOrganizerModelStore(File(filesDir, "$STORE_DIR/model.json"))
+    private val classifier = ImageClassifier(appContext, providerManager)
+    private val sources = ImageOrganizerSources(
+        context = appContext,
+        filesManager = filesManager,
+        genMediaRepository = genMediaRepository,
+        mediaCreationRepository = mediaCreationRepository,
+    )
+
+    private val _state = MutableStateFlow(ImageOrganizerState(selectedModelId = modelStore.read()))
+    val state: StateFlow<ImageOrganizerState> = _state.asStateFlow()
+
+    private var classifyJob: Job? = null
+    private var scanJob: Job? = null
+    private val deleteMutex = Mutex()
+    private var deleting = false
+
+    /**
+     * 本次 VM 生命周期内用户明确改过的保留标记。
+     *
+     * 只写缓存的协程是异步的，刷新时如果只信磁盘，可能把刚勾的「保留」读回旧值。
+     * 这里按稳定 id 记住最后一次操作，刷新时优先用它。
+     */
+    private val protectedOverrides = mutableMapOf<String, Boolean>()
+
+    // ---- 对外方法 ----
+
+    /** 重新扫描本地图片。只读本地文件与数据库，不发任何请求。 */
+    fun refresh() {
+        if (scanJob?.isActive == true) return
+        scanJob = viewModelScope.launch {
+            updateState { it.copy(scanning = true, error = null) }
+            try {
+                withContext(Dispatchers.IO) { cleanStaleTempFiles() }
+                val result = sources.scan()
+                val protectedIds = cache.protectedIds()
+                val items = result.items.map { item ->
+                    val entry = cache.get(cacheKey(item))
+                    val category = entry?.let { cached ->
+                        ImageCategory.entries.firstOrNull { it.name == cached.category }
+                    }
+                    val shared = result.references[item.path] ?: 0
+                    item.copy(
+                        // 内存里的最后一次勾选优先：写缓存的协程可能还没落盘，刷新不能把「保留」丢掉
+                        protected = protectedOverrides[item.id] ?: (item.id in protectedIds),
+                        category = category,
+                        description = entry?.description,
+                        classifiedAt = entry?.at,
+                        cached = entry != null,
+                        sharedReferences = shared,
+                        // 被别的记录引用时如实标记不可删，和 ImageDeletePlanner 的判断保持一致
+                        deletable = item.deletable && shared == 0,
+                        blockReason = when {
+                            item.blockReason != null -> item.blockReason
+                            shared > 0 -> "被其他生成记录或媒体创作记录引用，删除会让那些记录里的图失效"
+                            else -> null
+                        },
+                    )
+                }
+                updateState { it.copy(items = items, scanning = false) }
+            } catch (e: CancellationException) {
+                updateState { it.copy(scanning = false) }
+                throw e
+            } catch (e: Exception) {
+                updateState { it.copy(scanning = false, error = e.message ?: "扫描图片失败") }
+            }
+        }
+    }
+
+    /**
+     * 清理上次进程被杀时留下的识别临时 JPEG（`cacheDir/image_organizer/`）。
+     * 只删超过 [TEMP_TTL_MILLIS] 的文件，避免删掉正在被这一批使用的临时图。
+     */
+    private fun cleanStaleTempFiles() {
+        runCatching {
+            val dir = File(appContext.cacheDir, STORE_DIR)
+            val cutoff = System.currentTimeMillis() - TEMP_TTL_MILLIS
+            dir.listFiles()?.forEach { file ->
+                if (file.isFile && file.lastModified() < cutoff) file.delete()
+            }
+        }
+    }
+
+    /** 记录识别模型；null 表示清除。写自己的 JSON，不动全局设置。 */
+    fun setModel(modelId: Uuid?) {
+        updateState { it.copy(selectedModelId = modelId, error = null) }
+        viewModelScope.launch(Dispatchers.IO) { modelStore.write(modelId) }
+    }
+
+    /**
+     * 识别给定的图片。已有的本地缓存命中时不再发请求。
+     * 正在跑一批时再调用会被忽略（防重入）。
+     */
+    fun classify(ids: Set<String>) {
+        if (ids.isEmpty()) return
+        if (classifyJob?.isActive == true) return
+
+        val modelId = _state.value.selectedModelId
+        if (modelId == null) {
+            updateState { it.copy(error = "先选一个识别模型") }
+            return
+        }
+        val settings = settingsStore.settingsFlow.value
+        val model = settings.findModelById(modelId)
+        val providerSetting = model?.findProvider(settings.providers)
+        if (model == null || providerSetting == null) {
+            updateState { it.copy(error = "选中的识别模型已不可用，请重新选择") }
+            return
+        }
+
+        updateState { it.copy(error = null) }
+
+        classifyJob = viewModelScope.launch {
+            // 读磁盘的存在性判断放到 IO 里，别占用主线程
+            val targets = withContext(Dispatchers.IO) {
+                _state.value.items.filter { it.id in ids && it.file.isFile }
+            }
+            if (targets.isEmpty()) {
+                updateState { it.copy(error = "选中项里没有还能读到的图片") }
+                return@launch
+            }
+
+            val total = targets.size
+            val done = AtomicInteger(0)
+            val failed = AtomicInteger(0)
+            val semaphore = Semaphore(MAX_CONCURRENT_REQUESTS)
+            updateState { it.copy(progress = ImageProgress(total = total, done = 0, failed = 0)) }
+            try {
+                coroutineScope {
+                    targets.map { item ->
+                        async(Dispatchers.IO) {
+                            semaphore.withPermit {
+                                classifyOne(item, model, providerSetting, total, done, failed)
+                            }
+                        }
+                    }.awaitAll()
+                }
+            } finally {
+                updateState { it.copy(progress = null) }
+            }
+        }
+    }
+
+    /** 取消当前批次：已完成的保留，未开始的直接放弃。 */
+    fun cancelClassification() {
+        classifyJob?.cancel()
+    }
+
+    /** 标记保留。保留标记单独持久化，删图时永远跳过。 */
+    fun setProtected(ids: Set<String>, protected: Boolean) {
+        if (ids.isEmpty()) return
+        ids.forEach { protectedOverrides[it] = protected }
+        updateState { s ->
+            s.copy(items = s.items.map { if (it.id in ids) it.copy(protected = protected) else it })
+        }
+        viewModelScope.launch {
+            runCatching { cache.setProtected(ids, protected) }
+        }
+    }
+
+    /**
+     * 删除选中项。**不做二次确认**，确认弹窗由 UI 负责。
+     *
+     * 返回成功/失败/跳过三类结果；失败项保留索引，共享引用的项直接跳过并给 warning。
+     */
+    suspend fun delete(ids: Set<String>): ImageDeleteResult = deleteMutex.withLock {
+        if (ids.isEmpty()) return@withLock ImageDeleteResult()
+        deleting = true
+        updateState { it.copy(error = null) }
+        try {
+            val (plan, itemById) = withContext(Dispatchers.IO) {
+                val current = _state.value.items
+                ImageDeletePlanner.plan(current, ids) to current.associateBy { it.id }
+            }
+            val deleted = mutableListOf<String>()
+            val failures = mutableListOf<ImageDeleteFailure>()
+
+            withContext(Dispatchers.IO) {
+                plan.delete.forEach { item ->
+                    try {
+                        deleteOne(item)
+                        deleted += item.id
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        failures += ImageDeleteFailure(item.id, e.message ?: "删除失败")
+                    }
+                }
+            }
+
+            deleted.forEach { id ->
+                itemById[id]?.let { runCatching { cache.remove(cacheKey(it)) } }
+                protectedOverrides.remove(id)
+            }
+            updateState { s -> s.copy(items = s.items.filterNot { it.id in deleted }) }
+            ImageDeleteResult(
+                deleted = deleted,
+                failed = failures,
+                skipped = plan.skipped,
+                warnings = plan.warnings,
+            )
+        } finally {
+            deleting = false
+            updateState { it }
+        }
+    }
+
+    fun dismissError() {
+        updateState { it.copy(error = null) }
+    }
+
+    /** 给用 remember 构造的 UI 用，等价于 ViewModel 被销毁。 */
+    fun clear() {
+        cancelAll()
+    }
+
+    override fun onCleared() {
+        cancelAll()
+        super.onCleared()
+    }
+
+    // ---- 内部 ----
+
+    private suspend fun classifyOne(
+        item: ImageOrganizerItem,
+        model: me.rerere.ai.provider.Model,
+        providerSetting: me.rerere.ai.provider.ProviderSetting,
+        total: Int,
+        done: AtomicInteger,
+        failed: AtomicInteger,
+    ) {
+        val key = cacheKey(item)
+        updateState { s -> s.copy(progress = ImageProgress(total, done.get(), failed.get(), item.name)) }
+
+        val cachedEntry = runCatching { cache.get(key) }.getOrNull()
+        val cachedCategory = cachedEntry?.let { entry ->
+            ImageCategory.entries.firstOrNull { it.name == entry.category }
+        }
+        if (cachedEntry != null && cachedCategory != null) {
+            applyResult(item.id, cachedCategory, cachedEntry.description, cached = true, failed = false)
+            publishProgress(total, done.incrementAndGet(), failed.get(), item.name)
+            return
+        }
+
+        try {
+            val parsed = classifier.classify(item.file, model, providerSetting)
+            if (parsed.category != ImageCategory.UNRECOGNIZED) {
+                runCatching { cache.put(key, parsed.category, parsed.description) }
+            }
+            applyResult(
+                id = item.id,
+                category = parsed.category,
+                description = parsed.description,
+                cached = false,
+                failed = parsed.category == ImageCategory.UNRECOGNIZED,
+            )
+            publishProgress(
+                total = total,
+                done = done.incrementAndGet(),
+                failed = if (parsed.category == ImageCategory.UNRECOGNIZED) failed.incrementAndGet() else failed.get(),
+                currentName = item.name,
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 单张失败只影响这一张，不打断整批
+            applyResult(
+                id = item.id,
+                category = ImageCategory.UNRECOGNIZED,
+                description = null,
+                cached = false,
+                failed = true,
+                error = e.message?.take(120),
+            )
+            publishProgress(total, done.incrementAndGet(), failed.incrementAndGet(), item.name)
+        }
+    }
+
+    private fun applyResult(
+        id: String,
+        category: ImageCategory,
+        description: String?,
+        cached: Boolean,
+        failed: Boolean,
+        error: String? = null,
+    ) {
+        val now = System.currentTimeMillis()
+        updateState { s ->
+            s.copy(
+                items = s.items.map { item ->
+                    if (item.id != id) {
+                        item
+                    } else {
+                        item.copy(
+                            category = category,
+                            description = description,
+                            classifiedAt = now,
+                            cached = cached,
+                            failed = failed,
+                            error = error,
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    private fun publishProgress(total: Int, done: Int, failed: Int, currentName: String?) {
+        updateState { it.copy(progress = ImageProgress(total, done, failed, currentName)) }
+    }
+
+    private suspend fun deleteOne(item: ImageOrganizerItem) {
+        when (item.source) {
+            ImageSource.UPLOAD -> {
+                // 只删 app 自己 filesDir 里的文件：路径逃逸、或 symlink 指到外部时直接拒绝
+                if (!ImageMediaPaths.isConfinedTo(filesDir, item.file)) {
+                    error("路径不在应用目录内，已拒绝删除")
+                }
+                if (!item.file.exists()) return
+                if (!item.file.delete()) error("文件删除失败，已保留索引")
+                val id = item.id.removePrefix("upload:").toLongOrNull()
+                    ?: error("无法解析上传文件 ID")
+                if (!filesManager.delete(id, deleteFromDisk = false)) error("索引删除失败")
+            }
+
+            ImageSource.GEN_MEDIA -> {
+                if (!ImageMediaPaths.isConfinedTo(filesManager.getImagesDir(), item.file)) {
+                    error("路径不在生成图目录内，已拒绝删除")
+                }
+                if (!item.file.exists()) return
+                if (!item.file.delete()) error("文件删除失败，已保留索引")
+                val id = item.id.removePrefix("gen:").toIntOrNull()
+                    ?: error("无法解析生成图 ID")
+                genMediaRepository.deleteMedia(id)
+            }
+
+            // 媒体创作产出图走仓库的专用接口：只摘掉记录 outputs 里的这一条，
+            // 记录本身、输入素材、其他产出、时间线位置都保留；记录正在生成或还被引用时接口会返回原因。
+            ImageSource.MEDIA_CREATION -> {
+                val repository = mediaCreationRepository ?: error("媒体创作仓库不可用，无法删除这张产出图")
+                if (!ImageMediaPaths.isConfinedTo(filesDir, item.file)) {
+                    error("路径不在应用目录内，已拒绝删除")
+                }
+                val outcome = repository.removeImageOutput(item.relativePath)
+                if (!outcome.removed) error(outcome.message.ifBlank { "媒体创作记录没有接受这次删除" })
+            }
+        }
+    }
+
+    private fun cacheKey(item: ImageOrganizerItem): String =
+        ImageCacheKeys.of(item.id, item.relativePath, item.bytes, item.lastModified)
+
+    private fun updateState(transform: (ImageOrganizerState) -> ImageOrganizerState) {
+        _state.update { current ->
+            val next = transform(current)
+            next.copy(busy = next.scanning || next.progress != null || deleting)
+        }
+    }
+
+    private fun cancelAll() {
+        classifyJob?.cancel()
+        scanJob?.cancel()
+        classifyJob = null
+        scanJob = null
+    }
+
+    companion object {
+        private const val STORE_DIR = "image_organizer"
+        /** 批内最多同时两个请求。 */
+        private const val MAX_CONCURRENT_REQUESTS = 2
+        /** 识别临时 JPEG 的保留时长：超过这个时间还没被删掉的，下次刷新时清掉。 */
+        private const val TEMP_TTL_MILLIS = 60L * 60 * 1000
+    }
+}

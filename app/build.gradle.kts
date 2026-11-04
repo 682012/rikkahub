@@ -27,8 +27,8 @@ android {
         minSdk = 26
         targetSdk = 37
         // Visible version follows upstream; the Android code remains monotonic.
-        versionCode = 3000061
-        versionName = "3.1.1-r14"
+        versionCode = 3000063
+        versionName = "3.1.1-r16"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

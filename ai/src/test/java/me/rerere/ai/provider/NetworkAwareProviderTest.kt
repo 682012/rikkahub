@@ -1,6 +1,5 @@
 package me.rerere.ai.provider
 
-import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
@@ -10,6 +9,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import me.rerere.ai.core.MessageRole
@@ -41,28 +41,35 @@ class NetworkAwareProviderTest {
         assertEquals(1, limiter.inFlightCount(model.id))
         network.updateRoute("vpn", true)
         runCurrent()
-        assertTrue(task.await().exceptionOrNull() is IOException)
+        assertTrue(task.await().exceptionOrNull() is NetworkRouteChangedException)
         assertEquals(1, cancelled)
         assertEquals(0, limiter.inFlightCount(model.id))
         assertEquals(0, limiter.trackedModelCount())
     }
 
     @Test
-    fun `offline waiting owns no permit and sends only after connectivity returns`() = runTest {
+    fun `offline fails fast without a permit instead of silently waiting two minutes`() = runTest {
         val network = NetworkHandover().apply { updateRoute("wifi", true); updateRoute(null, false) }
         val limiter = ModelRequestLimiter()
         var calls = 0
         val provider = NetworkAwareProvider(RequestLimitedProvider(FakeProvider(generate = {
             calls++; result()
         }), limiter), network)
-        val task = async { provider.generateText(remote, emptyList(), params) }
-        runCurrent()
+
+        val error = runCatching { provider.generateText(remote, emptyList(), params) }.exceptionOrNull()
+
+        // 无网时立刻报「没发出去」：界面才不会显示成一直在生成
+        assertTrue(error is NetworkUnavailableException)
         assertEquals(0, calls)
         assertEquals(0, limiter.inFlightCount(model.id))
+        assertEquals(0, limiter.trackedModelCount())
+        assertEquals(250L, currentTime)
+
+        // 网络回来之后才真的发一次，且只发一次
         network.updateRoute("vpn", true)
         advanceUntilIdle()
+        assertEquals("route-model", provider.generateText(remote, emptyList(), params).model)
         assertEquals(1, calls)
-        assertEquals("route-model", task.await().model)
         assertEquals(0, limiter.trackedModelCount())
     }
 

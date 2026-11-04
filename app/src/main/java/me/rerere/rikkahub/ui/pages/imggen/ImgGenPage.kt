@@ -151,6 +151,16 @@ fun ImageGenPage(
                     BackButton()
                 },
                 actions = {
+                    TextButton(
+                        onClick = {
+                            navController.navigate(Screen.ImageOrganizer) { launchSingleTop = true }
+                        }
+                    ) {
+                        Text(
+                            text = stringResource(R.string.r16_images_title),
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
                     IconButton(onClick = vm::startNewSession) {
                         Icon(
                             imageVector = HugeIcons.Add01,

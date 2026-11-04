@@ -161,10 +161,11 @@ class NetworkHandoverTest {
 
         val waited = handover.awaitRetry(0L, 5.seconds)
 
-        // 换网后只等稳定期，不按原退避等满
-        assertEquals(750L, waited.inWholeMilliseconds)
-        assertEquals(listOf(750L), waiter.sleeps)
-        assertEquals(750L, waiter.clock)
+        // 换网后只等一个很短（<=250ms）的稳定期，不按原退避等满
+        assertEquals(NetworkHandover.STABILIZE_MILLIS, waited.inWholeMilliseconds)
+        assertEquals(listOf(NetworkHandover.STABILIZE_MILLIS), waiter.sleeps)
+        assertEquals(NetworkHandover.STABILIZE_MILLIS, waiter.clock)
+        assertTrue("新网络可用必须立刻重连", waited.inWholeMilliseconds <= 250L)
     }
 
     @Test
@@ -177,34 +178,85 @@ class NetworkHandoverTest {
         var waited: Duration? = null
         val job = launch { waited = handover.awaitRetry(0L, 1.seconds) }
         waiter.awaitWaitStarted()
-        assertEquals(listOf(120_000L), waiter.awaitTimeouts)
+        // 离线等待的预算就是用户配置的这一次间隔，不再暗改成 120 秒
+        assertEquals(listOf(1_000L), waiter.awaitTimeouts)
 
         handover.updateRoute("cell", true)
-        waiter.completeWait(recovered = true, advanceMillis = 3_000L)
+        waiter.completeWait(recovered = true, advanceMillis = 400L)
         job.join()
 
         val actual = requireNotNull(waited).inWholeMilliseconds
-        assertEquals(3_750L, actual)
-        assertEquals(3_750L, waiter.clock)
+        assertEquals(400L + NetworkHandover.STABILIZE_MILLIS, actual)
+        assertEquals(400L + NetworkHandover.STABILIZE_MILLIS, waiter.clock)
     }
 
     @Test
-    fun `await retry keeps the offline wait bounded`() = runBlocking {
+    fun `await retry offline wait uses the configured delay instead of two minutes`() = runBlocking {
         val waiter = VirtualTimeWaiter()
         val handover = NetworkHandover(waiter)
         handover.updateRoute(null, false)
 
         var waited: Duration? = null
-        val job = launch { waited = handover.awaitRetry(0L, 1.seconds) }
+        val job = launch { waited = handover.awaitRetry(0L, 30.seconds) }
         waiter.awaitWaitStarted()
 
-        waiter.completeWait(recovered = false, advanceMillis = 120_000L)
+        // 用户设 30 秒，离线最多就等 30 秒：不会偷偷变成 120 秒
+        assertEquals(listOf(30_000L), waiter.awaitTimeouts)
+
+        waiter.completeWait(recovered = false, advanceMillis = 30_000L)
         job.join()
 
         val actual = requireNotNull(waited).inWholeMilliseconds
-        assertEquals(120_000L, actual)
+        assertEquals(30_000L, actual)
         assertTrue(waiter.sleeps.isEmpty())
-        assertTrue("offline wait must stay under 120s + 750ms", waiter.clock <= 120_750L)
+        assertTrue("offline wait must stay inside the configured delay", waiter.clock <= 30_000L + 250L)
+    }
+
+    @Test
+    fun `await retry offline wait keeps a small floor when the configured delay is zero`() = runBlocking {
+        val waiter = VirtualTimeWaiter()
+        val handover = NetworkHandover(waiter)
+        handover.updateRoute(null, false)
+
+        var waited: Duration? = null
+        val job = launch { waited = handover.awaitRetry(0L, Duration.ZERO) }
+        waiter.awaitWaitStarted()
+        // 0 秒配置也补一个稳定期，避免换网噪声把重试打成忙等
+        assertEquals(listOf(NetworkHandover.STABILIZE_MILLIS), waiter.awaitTimeouts)
+
+        waiter.completeWait(recovered = false, advanceMillis = NetworkHandover.STABILIZE_MILLIS)
+        job.join()
+        assertEquals(NetworkHandover.STABILIZE_MILLIS, requireNotNull(waited).inWholeMilliseconds)
+    }
+
+    @Test
+    fun `same handle route refresh bumps exactly one generation`() = runBlocking {
+        val waiter = VirtualTimeWaiter()
+        val handover = NetworkHandover(waiter)
+        handover.updateRoute("vpn", true)
+        val before = handover.state.value.epoch
+
+        // VPN 内部路由变了但 handle 没变：monitor 通过 notifyRouteRefreshed 告知
+        handover.notifyRouteRefreshed()
+        assertEquals(before + 1L, handover.state.value.epoch)
+        // 链路噪声在同一窗口内被合并，不会连续涨代际
+        handover.notifyRouteRefreshed()
+        assertEquals(before + 1L, handover.state.value.epoch)
+        assertTrue(handover.state.value.available)
+    }
+
+    @Test
+    fun `route refresh while offline does not fake a generation change`() = runBlocking {
+        val handover = NetworkHandover(VirtualTimeWaiter())
+        handover.updateRoute("vpn", true)
+        handover.updateRoute("vpn", false)
+        val before = handover.state.value.epoch
+
+        handover.notifyRouteRefreshed()
+
+        // 离线期间不换代：恢复时由 updateRoute 统一算一次恢复
+        assertEquals(before, handover.state.value.epoch)
+        assertFalse(handover.state.value.available)
     }
 
     /**

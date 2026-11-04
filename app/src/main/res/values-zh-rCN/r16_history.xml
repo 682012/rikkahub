@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r16：历史页用来清理没用的旧会话，自带筛选条和多选。 -->
+    <string name="r16_history_filter_current">当前助手</string>
+    <string name="r16_history_filter_all">全部助手</string>
+    <string name="r16_history_age_all">全部时间</string>
+    <string name="r16_history_age_7">7 天未用</string>
+    <string name="r16_history_age_30">30 天未用</string>
+    <string name="r16_history_age_90">90 天未用</string>
+    <string name="r16_history_search_hint">搜索标题</string>
+    <string name="r16_history_clear_search">清空搜索</string>
+    <string name="r16_history_empty">没有符合当前筛选的会话。</string>
+    <string name="r16_history_enter_selection">批量选择</string>
+    <string name="r16_history_exit_selection">退出选择</string>
+    <string name="r16_history_selected_count">已选 %1$d 项</string>
+    <string name="r16_history_selected_pinned">含 %1$d 个置顶</string>
+    <string name="r16_history_select_all">全选</string>
+    <string name="r16_history_clear_selection">取消选择</string>
+    <string name="r16_history_delete_selected_title">删除已选会话？</string>
+    <string name="r16_history_delete_selected_message">将删除 %1$d 个会话。\n范围：%2$s\n筛选：%3$s\n其中置顶 %4$d 个。删除后无法撤销。</string>
+    <string name="r16_history_delete_complete">已删除 %1$d 个会话</string>
+    <string name="r16_history_delete_partial">已删除 %1$d/%2$d 个，%3$d 个没删掉，仍保持选中。</string>
+    <string name="r16_history_delete_failed">这个会话没能删掉</string>
+</resources>

@@ -59,9 +59,19 @@ internal const val CHAT_DRAFT_ASSISTANT_PREFIX = "assistant:"
  * key 从「新会话按助手」变成「按会话」：只会发生在发出第一条消息之后。
  * 这时输入框里剩下的内容是同一个会话的，要搬到新 key 上，不能当成上一个 key 的残留清掉。
  */
-internal fun isDraftKeyMigration(previousKey: String, nextKey: String): Boolean =
-    previousKey.startsWith(CHAT_DRAFT_ASSISTANT_PREFIX) &&
-        nextKey.startsWith(CHAT_DRAFT_CONVERSATION_PREFIX)
+internal fun isDraftKeyMigration(previousKey: String, nextKey: String): Boolean {
+    if (!previousKey.startsWith(CHAT_DRAFT_ASSISTANT_PREFIX)) return false
+    if (!nextKey.startsWith(CHAT_DRAFT_CONVERSATION_PREFIX)) return false
+    val conversationId = nextKey.removePrefix(CHAT_DRAFT_CONVERSATION_PREFIX)
+    if (conversationId.isEmpty()) return false
+    // 新会话 key 形如 `assistant:<assistantId>:<conversationId>`，必须指向同一个会话才算迁移。
+    // 只比前缀会把「A 的落库确认」清到 B 的草稿上（A: assistant key -> 任意 conversation key 都算迁移）。
+    // 旧版本留下的 `assistant:<assistantId>` 没有会话段，一律不算迁移，交给各自的会话 key。
+    val ownerConversationId = previousKey
+        .removePrefix(CHAT_DRAFT_ASSISTANT_PREFIX)
+        .substringAfterLast(':', missingDelimiterValue = "")
+    return ownerConversationId == conversationId
+}
 
 /** 每个 key 一个 JSON 文件，先写 `.new` 再改名，进程被杀不会留下半份草稿。 */
 class FileChatDraftStorage(

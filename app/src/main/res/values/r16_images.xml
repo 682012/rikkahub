@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r16: image organizer page (its own file so the backend strings stay untouched). -->
+    <string name="r16_images_title">Organize images</string>
+    <string name="r16_images_search_hint">Search name or description</string>
+    <string name="r16_images_all_sources">All sources</string>
+    <string name="r16_images_all_categories">All types</string>
+    <string name="r16_images_source_upload">Uploads</string>
+    <string name="r16_images_source_generated">Generated</string>
+    <string name="r16_images_source_media">Media records</string>
+    <string name="r16_images_cat_portrait">People / anime</string>
+    <string name="r16_images_cat_screenshot">Screenshots / text</string>
+    <string name="r16_images_cat_scenery">Scenery / objects</string>
+    <string name="r16_images_cat_design">Design / charts</string>
+    <string name="r16_images_cat_other">Other</string>
+    <string name="r16_images_cat_unrecognized">Unrecognized</string>
+    <string name="r16_images_selected">%1$d selected · %2$s</string>
+    <string name="r16_images_select_all">Select all</string>
+    <string name="r16_images_clear_selection">Clear</string>
+    <string name="r16_images_keep">Keep</string>
+    <string name="r16_images_unkeep">Unkeep</string>
+    <string name="r16_images_classify">Classify</string>
+    <string name="r16_images_delete">Delete</string>
+    <string name="r16_images_refresh">Rescan</string>
+    <string name="r16_images_more">More</string>
+    <string name="r16_images_scanning">Scanning app images…</string>
+    <string name="r16_images_empty">No app images yet. Images you upload in chat and images you generate show up here.</string>
+    <string name="r16_images_empty_filtered">Nothing matches the current filter.</string>
+    <string name="r16_images_filter_clear">Clear filters</string>
+    <string name="r16_images_preview_desc">%1$s preview</string>
+    <string name="r16_images_no_model_title">No vision model selected</string>
+    <string name="r16_images_no_model_message">Pick a model that accepts image input before classifying. The picker only lists image-capable models and does not change your chat model.</string>
+    <string name="r16_images_classify_filtered">Classify all shown (%1$d)</string>
+    <string name="r16_images_classify_title">Send %1$d thumbnails?</string>
+    <string name="r16_images_classify_message">The thumbnails are sent to %1$s · %2$s for classification, and that provider bills the request. The result is only a suggestion: you still choose what to keep or delete, and nothing is deleted automatically.</string>
+    <string name="r16_images_classify_confirm">Send</string>
+    <string name="r16_images_cancel">Cancel</string>
+    <string name="r16_images_progress">%1$d/%2$d classified · %3$d failed</string>
+    <string name="r16_images_progress_stop">Stop</string>
+    <string name="r16_images_delete_title">Delete %1$d images?</string>
+    <string name="r16_images_delete_message">%1$s will be removed for good. These are the app copies, so chats and records that used them lose the image. This cannot be undone.</string>
+    <string name="r16_images_delete_skipped_note">%1$d kept images will be skipped automatically.</string>
+    <string name="r16_images_delete_result">Deleted %1$d · failed %2$d · skipped %3$d</string>
+    <string name="r16_images_delete_failed_kept">Failed items stay selected.</string>
+    <string name="r16_images_kept_badge">Kept</string>
+    <string name="r16_images_failed_badge">Failed</string>
+    <string name="r16_images_nothing_deletable">Every selected image is kept or cannot be deleted here.</string>
+</resources>

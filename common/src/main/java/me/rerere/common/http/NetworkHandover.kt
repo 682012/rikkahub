@@ -108,6 +108,9 @@ class NetworkHandover(
     /** 是否已经见过第一条非空 key（决定第一条 key 算不算「换代」）。 */
     private var seenAnyKey: Boolean = false
 
+    /** 上次「同句柄链路刷新」换代的时间，用来合并链路噪声。 */
+    private var lastRefreshMillis: Long? = null
+
     /**
      * 更新默认网络状态。[key] 为网络标识，[available] 为该网络当前是否可用。
      *
@@ -149,53 +152,87 @@ class NetworkHandover(
     /**
      * 计算本次重试前应该等多久，返回实际等待时长。
      *
-     * - 代际已变化且可用：只等一小段稳定期（750ms），返回实际等待；
-     * - 离线：等恢复，最多 [OFFLINE_RECOVERY_MILLIS] + 稳定期，恢复得快就提前醒；
-     * - 代际未变且可用：按 [regularDelay] 等。
+     * - 代际已变化且可用：只等一小段稳定期（[STABILIZE_MILLIS]），返回实际等待；
+     * - 离线：等恢复，最多等用户配置的这一次间隔（[regularDelay]），恢复得快就提前醒；
+     * - 代际未变且可用：按 [regularDelay] 等，期间换网/掉线会提前结束等待。
      *
+     * 等待预算一律来自调用方传入的真实重试配置，不再内部暗改成固定的 [OFFLINE_RECOVERY_MILLIS]
+     * —— 用户设 30~60 秒就最多等 30~60 秒，只有没传配置（0）时才补一次稳定期。
      * 全程只有一次有界挂起，不循环、不轮询。
      */
     suspend fun awaitRetry(attemptEpoch: Long, regularDelay: Duration): Duration {
         val start = waiter.nowMillis()
+        val budget = waitBudget(regularDelay)
         val snapshot = _state.value
 
         if (snapshot.epoch != attemptEpoch && snapshot.available) {
-            // 换网了：给新网络一点稳定期再重试，避免刚切换就撞上还没就绪的状态
+            // 换网了：给新网络一点点稳定期再重试，避免刚切换就撞上还没就绪的路由
             waiter.sleep(STABILIZE_MILLIS)
             return waiter.elapsedSince(start)
         }
 
         if (!snapshot.available) {
-            // 离线：等恢复，恢复后同样补一小段稳定期；总时长有界
-            val recovered = waiter.awaitAvailable(state, OFFLINE_RECOVERY_MILLIS)
-            if (recovered) {
-                val remaining = (OFFLINE_TOTAL_MILLIS - (waiter.nowMillis() - start))
-                    .coerceIn(0L, STABILIZE_MILLIS)
-                waiter.sleep(remaining)
-            }
+            // 离线：等恢复，但只等到这次配置的预算用完，恢复后补一小段稳定期
+            val recovered = waiter.awaitAvailable(state, budget)
+            if (recovered) waiter.sleep(stabilizeRemaining(start, budget))
             return waiter.elapsedSince(start)
         }
 
         // A VPN can recover while this wait is already in progress. Do not miss that event.
-        val changed = waiter.awaitChange(state, attemptEpoch, regularDelay.inWholeMilliseconds.coerceAtLeast(0L))
+        val changed = waiter.awaitChange(state, attemptEpoch, budget)
         if (changed) {
-            val usable = state.value.available || waiter.awaitAvailable(state, OFFLINE_RECOVERY_MILLIS)
-            if (usable) waiter.sleep(STABILIZE_MILLIS)
+            val remaining = stabilizeRemaining(start, budget)
+            val usable = state.value.available || waiter.awaitAvailable(state, remaining)
+            if (usable) waiter.sleep(remaining)
         }
         return waiter.elapsedSince(start)
     }
 
+    /**
+     * 同一个网络 handle 的内部路由变了（VPN 改内部路由、底层 Wi-Fi/蜂窝换了）。
+     * 句柄没变所以 [updateRoute] 看不到换代，这里显式按「换代」处理，让等待中的重试和
+     * 在途请求立刻知道要走新路由。
+     *
+     * 只有当前路由可用时才换代（离线期间交给恢复路径）；[MIN_REFRESH_GAP_MILLIS] 内的重复
+     * 刷新合并成一次，避免策略/VPN 的链路噪声把重试打成风暴。
+     */
+    @Synchronized
+    fun notifyRouteRefreshed() {
+        val previous = _state.value
+        if (!previous.available) return
+        val now = waiter.nowMillis()
+        val last = lastRefreshMillis
+        if (last != null && now - last in 0 until MIN_REFRESH_GAP_MILLIS) return
+        lastRefreshMillis = now
+        _state.value = previous.copy(epoch = previous.epoch + 1L)
+    }
+
+    /** 等待预算：用户真实的这次间隔；为 0 时至少补一个稳定期，避免忙等风暴。 */
+    private fun waitBudget(regularDelay: Duration): Long {
+        val configured = regularDelay.inWholeMilliseconds.coerceIn(0L, OFFLINE_RECOVERY_MILLIS)
+        return if (configured > 0L) configured else STABILIZE_MILLIS
+    }
+
+    /** 恢复之后只补稳定期，且不超过这笔预算剩下的部分。 */
+    private fun stabilizeRemaining(startMillis: Long, budgetMillis: Long): Long =
+        (budgetMillis - (waiter.nowMillis() - startMillis)).coerceIn(0L, STABILIZE_MILLIS)
+
     companion object {
-        /** [awaitUsable] 默认等待上限。 */
+        /** [awaitUsable] 默认等待上限。调用方有重试策略时应当自己传更小的预算。 */
         const val DEFAULT_USABLE_TIMEOUT_MILLIS: Long = 120_000L
 
-        /** 代际变化后的稳定期。 */
-        const val STABILIZE_MILLIS: Long = 750L
+        /**
+         * 代际变化后的稳定期。
+         *
+         * 换网后新路由基本立刻可用，用户要的是「马上重连」，所以只留 250ms 避开刚切换的
+         * 瞬时抖动，不做成 750ms 的额外等待。
+         */
+        const val STABILIZE_MILLIS: Long = 250L
 
-        /** 离线等恢复的上限。 */
+        /** 单次等待的硬上限（防止外部传离谱的间隔）。不是默认等待时长。 */
         const val OFFLINE_RECOVERY_MILLIS: Long = 120_000L
 
-        /** 离线等待总预算：恢复上限 + 稳定期。 */
-        const val OFFLINE_TOTAL_MILLIS: Long = OFFLINE_RECOVERY_MILLIS + STABILIZE_MILLIS
+        /** 同一个 handle 的链路刷新换代最小间隔，合并 VPN/策略层的重复链路回调。 */
+        const val MIN_REFRESH_GAP_MILLIS: Long = 1_000L
     }
 }

@@ -29,6 +29,13 @@ data class ChatDraft(
             reasoning == other.reasoning
 }
 
-/** New-chat input belongs to its assistant, existing-chat input to the conversation. */
+/**
+ * 草稿归属：已经开始的会话按会话存；还没发第一条的会话按「助手 + 会话」存。
+ *
+ * r16 修隔离：旧实现新会话只按助手存（`assistant:<id>`），同一个助手下的两个新会话共用一份草稿，
+ * 在 A 打的字会出现在 B 的输入框，B 再点发送就等于把 A 的内容发进 B。加上会话 id 后每个会话的
+ * 输入框各自独立；换助手仍然是另一个输入框（切回来还能恢复），冷启动按 `lastConversationId`
+ * 回到同一个会话 id，草稿照常恢复，不丢。
+ */
 fun chatDraftKey(conversationId: Uuid, assistantId: Uuid, hasMessages: Boolean): String =
-    if (hasMessages) "conversation:$conversationId" else "assistant:$assistantId"
+    if (hasMessages) "conversation:$conversationId" else "assistant:$assistantId:$conversationId"

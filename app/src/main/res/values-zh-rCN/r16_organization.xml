@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r16_organize_conversations">会话整理</string>
+    <string name="r16_organize_conversations_desc">筛选旧会话，只删除你勾选的内容</string>
+    <string name="r16_organize_images">图片整理</string>
+    <string name="r16_organize_images_desc">选模型识别分类，标记保留，批量删除</string>
+</resources>

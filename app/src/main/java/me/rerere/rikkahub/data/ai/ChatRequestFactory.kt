@@ -107,6 +107,11 @@ class ChatRequestFactory(
     private val compactionInputTransformers: List<InputMessageTransformer> =
         inputTransformers.filterNot { it === OcrTransformer }
 
+    // 多图逐张识别：只在用户显式标记图片时才发请求，构造函数和 DI 不动，缓存按需创建
+    private val sequentialImageDescriber: SequentialImageDescriber by lazy {
+        SequentialImageDescriber(context, providerManager, usageRecorder)
+    }
+
     /** 解析本轮的助手、模型、记忆和工具；MCP 服务名不合法时抛出 InvalidMcpServerNamesException */
     suspend fun createContext(
         settings: Settings,
@@ -215,7 +220,13 @@ class ChatRequestFactory(
                 buildCompactionStep(turn, messages, compressPrompt, includeTools = keepDefinitions)
             } else {
                 // Text-only history retains the existing role structure and cache prefix.
-                buildStep(turn, messages + UIMessage.user(compressPrompt), includeTools = keepDefinitions)
+                // 压缩永远不做逐张识别：摘要只需要文字，多看一遍图就是多一次对外请求
+                buildStep(
+                    turn,
+                    messages + UIMessage.user(compressPrompt),
+                    includeTools = keepDefinitions,
+                    allowSequentialVision = false,
+                )
             }
             val params = step.params
             return withRetry(
@@ -257,13 +268,29 @@ class ChatRequestFactory(
         messages: List<UIMessage>,
         processingStatus: MutableStateFlow<String?> = MutableStateFlow(null),
         includeTools: Boolean = true,
+        /**
+         * 是否允许「逐张识别」预处理。
+         *
+         * 压缩/后台摘要这类请求必须传 false：它们已经有纯文本转写路径，再为看图多花一次对外视觉请求
+         * 不值得，也不该在用户没选的时候偷偷发两遍图。
+         */
+        allowSequentialVision: Boolean = true,
     ): StepRequest {
         val assistant = turn.assistant
         // 压缩/摘要这类后台请求把工具摘掉，避免模型抢着调工具
         val tools = if (includeTools) turn.tools else emptyList()
+        // 先按上下文窗口裁剪，再决定要识别哪些图：被裁掉的历史图片不该再花一次请求
+        val limitedMessages = messages.limitContext(assistant.contextMessageLimit)
+        // 逐张识别必须在 inputTransformers 之前：每张标记图先单独发一次无工具视觉请求，
+        // 再把这些图替换成说明文本，主请求才真正不带图、也不会每一步重传历史图
+        val preparedMessages = if (allowSequentialVision && includeTools && limitedMessages.hasSequentialVisionImages()) {
+            sequentialImageDescriber.prepareMessages(turn, limitedMessages, processingStatus)
+        } else {
+            limitedMessages
+        }
         val requestMessages = buildList {
             buildSystemMessage(turn, tools, messages)?.let { add(it) }
-            addAll(messages.limitContext(assistant.contextMessageLimit))
+            addAll(preparedMessages)
         }.transforms(
             transformers = inputTransformers,
             context = context,

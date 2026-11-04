@@ -4,7 +4,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import me.rerere.ai.provider.NetworkUnavailableException
 import me.rerere.common.http.NetworkHandover
+import me.rerere.ai.provider.NetworkUnavailableException
 import java.io.IOException
 import kotlin.random.Random
 import kotlin.time.Duration
@@ -118,11 +120,22 @@ data class RetryAttempt(
 )
 
 /**
+ * 请求根本没离开设备（没有可用路由）时最多容忍几轮等待。
+ *
+ * 这类失败不该算「一次失败的重试」——离线时把 3 次预算烧完，等网络回来也来不及重连了；
+ * 但也不能无限等，所以给一个有界次数（每轮仍按用户配置的间隔等待，换网会立刻唤醒）。
+ */
+private const val MAX_UNSENT_ATTEMPTS = 10
+
+/**
  * 按 [policy] 执行 [block]：失败且允许重试时先调用 [onRetry]，等待后再执行一次。
  *
  * 每次尝试开始前记下当时的网络代际；如果 [RetryPolicy.networkHandover] 在退避期间换了路由，
  * 就交给它提前结束等待，而不是干等完整退避。没有网络事件时仍然等 [RetryPolicy.delayFor] 给的时长，
  * 所以"最多重试几次"和"哪些错误重试"的语义都没变。
+ *
+ * 唯一的例外是 [NetworkUnavailableException]：请求根本没发出去，不算一次失败的尝试，
+ * 也就不会把预算耗在完全离线的时间里（仍受 [MAX_UNSENT_ATTEMPTS] 限制）。
  */
 suspend fun <T> withRetry(
     policy: RetryPolicy,
@@ -131,6 +144,7 @@ suspend fun <T> withRetry(
 ): T {
     val handover = policy.networkHandover
     var retries = 0
+    var unsent = 0
     while (true) {
         // 已取消/已停止的协程不能再被拉起；正常取消在这里直接抛出，不消耗重试次数
         currentCoroutineContext().ensureActive()
@@ -142,12 +156,21 @@ suspend fun <T> withRetry(
             // 用户主动停止生成时，底层连接也可能以 IOException("canceled") 收尾；
             // 先检查协程状态，确保取消不会被当作网络波动重新拉起。
             currentCoroutineContext().ensureActive()
-            if (error is CancellationException || retries >= policy.maxRetries || !policy.retryOn(error)) {
+            if (error is CancellationException || !policy.retryOn(error)) {
                 throw error
             }
-            retries++
-            val backoff = policy.delayFor(retries)
-            onRetry(RetryAttempt(error, retries, policy.maxRetries, backoff))
+            val notSent = error is NetworkUnavailableException
+            if (notSent) {
+                unsent++
+                // 关掉自动重试（maxRetries == 0）时无网就是直接失败，不进等待循环
+                if (policy.maxRetries <= 0 || unsent > MAX_UNSENT_ATTEMPTS) throw error
+            } else {
+                if (retries >= policy.maxRetries) throw error
+                retries++
+            }
+            val attempt = maxOf(retries, 1)
+            val backoff = policy.delayFor(attempt)
+            onRetry(RetryAttempt(error, attempt, policy.maxRetries, backoff))
             // 网络切换导致的失败不必干等完整退避；没有网络事件时 awaitRetry 同样按 backoff 等满。
             // 等待本身可取消，停止生成不会被这里的等待拖住。
             if (handover == null) delay(backoff) else handover.awaitRetry(epoch, backoff)

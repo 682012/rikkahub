@@ -37,8 +37,13 @@ import java.util.concurrent.TimeUnit
 import kotlin.io.encoding.Base64
 import kotlin.uuid.Uuid
 
-/** 网络换代的稳定期：手机刚切网时 DNS/路由还没就绪，等一下再重连，避免连上就断。 */
-internal const val NETWORK_RECOVERY_DEBOUNCE_MS: Long = 750L
+/**
+ * 网络换代的稳定期：手机刚切网时 DNS/路由还没就绪，等一下再重连，避免连上就断。
+ *
+ * 和 [NetworkHandover.STABILIZE_MILLIS] 保持一致：用户要的是换网后立刻恢复，
+ * 这里不再单独留一个更长的 750ms。只恢复「连接」，在途工具调用既不取消也不重放。
+ */
+internal const val NETWORK_RECOVERY_DEBOUNCE_MS: Long = NetworkHandover.STABILIZE_MILLIS
 
 /** [NetworkRecoveryCoordinator] 对一条网络状态回调给出的动作。 */
 internal sealed interface NetworkRecoveryDirective {
@@ -235,8 +240,8 @@ class McpManager(
     /**
      * 监听默认网络的代际信号。
      *
-     * 只有「代际变化 + 可用」才恢复，且固定 750ms 稳定期；同一时刻只保留一个 debounce 任务，
-     * 重复回调 / 连续 flap 只会留下最新一次，不会变成重连风暴。
+     * 只有「代际变化 + 可用」才恢复；同一时刻只保留一个 250ms debounce 任务，
+     * 重复回调 / 连续 flap 只会留下最新一次。工具 POST 不会因换网被重放。
      */
     private suspend fun observeNetworkHandover(handover: NetworkHandover) {
         var debounceJob: Job? = null

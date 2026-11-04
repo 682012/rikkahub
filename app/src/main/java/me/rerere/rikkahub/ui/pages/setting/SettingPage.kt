@@ -280,6 +280,18 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                     title = { Text(stringResource(R.string.setting_page_data_settings)) },
                 ) {
                     item(
+                        onClick = { navController.navigate(Screen.History) },
+                        leadingContent = { CardGroupIcon(HugeIcons.GlobalSearch, containerColor = containerColor, contentColor = contentColor) },
+                        supportingContent = { Text(stringResource(R.string.r16_organize_conversations_desc)) },
+                        headlineContent = { Text(stringResource(R.string.r16_organize_conversations)) },
+                    )
+                    item(
+                        onClick = { navController.navigate(Screen.ImageOrganizer) },
+                        leadingContent = { CardGroupIcon(HugeIcons.Image02, containerColor = containerColor, contentColor = contentColor) },
+                        supportingContent = { Text(stringResource(R.string.r16_organize_images_desc)) },
+                        headlineContent = { Text(stringResource(R.string.r16_organize_images)) },
+                    )
+                    item(
                         onClick = { navController.navigate(Screen.Backup) },
                         leadingContent = { CardGroupIcon(HugeIcons.Database02, containerColor = containerColor, contentColor = contentColor) },
                         supportingContent = { Text(stringResource(R.string.setting_page_data_backup_desc)) },

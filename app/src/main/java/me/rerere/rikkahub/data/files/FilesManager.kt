@@ -453,12 +453,45 @@ class FilesManager(
         SyncResult(inserted = inserted, removed = removed)
     }
 
+    /**
+     * 删除一条登记文件。
+     *
+     * r16 图片整理复核后收紧的语义：
+     * - 只删 app 自己 filesDir 里的文件：相对路径带 `..` 或本身是绝对路径、或 canonical 路径落到
+     *   filesDir 之外（比如被替换成指向外部存储的 symlink）时直接拒绝，返回 false 且不动索引。
+     * - 磁盘删除失败时**保留索引**并返回 false，不再出现「索引没了、文件还在」的半状态。
+     * - 不吞 CancellationException：这里唯一会挂起的是 repository 调用，取消照常向上抛。
+     */
     suspend fun delete(id: Long, deleteFromDisk: Boolean = true): Boolean = withContext(Dispatchers.IO) {
         val entity = repository.getById(id) ?: return@withContext false
         if (deleteFromDisk) {
-            runCatching { getFile(entity).delete() }
+            val file = resolveManagedFile(entity) ?: run {
+                Log.w(TAG, "delete: 路径不在 filesDir 内，拒绝删除 id=$id path=${entity.relativePath}")
+                return@withContext false
+            }
+            if (file.exists() && !file.delete()) {
+                Log.w(TAG, "delete: 磁盘删除失败，保留索引 id=$id path=${entity.relativePath}")
+                return@withContext false
+            }
         }
         repository.deleteById(id) > 0
+    }
+
+    /**
+     * 把登记的相对路径解析成 filesDir 里的文件；路径逃逸时返回 null。
+     *
+     * canonical 解析会把 symlink 展开，所以指向 filesDir 外面的链接同样返回 null（不会被顺着删到外部）。
+     */
+    private fun resolveManagedFile(entity: ManagedFileEntity): File? {
+        val relative = entity.relativePath
+        if (relative.isBlank()) return null
+        if (File(relative).isAbsolute) return null
+        if (relative.split('/', '\\').any { it == ".." }) return null
+        val root = runCatching { context.filesDir.canonicalFile }.getOrNull() ?: return null
+        val file = File(context.filesDir, relative)
+        val canonical = runCatching { file.canonicalFile }.getOrNull() ?: return null
+        if (canonical == root || !canonical.path.startsWith(root.path + File.separator)) return null
+        return file
     }
 
     suspend fun deleteAll(folder: String = FileFolders.UPLOAD): Boolean = withContext(Dispatchers.IO) {

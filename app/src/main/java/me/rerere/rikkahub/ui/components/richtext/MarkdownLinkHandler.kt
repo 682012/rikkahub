@@ -6,7 +6,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.ui.context.LocalNavControllerOrNull
-import me.rerere.rikkahub.ui.context.LocalToaster
 import me.rerere.rikkahub.ui.context.LocalWorkspaceId
 import me.rerere.rikkahub.ui.context.Navigator
 import me.rerere.rikkahub.utils.WorkspaceArtifactLink
@@ -22,7 +21,7 @@ import me.rerere.ui.toast.ToastType
  * 现在所有 Markdown（对话正文、悬浮窗预览、各种设置页说明）都从这里分发：
  *
  * - 工作区文件 → 用当前对话绑定的 workspaceId 跳到应用内预览页（不依赖全局“选一个工作区”）；
- * - http/https → 仍走 CustomTabs；
+ * - http/https → 应用内网页预览页（[Screen.WebView]），没有导航栈时退回 CustomTabs；
  * - 其它 scheme → ACTION_VIEW，没有 handler 时给提示；
  * - 越界/格式错的链接 → 明确提示，不打开浏览器。
  */
@@ -78,7 +77,11 @@ fun openMarkdownLink(
             navigator.navigate(Screen.WorkspaceArtifact(workspaceId, link.path, link.fragment))
         }
 
-        is WorkspaceArtifactLink.Web -> context.openUrl(link.raw)
+        // http/https 走应用内预览页（复用系统 WebView，不引入新内核、不常驻）；
+        // 没有导航栈时（悬浮窗预览等）退回 CustomTabs，行为与之前一致
+        is WorkspaceArtifactLink.Web ->
+            if (navigator != null) navigator.navigate(Screen.WebView(url = link.raw))
+            else context.openUrl(link.raw)
 
         is WorkspaceArtifactLink.ExternalScheme -> context.openExternalScheme(link.raw)
             .onFailure { error -> onMessage(error.message ?: "没有可以处理这个链接的 App") }

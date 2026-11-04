@@ -79,6 +79,12 @@ class ConversationRepository(
             }
     }
 
+    /** Organizer queries never read message bodies, even for old/orphaned conversations. */
+    fun observeOrganizationSummaries(assistantId: Uuid? = null): Flow<List<Conversation>> =
+        (if (assistantId == null) conversationDAO.observeAllSummaries()
+        else conversationDAO.observeAssistantSummaries(assistantId.toString()))
+            .map { rows -> rows.map { conversationSummaryToConversation(it) } }
+
     suspend fun getTitlesOfAssistant(assistantId: Uuid): Set<String> =
         conversationDAO.getTitlesOfAssistant(assistantId.toString()).toSet()
 

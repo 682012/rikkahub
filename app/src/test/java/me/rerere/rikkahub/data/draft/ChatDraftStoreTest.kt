@@ -306,26 +306,42 @@ class ChatDraftStoreTest {
     }
 
     @Test
-    fun `new chat draft belongs to the assistant, started chat to the conversation`() {
+    fun `new chat draft belongs to its own conversation, started chat to the conversation`() {
         val conversationId = Uuid.random()
         val assistantId = Uuid.random()
 
-        assertEquals("assistant:$assistantId", chatDraftKey(conversationId, assistantId, hasMessages = false))
+        // r16：新会话 key 也带会话 id，同一个助手下的两个新会话不再共用一份草稿
+        assertEquals(
+            "assistant:$assistantId:$conversationId",
+            chatDraftKey(conversationId, assistantId, hasMessages = false)
+        )
         assertEquals("conversation:$conversationId", chatDraftKey(conversationId, assistantId, hasMessages = true))
         // 前缀和草稿存储里的判断必须一致，否则第一条消息发出后不会做 key 迁移
         assertTrue(chatDraftKey(conversationId, assistantId, false).startsWith(CHAT_DRAFT_ASSISTANT_PREFIX))
         assertTrue(chatDraftKey(conversationId, assistantId, true).startsWith(CHAT_DRAFT_CONVERSATION_PREFIX))
+        // 同一个助手的两个新会话必须是两个不同的草稿
+        assertNotEquals(
+            chatDraftKey(Uuid.random(), assistantId, hasMessages = false),
+            chatDraftKey(Uuid.random(), assistantId, hasMessages = false),
+        )
     }
 
     @Test
     fun `only the first message moves the draft from assistant key to conversation key`() {
-        val conversation = "conversation:${Uuid.random()}"
-        val assistant = "assistant:${Uuid.random()}"
-        val otherAssistant = "assistant:${Uuid.random()}"
+        val conversationId = Uuid.random()
+        val otherConversationId = Uuid.random()
+        val conversation = "conversation:$conversationId"
+        val assistant = "assistant:${Uuid.random()}:$conversationId"
+        val otherAssistant = "assistant:${Uuid.random()}:$conversationId"
+        val otherConversation = "conversation:$otherConversationId"
 
         assertTrue(isDraftKeyMigration(assistant, conversation))
         // 切助手不是迁移：旧输入留在旧助手那边
         assertFalse(isDraftKeyMigration(assistant, otherAssistant))
         assertFalse(isDraftKeyMigration(conversation, conversation))
+        // 别的会话的助手 key 绝不能算本会话的迁移（A 的确认不能清到 B 上）
+        assertFalse(isDraftKeyMigration(assistant, otherConversation))
+        // 旧版本没有会话段的 assistant key 也不认
+        assertFalse(isDraftKeyMigration("assistant:${Uuid.random()}", conversation))
     }
 }

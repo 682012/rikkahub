@@ -18,6 +18,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonElement
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.NetworkUnavailableException
 import me.rerere.ai.provider.Provider
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
@@ -226,6 +227,31 @@ class NetworkHandoverRetryTest {
         // 1 次首发 + 2 次重试，网络再怎么变也不会无限重试
         assertEquals(3, calls)
         assertEquals(List(2) { NetworkHandover.STABILIZE_MILLIS }, waiter.sleeps)
+    }
+
+    @Test
+    fun `request that never left the device does not burn the retry budget`() = runTest {
+        val waiter = RecordingWaiter()
+        // 同一个网络但离线
+        val network = NetworkHandover(waiter).apply { updateRoute("wifi", true) ; updateRoute(null, false) }
+        var calls = 0
+
+        val job = launch {
+            withRetry(policy(network, RetryDelay.fixed(20), maxRetries = 1)) {
+                calls++
+                // 离线：请求根本没发出去，不算一次失败的尝试
+                if (calls <= 3) throw NetworkUnavailableException()
+                "ok"
+            }
+        }
+
+        repeat(3) { waiter.awaitEntered() }
+        // 网络回来：等待立刻醒，随后只补一个稳定期
+        network.updateRoute("cell", true)
+        job.join()
+
+        // maxRetries=1，但「没发出去」不消耗预算，所以网络回来后仍然能成功
+        assertEquals(4, calls)
     }
 
     // ---- agent 循环里的工具与预览 ----

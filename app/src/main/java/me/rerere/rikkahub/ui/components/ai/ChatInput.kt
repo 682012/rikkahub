@@ -55,6 +55,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -199,6 +200,23 @@ fun ChatInput(
     val asrPermission = rememberPermissionState(PermissionRecordAudio)
     PermissionManager(permissionState = asrPermission)
     var asrBaseText by remember { mutableStateOf("") }
+
+    // ASR 是全局一份（LocalASRState），但它的结果只能写回「按下麦克风时那个输入框」。
+    // ChatInput 换会话后会在同一个位置被复用、拿到新的 ChatInputState；录音开始时把归属记下来，
+    // 结果回来时先核对是不是还在这个输入框，不是就丢掉——否则 A 说的话会落到 B 的输入框里。
+    val currentInputState by rememberUpdatedState(state)
+    var asrOrigin by remember { mutableStateOf<ChatInputState?>(null) }
+    LaunchedEffect(state) {
+        val origin = asrOrigin
+        if (origin != null && origin !== state) {
+            val status = asr.state.value.status
+            if (status == ASRStatus.Listening || status == ASRStatus.Connecting) {
+                asr.stop()
+            }
+            asrOrigin = null
+            asrBaseText = ""
+        }
+    }
     LaunchedEffect(asrState.status) {
         when (asrState.status) {
             ASRStatus.Listening -> {
@@ -357,11 +375,16 @@ fun ChatInput(
                                             if (!asrPermission.allRequiredPermissionsGranted) {
                                                 asrPermission.requestPermissions()
                                             } else {
-                                                asrBaseText = state.textContent.text.toString()
+                                                // 归属：这次听写是哪个输入框发起的
+                                                val origin = state
+                                                asrBaseText = origin.textContent.text.toString()
+                                                asrOrigin = origin
                                                 asr.start { transcript ->
+                                                    // 切走了（换了会话/输入框）：这段结果不属于当前输入框，丢弃
+                                                    if (currentInputState !== origin) return@start
                                                     val spacer =
                                                         if (asrBaseText.isBlank() || transcript.isBlank()) "" else " "
-                                                    state.setMessageText(asrBaseText + spacer + transcript)
+                                                    origin.setMessageText(asrBaseText + spacer + transcript)
                                                 }
                                             }
                                         }
@@ -516,8 +539,12 @@ private fun TextInputRow(
         var isFocused by remember { mutableStateOf(false) }
         var isFullScreen by remember { mutableStateOf(false) }
         var completionList by remember { mutableStateOf<ChatCompletionList?>(null) }
+        // state 必须在 key 里：这个 listener 会捕获当时的 ChatInputState，换会话后若沿用旧的，
+        // 粘贴的图片/长文本会加到上一个会话的输入框里
         val receiveContentListener = remember(
-            settings.displaySetting.pasteLongTextAsFile, settings.displaySetting.pasteLongTextThreshold
+            state,
+            settings.displaySetting.pasteLongTextAsFile,
+            settings.displaySetting.pasteLongTextThreshold
         ) {
             ReceiveContentListener { transferableContent ->
                 when {

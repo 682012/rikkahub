@@ -29,6 +29,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -51,7 +52,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.rikkahub.data.ai.markSequentialImages
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.Settings
@@ -87,7 +90,12 @@ import kotlin.uuid.Uuid
 
 @Composable
 fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
+    // key 必须带上会话 id：koinViewModel 不传 key 时默认按类名取，一旦 NavDisplay/抽屉把两个会话
+    // 复用成同一个 ViewModelStore（同一 entry 换参数、或共享 owner），拿到的还是 A 会话的 ChatVM，
+    // 于是 B 的输入框和发送都落到 A 上——「在 A 发起任务切到 B 会送错会话」。带上 id 后每个会话
+    // 一定拿到自己的 ChatVM（也是自己的 inputState / 草稿 key / 发送目标）。
     val vm: ChatVM = koinViewModel(
+        key = id.toString(),
         parameters = {
             parametersOf(id.toString())
         }
@@ -149,8 +157,9 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     // 草稿恢复完再导入分享进来的内容：等恢复完再加，分享的文字/附件是加在草稿后面，
     // 而不是把刚恢复出来的草稿冲掉。
     val draftReady by vm.draftReady.collectAsStateWithLifecycle()
-    // 导入只做一次，但换会话/换分享内容时必须重新做：只用一个裸 boolean 会在复用页面时吞掉新的分享
-    var importApplied by rememberSaveable(id, text, files) { mutableStateOf(false) }
+    // 导入只做一次，但换会话/换分享内容时必须重新做：只用一个裸 boolean 会在复用页面时吞掉新的分享。
+    // 同时按 vm 记忆：换了 ChatVM（另一个会话）就不能沿用上一个页面的「已导入」。
+    var importApplied by rememberSaveable(vm, id, text, files) { mutableStateOf(false) }
 
     // 进程可能在页面离开后被杀：暂停和离开时都存一次（onCleared 只是最后一道保险）
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
@@ -161,7 +170,8 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     }
 
     // 初始化输入状态（处理传入的 files 和 text 参数）
-    LaunchedEffect(files, text, draftReady) {
+    // 按 vm 分组：换会话后必须用新会话的 inputState，绝不能把分享内容写进上一个会话的输入框
+    LaunchedEffect(vm, files, text, draftReady) {
         if (!draftReady || importApplied) return@LaunchedEffect
         importApplied = true
         if (files.isNotEmpty()) {
@@ -319,11 +329,37 @@ private fun ChatPageContent(
     var previewMode by rememberSaveable { mutableStateOf(false) }
     val hazeState = rememberHazeState()
     var showFilesSheet by remember { mutableStateOf(false) }
-    val attachmentPickerActions = rememberChatAttachmentPickerActions(
-        inputState = inputState,
-        setting = setting,
-        onAttachmentAdded = { showFilesSheet = false },
-    )
+    // 多图发送先让用户选路：一次发保持默认语义；逐张识别会额外调用 N 次视觉请求。
+    // 以会话 ID 作 key，切到另一个对话时不把 A 的确认弹窗/张数带过去。
+    var showMultiImageSendDialog by remember(conversation.id) { mutableStateOf(false) }
+    var pendingMultiImageCount by remember(conversation.id) { mutableStateOf(0) }
+    val canUseSequentialImageSend = currentChatModel?.inputModalities?.contains(Modality.IMAGE) == true
+
+    fun submitCurrentInput(answer: Boolean, sequentialImages: Boolean = false) {
+        val currentParts = inputState.getContents()
+        val parts = if (sequentialImages) markSequentialImages(currentParts) else currentParts
+        val accepted = if (inputState.isEditing()) {
+            inputState.editingMessage?.let { vm.handleMessageEdit(parts, it) } ?: false
+        } else {
+            vm.handleMessageSend(parts, answer)
+        }
+        if (accepted) {
+            scope.launch {
+                if (answer) delay(100.milliseconds)
+                chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
+            }
+        }
+    }
+    // 相机/相册/文件的 launcher 回调会捕获发起那一刻的 inputState：换会话后 Composition 复用、
+    // 回调没重建时，选好的附件会塞进上一个会话的输入框（A 选图，图跑到 B）。按 inputState 记住，
+    // 换会话就换一组 launcher，附件只会进发起选择的那个会话。
+    val attachmentPickerActions = key(inputState) {
+        rememberChatAttachmentPickerActions(
+            inputState = inputState,
+            setting = setting,
+            onAttachmentAdded = { showFilesSheet = false },
+        )
+    }
     val allowAudioVideoAttachments =
         currentChatModel?.findProvider(setting.providers) is ProviderSetting.Google
 
@@ -399,42 +435,17 @@ private fun ChatPageContent(
                             toaster.show("请先选择模型", type = ToastType.Error)
                             return@ChatInput
                         }
-                        if (inputState.isEditing()) {
-                            // 提交成功、且输入框还是提交的那份，VM 才会清；这里不清，编辑失败不能丢
-                            if (vm.handleMessageEdit(
-                                    parts = inputState.getContents(),
-                                    messageId = inputState.editingMessage!!,
-                                )
-                            ) {
-                                scope.launch {
-                                    delay(100.milliseconds)
-                                    chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
-                                }
-                            }
-                        } else if (vm.handleMessageSend(inputState.getContents())) {
-                            // 输入框先留着：等用户消息真的落库，VM 收到确认后才清（见 handleMessageSend）
-                            scope.launch {
-                                delay(100.milliseconds)
-                                chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
-                            }
+                        val imageCount = inputState.getContents().count { it is UIMessagePart.Image }
+                        if (imageCount > 1) {
+                            pendingMultiImageCount = imageCount
+                            showMultiImageSendDialog = true
+                        } else {
+                            submitCurrentInput(answer = true)
                         }
                     },
                     onLongSendClick = {
-                        if (inputState.isEditing()) {
-                            if (vm.handleMessageEdit(
-                                    parts = inputState.getContents(),
-                                    messageId = inputState.editingMessage!!,
-                                )
-                            ) {
-                                scope.launch {
-                                    chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
-                                }
-                            }
-                        } else if (vm.handleMessageSend(content = inputState.getContents(), answer = false)) {
-                            scope.launch {
-                                chatListState.requestScrollToItem(conversation.currentMessages.size + 5)
-                            }
-                        }
+                        // 长按只入队、不发起模型回答，所以沿用一次发送，不启动逐张识别请求。
+                        submitCurrentInput(answer = false)
                     },
                     onUpdateChatModel = vm::setChatModel,
                     onUpdateAssistant = vm::updateAssistant,
@@ -595,6 +606,48 @@ private fun ChatFilesPickerSheet(
                     onStartVoiceMode()
                 }
             } else null,
+        )
+    }
+
+    if (showMultiImageSendDialog) {
+        AlertDialog(
+            onDismissRequest = { showMultiImageSendDialog = false },
+            title = {
+                Text(stringResource(R.string.r16_multi_image_title, pendingMultiImageCount))
+            },
+            text = {
+                Text(
+                    if (canUseSequentialImageSend) {
+                        stringResource(R.string.r16_multi_image_message, pendingMultiImageCount)
+                    } else {
+                        stringResource(R.string.r16_multi_image_unsupported)
+                    }
+                )
+            },
+            confirmButton = {
+                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = {
+                            showMultiImageSendDialog = false
+                            submitCurrentInput(answer = true, sequentialImages = true)
+                        },
+                        enabled = canUseSequentialImageSend,
+                    ) {
+                        Text(stringResource(R.string.r16_multi_image_sequential))
+                    }
+                    TextButton(onClick = {
+                        showMultiImageSendDialog = false
+                        submitCurrentInput(answer = true)
+                    }) {
+                        Text(stringResource(R.string.r16_multi_image_once))
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMultiImageSendDialog = false }) {
+                    Text(stringResource(R.string.r16_multi_image_cancel))
+                }
+            },
         )
     }
 }

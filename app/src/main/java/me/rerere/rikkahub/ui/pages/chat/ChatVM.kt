@@ -45,6 +45,7 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.draft.ChatDraftStore
 import me.rerere.rikkahub.data.draft.ChatDraftStores
+import me.rerere.rikkahub.data.draft.ChatSendDraftPolicy
 import me.rerere.rikkahub.data.draft.isDraftKeyMigration
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Assistant
@@ -267,11 +268,18 @@ class ChatVM(
     }
 
     // 错误状态
+    // 按会话过滤：A 会话的报错条不能挂在 B 页面上（conversationId 为 null 的是全局错误，照常显示）。
+    // 后台/子代理的通知走 inbox，本来就是按 conversationId 投递的；这里补的是 UI 层的错误串会话。
     val errors: StateFlow<List<ChatError>> = chatService.errors
+        .map { list -> list.filter { it.conversationId == null || it.conversationId == _conversationId } }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     fun dismissError(id: Uuid) = chatService.dismissError(id)
 
-    fun clearAllErrors() = chatService.clearAllErrors()
+    /** 只清当前会话页可见的错误，不能顺手抹掉另一个对话正在看的任务错误。 */
+    fun clearAllErrors() {
+        errors.value.forEach { error -> chatService.dismissError(error.id) }
+    }
 
     val messageQueue = chatService.getInboxFlow(_conversationId)
 
@@ -394,9 +402,9 @@ class ChatVM(
 
         analytics.logEvent("ai_send_message", null)
         val receipt = chatService.sendMessageWithReceipt(_conversationId, content, answer)
-        if (receipt == null || key == null) {
+        if (receipt == null) {
             synchronized(draftLock) { sendingDrafts.removeAll { it.sameContent(sent) } }
-            return receipt != null
+            return false
         }
 
         // 等确认必须在页面生命周期之外：切页时 viewModelScope 会被取消，
@@ -415,26 +423,31 @@ class ChatVM(
     }
 
     /** 落库确认回来：成功才清「仍是这一份」的草稿，失败保持原样（输入框本来就没清）。 */
-    private suspend fun finishSend(key: String, sent: ChatDraft, persisted: Boolean) {
+    private suspend fun finishSend(key: String?, sent: ChatDraft, persisted: Boolean) {
         synchronized(draftLock) { sendingDrafts.removeAll { it.sameContent(sent) } }
         if (!persisted) return
 
-        val currentKey = synchronized(draftLock) { draftKey }
-        // 新会话发第一条消息后 key 会从助手迁到会话：迁移过来的那份也要按「仍是这一份」清掉，
-        // 否则旧助手草稿会一直留着，下次新建会话又恢复出来（重复输入）。
-        val migratedKey = currentKey?.takeIf { it != key && isDraftKeyMigration(key, it) }
-        draftStore.ack(key, sent)
-        if (migratedKey != null) draftStore.ack(migratedKey, sent)
-
-        // 输入框是 Compose 状态，清空必须在主线程，并且只在用户没改过这份内容时做
+        // 清输入框必须在主线程，而且 key 只能在主线程上现取：
+        // 敲下发送后会话立刻有了第一条消息，draftKeyFlow 会在确认回来前后把 key 从
+        // `assistant:<a>:<c>` 迁到 `conversation:<c>`。以前在 IO 上先取一次 key 再挂起，
+        // 迁移刚好落在挂起中间时 stillSameKey 变 false，发送成功但输入框不清——就是用户看到的那条。
         withContext(Dispatchers.Main.immediate) {
             val keyNow = synchronized(draftLock) { draftKey }
-            val stillSameKey = keyNow == null || keyNow == key || keyNow == migratedKey
-            if (stillSameKey && inputState.snapshotDraft().sameContent(sent)) {
+            if (ChatSendDraftPolicy.shouldClearInput(key, keyNow, persisted, inputState.snapshotDraft(), sent)) {
                 inputState.clearInput()
+                // 输入框已清：马上把空稿入队，别让 debounce 里的那份旧稿再写回盘
+                if (keyNow != null) draftStore.saveNow(keyNow, ChatDraft())
+            }
+            // 落盘层只清「内容仍是这一份」的草稿（ack 内部按内容比对）：
+            // 用户在等确认期间续写的字不会被清掉（续写不清）。
+            // 要 ack 的 key 由策略算：原 key + （若已迁移）本会话的会话 key，
+            // 迁移判定带会话 id（见 isDraftKeyMigration），所以不会把 A 的确认清到 B 的草稿上。
+            ChatSendDraftPolicy.keysToAck(key, keyNow).forEach { ackKey ->
+                draftStore.ack(ackKey, sent)
             }
         }
     }
+
 
     /**
      * 编辑历史消息。提交前不清输入：清早了编辑失败这条就没了。

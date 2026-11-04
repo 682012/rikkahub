@@ -178,6 +178,10 @@ fun SettingFilesPage(
                 title = { Text(stringResource(R.string.setting_files_page_title)) },
                 navigationIcon = { BackButton() },
                 actions = {
+                    val nav = me.rerere.rikkahub.ui.context.LocalNavController.current
+                    TextButton(onClick = { nav.navigate(me.rerere.rikkahub.Screen.ImageOrganizer) }) {
+                        Text(stringResource(R.string.r16_organize_images))
+                    }
                     IconButton(
                         onClick = { showCleanSheet = true },
                         enabled = files.isNotEmpty(),

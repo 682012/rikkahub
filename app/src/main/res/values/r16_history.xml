@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r16: history page is about clearing out stale conversations, so it gets its own filter bar and multi-select. -->
+    <string name="r16_history_filter_current">This assistant</string>
+    <string name="r16_history_filter_all">All assistants</string>
+    <string name="r16_history_age_all">Any time</string>
+    <string name="r16_history_age_7">Unused 7+ days</string>
+    <string name="r16_history_age_30">Unused 30+ days</string>
+    <string name="r16_history_age_90">Unused 90+ days</string>
+    <string name="r16_history_search_hint">Search titles</string>
+    <string name="r16_history_clear_search">Clear search</string>
+    <string name="r16_history_empty">No conversations match these filters.</string>
+    <string name="r16_history_enter_selection">Select conversations</string>
+    <string name="r16_history_exit_selection">Exit selection</string>
+    <string name="r16_history_selected_count">Selected %1$d</string>
+    <string name="r16_history_selected_pinned">%1$d pinned</string>
+    <string name="r16_history_select_all">Select all</string>
+    <string name="r16_history_clear_selection">Clear selection</string>
+    <string name="r16_history_delete_selected_title">Delete selected conversations?</string>
+    <string name="r16_history_delete_selected_message">Delete %1$d conversations?\nScope: %2$s\nFilter: %3$s\nPinned in the selection: %4$d. This cannot be undone.</string>
+    <string name="r16_history_delete_complete">Deleted %1$d conversations</string>
+    <string name="r16_history_delete_partial">Deleted %1$d of %2$d. %3$d could not be deleted and stay selected.</string>
+    <string name="r16_history_delete_failed">This conversation could not be deleted</string>
+</resources>

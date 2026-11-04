@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r16: built-in web preview page (address bar, load errors, external-scheme hand-off).
+         Kept in its own file so the strings can be reviewed and merged without touching strings.xml. -->
+    <string name="r16_web_title">Web preview</string>
+    <string name="r16_web_address_unknown">Loading page</string>
+    <string name="r16_web_progress">%1$d%%</string>
+    <string name="r16_web_stop">Stop loading</string>
+    <string name="r16_web_reload">Reload</string>
+    <string name="r16_web_forward">Forward</string>
+    <string name="r16_web_more">More options</string>
+    <string name="r16_web_open_browser">Open in browser</string>
+    <string name="r16_web_console">Console logs</string>
+    <string name="r16_web_console_empty">No console messages</string>
+    <string name="r16_web_close">Close</string>
+
+    <string name="r16_web_error_title">This page failed to load</string>
+    <string name="r16_web_error_ssl_title">Certificate rejected</string>
+    <string name="r16_web_error_ssl_hint">The site presented a certificate that cannot be trusted, so the preview stopped instead of continuing.</string>
+    <string name="r16_web_error_network_hint">The network may be unavailable, or the site refused the request.</string>
+    <string name="r16_web_error_renderer_title">Preview engine stopped</string>
+    <string name="r16_web_error_renderer_hint">Android\'s WebView process stopped, and this page cannot reuse it.</string>
+    <string name="r16_web_error_detail">Details: %1$s</string>
+    <string name="r16_web_error_url">Address: %1$s</string>
+    <string name="r16_web_retry">Retry</string>
+
+    <string name="r16_web_missing_title">Preview content expired</string>
+    <string name="r16_web_missing_hint">The temporary copy of this preview was cleaned up. Go back to the conversation and render it again.</string>
+    <string name="r16_web_missing_back">Back</string>
+
+    <string name="r16_web_external_title">Open in another app?</string>
+    <string name="r16_web_external_message">This link uses the %1$s scheme, which the built-in preview cannot open.\n%2$s</string>
+    <string name="r16_web_external_open">Open</string>
+    <string name="r16_web_external_cancel">Cancel</string>
+    <string name="r16_web_external_failed">No app can handle this link</string>
+</resources>

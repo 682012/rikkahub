@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r16_multi_image_title">发送 %1$d 张图片</string>
+    <string name="r16_multi_image_message">可以一次发送全部图片，也可以先逐张识别，再合并识别结果回答。逐张模式会发 %1$d 次图片识别请求，再发 1 次回答请求，可能增加费用，也可能损失细小画面信息。</string>
+    <string name="r16_multi_image_unsupported">当前模型不支持逐张图片识别；仍可一次发送全部图片。</string>
+    <string name="r16_multi_image_once">一次发送</string>
+    <string name="r16_multi_image_sequential">逐张识别</string>
+    <string name="r16_multi_image_cancel">取消</string>
+</resources>

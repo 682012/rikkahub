@@ -147,4 +147,21 @@ interface MediaCreationDAO {
 
     @Query("DELETE FROM media_creation_record WHERE id = :id")
     suspend fun deleteRecord(id: String)
+
+    // ---- 只读查询：供「删一张产出图」找归属和查引用 ----
+    //
+    // 都用 instr() 在 JSON 文本里粗筛（参数不参与 LIKE 通配符转义），
+    // 调用方拿到实体后再按解码后的 inputs/outputs 做精确匹配，不会误删。
+
+    /** outputs 的 JSON 里出现过 [path] 的记录。 */
+    @Query("SELECT * FROM media_creation_record WHERE instr(outputs, :path) > 0")
+    suspend fun getRecordsMentioningOutput(path: String): List<MediaCreationRecordEntity>
+
+    /** inputs 或 outputs 的 JSON 里出现过 [path] 的记录（含视频产出的封面 / 尾帧）。 */
+    @Query("SELECT * FROM media_creation_record WHERE instr(inputs, :path) > 0 OR instr(outputs, :path) > 0")
+    suspend fun getRecordsMentioningReference(path: String): List<MediaCreationRecordEntity>
+
+    /** 草稿 JSON 里出现过 [path] 的会话草稿（原始 JSON，调用方自己解码）。 */
+    @Query("SELECT draft FROM media_creation_session WHERE instr(draft, :path) > 0")
+    suspend fun getDraftsMentioning(path: String): List<String>
 }

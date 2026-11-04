@@ -564,6 +564,10 @@ class RouteActivity : ComponentActivity() {
                                 SettingFilesPage()
                             }
 
+                            entry<Screen.ImageOrganizer> {
+                                me.rerere.rikkahub.ui.pages.setting.ImageOrganizerPage()
+                            }
+
                             entry<Screen.SettingWeb> {
                                 SettingWebPage()
                             }
@@ -823,6 +827,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object SettingFiles : Screen
+
+    @Serializable
+    data object ImageOrganizer : Screen
 
     @Serializable
     data object SettingWeb : Screen
