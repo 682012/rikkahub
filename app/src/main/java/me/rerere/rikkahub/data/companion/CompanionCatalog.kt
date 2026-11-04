@@ -11,7 +11,7 @@ import me.rerere.rikkahub.data.datastore.FloatingCompanionPreset
  * 不再各自维护一套 `when`，避免"界面叫小鲸、提示词还叫 Marin"这种错位。
  *
  * 图片是包内原字节，路径固定为 assets 下的 `companions/six/<id>/<idle|tap>.png`；
- * 旧的 `companions/*.webp` 原样保留，不重绘也不覆盖。
+ * companions 目录里原有的三张 WebP 原样保留，不重绘也不覆盖。
  *
  * 角色形象只是外观身份，不代表实际调用的是哪家模型：模型与所有开关仍由用户设置决定。
  */
