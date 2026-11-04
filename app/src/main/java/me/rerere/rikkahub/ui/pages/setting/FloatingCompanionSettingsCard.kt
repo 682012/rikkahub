@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -60,6 +62,9 @@ import me.rerere.hugeicons.stroke.Image02
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.companion.CompanionPersonas
 import me.rerere.rikkahub.data.companion.CompanionCatalog
+import me.rerere.rikkahub.data.companion.CompanionImageOrigin
+import me.rerere.rikkahub.data.companion.CompanionImageResolution
+import me.rerere.rikkahub.data.companion.CompanionImageSlot
 import me.rerere.rikkahub.data.datastore.CompanionModelMode
 import me.rerere.rikkahub.data.datastore.FloatingCompanionLimits
 import me.rerere.rikkahub.data.datastore.FloatingCompanionPreset
@@ -74,6 +79,7 @@ import me.rerere.rikkahub.ui.floating.ChatFloatingBubble
 import me.rerere.rikkahub.ui.floating.FloatingCompanionFiles
 import me.rerere.rikkahub.ui.floating.floatingCompanionDefaultLines
 import me.rerere.rikkahub.ui.floating.floatingCompanionDefaultName
+import me.rerere.rikkahub.ui.floating.portraitName
 import me.rerere.rikkahub.ui.floating.previewCompanionState
 import kotlin.math.roundToInt
 
@@ -225,20 +231,78 @@ fun FloatingCompanionSettingsCard(
         }
 
         // r12：内置角色也能各自放一张自己的图当覆盖，所以图片区始终显示，不再只在"我的图片"时出现
+        // r14：缩略图和文案按浮窗真正画的那张来，内置待机/点击图也要看得见，不再只读自定义路径。
         run {
+            val resolvedIdle = remember(context, current.customImagePath) {
+                FloatingCompanionFiles.resolve(context, current.customImagePath)
+            }
+            val resolvedTap = remember(context, current.customTapImagePath) {
+                FloatingCompanionFiles.resolve(context, current.customTapImagePath)
+            }
+            // 同一份决策给两张缩略图和浮窗用，避免"设置说没图、浮窗在画小鲸"。
+            val imagePlan = remember(current, resolvedIdle, resolvedTap) {
+                CompanionImageResolution.plan(current, resolvedIdle, resolvedTap)
+            }
+            // CUSTOM 的损坏非空路径会保留 CUSTOM 枚举，但真正的内置兜底仍是小鲸。
+            val fallbackPreset = if (imagePlan.effectivePreset == FloatingCompanionPreset.CUSTOM) {
+                FloatingCompanionPreset.WHALE_MAID
+            } else imagePlan.effectivePreset
+            val imageOwner = portraitName(fallbackPreset)
+            val idleStatus = when {
+                imagePlan.isAppIcon -> stringResource(R.string.r14_image_status_logo_idle) to false
+                imagePlan.idle.customBroken -> stringResource(
+                    R.string.r14_image_status_custom_missing,
+                    imageOwner,
+                ) to true
+                imagePlan.idle.origin == CompanionImageOrigin.CUSTOM ->
+                    stringResource(R.string.r14_image_status_custom_active) to false
+                imagePlan.customPresetEmpty -> stringResource(
+                    R.string.r14_image_status_custom_empty,
+                    imageOwner,
+                ) to false
+                else -> stringResource(R.string.r14_image_status_builtin_ready, imageOwner) to false
+            }
+            val tapStatus = when {
+                imagePlan.isAppIcon && imagePlan.tap.hasCustom ->
+                    stringResource(R.string.r14_image_status_logo_tap_custom) to false
+                imagePlan.isAppIcon -> stringResource(R.string.r14_image_status_logo_tap) to false
+                imagePlan.tap.customBroken -> stringResource(R.string.r14_image_status_tap_custom_missing) to true
+                imagePlan.tap.fallsBackToIdle && imagePlan.tap.origin != CompanionImageOrigin.NONE ->
+                    stringResource(R.string.r14_image_status_tap_same) to false
+                imagePlan.tap.origin == CompanionImageOrigin.CUSTOM ->
+                    stringResource(R.string.r14_image_status_tap_custom_active) to false
+                imagePlan.tap.builtInModel != null -> stringResource(
+                    R.string.r14_image_status_tap_builtin,
+                    imageOwner,
+                ) to false
+                else -> stringResource(R.string.r14_image_status_tap_inherit) to false
+            }
+            // 内置角色上覆盖自定义图时，删掉=回到那只角色的内置图，所以叫"恢复默认"；没有内置图才是"清除"。
+            val restoreIdle = !imagePlan.isAppIcon && imagePlan.effectivePreset != FloatingCompanionPreset.CUSTOM
+            val idleRemoveLabel = if (!imagePlan.idle.hasCustom) null else if (restoreIdle) {
+                stringResource(R.string.r14_image_restore_default)
+            } else {
+                stringResource(R.string.r14_image_clear_custom)
+            }
+            val tapRemoveLabel = if (!imagePlan.tap.hasCustom) null else if (imagePlan.tap.builtInModel != null) {
+                stringResource(R.string.r14_image_restore_default)
+            } else {
+                stringResource(R.string.r14_image_clear_custom)
+            }
             CardGroup(title = { Text(stringResource(R.string.floating_companion_section_image)) }) {
                 formItem(
                     headlineContent = { Text(stringResource(R.string.floating_companion_image_idle_title)) },
-                    supportingContent = { Text(stringResource(R.string.floating_companion_image_idle_desc)) },
+                    supportingContent = { Text(stringResource(R.string.r14_image_idle_desc)) },
                 ) {
                     CompanionImageRow(
-                        path = current.customImagePath,
+                        slot = imagePlan.idle,
+                        isAppIcon = imagePlan.isAppIcon,
                         enabled = !saving,
                         pickLabel = stringResource(
-                            if (current.customImagePath == null) {
-                                R.string.floating_companion_image_pick
-                            } else {
+                            if (imagePlan.idle.hasCustom) {
                                 R.string.floating_companion_image_replace
+                            } else {
+                                R.string.floating_companion_image_pick
                             }
                         ),
                         onPick = {
@@ -246,27 +310,42 @@ fun FloatingCompanionSettingsCard(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
                         },
-                        onRemove = if (current.customImagePath != null) {
+                        removeLabel = idleRemoveLabel,
+                        onRemove = if (imagePlan.idle.hasCustom) {
                             { removeImage(tapImage = false) }
                         } else null,
+                        status = idleStatus.first,
+                        statusIsError = idleStatus.second,
+                        contentDescription = stringResource(R.string.r14_image_thumb_desc, imageOwner),
                     )
                 }
                 formItem(
                     headlineContent = { Text(stringResource(R.string.floating_companion_image_tap_title)) },
-                    supportingContent = { Text(stringResource(R.string.floating_companion_image_tap_desc)) },
+                    supportingContent = { Text(stringResource(R.string.r14_image_tap_desc)) },
                 ) {
                     CompanionImageRow(
-                        path = current.customTapImagePath,
+                        slot = imagePlan.tap,
+                        isAppIcon = false,
                         enabled = !saving,
-                        pickLabel = stringResource(R.string.floating_companion_image_tap_pick),
+                        pickLabel = stringResource(
+                            if (imagePlan.tap.hasCustom) {
+                                R.string.floating_companion_image_replace
+                            } else {
+                                R.string.floating_companion_image_tap_pick
+                            }
+                        ),
                         onPick = {
                             tapPicker.launch(
                                 PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
                         },
-                        onRemove = if (current.customTapImagePath != null) {
+                        removeLabel = tapRemoveLabel,
+                        onRemove = if (imagePlan.tap.hasCustom) {
                             { removeImage(tapImage = true) }
                         } else null,
+                        status = tapStatus.first,
+                        statusIsError = tapStatus.second,
+                        contentDescription = stringResource(R.string.r14_image_thumb_desc, imageOwner),
                     )
                 }
                 if (saving || saveError != null) {
@@ -549,18 +628,29 @@ fun FloatingCompanionSettingsCard(
     }
 }
 
-/** 一行缩略图 + 选择/移除按钮，两个图片位共用。 */
+/**
+ * 一行缩略图 + 选择/移除按钮，两个图片位共用。
+ *
+ * r14：显示的是 [slot] 里"真正会画出来的那张"——自定义可读就画自定义，否则画当前角色的内置图；
+ * 图标气泡画 launcher 图标并照实说明。坏路径不伪装成加载成功：读不出来和没设置是两条不同的文案。
+ */
 @Composable
 private fun CompanionImageRow(
-    path: String?,
+    slot: CompanionImageSlot,
+    isAppIcon: Boolean,
     enabled: Boolean,
     pickLabel: String,
     onPick: () -> Unit,
+    removeLabel: String?,
     onRemove: (() -> Unit)?,
+    status: String,
+    statusIsError: Boolean,
+    contentDescription: String,
 ) {
-    val context = LocalContext.current
-    // 只认私有目录里的文件；路径坏了就当没有，绝不去加载网络地址
-    val resolved = remember(path) { FloatingCompanionFiles.resolve(context, path) }
+    // 文件在、但解不出来（格式坏）也算加载失败，不能只按"路径能不能解析"报状态
+    var decodeFailed by remember(slot.model) { mutableStateOf(false) }
+    val model = slot.model
+    val failed = decodeFailed || slot.customBroken
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -573,18 +663,26 @@ private fun CompanionImageRow(
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh),
             contentAlignment = Alignment.Center,
         ) {
-            if (resolved != null) {
-                // 缩略图按 56dp 解码，不把原图整张读进内存
-                AsyncImage(
-                    model = resolved,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
+            when {
+                isAppIcon -> Image(
+                    painter = painterResource(R.mipmap.ic_launcher_foreground),
+                    contentDescription = contentDescription,
+                    modifier = Modifier.size(40.dp),
                 )
-            } else {
-                Icon(
+
+                // 缩略图按 Fit 画，透明立绘的脸和尾巴都不裁掉
+                model != null && !decodeFailed -> AsyncImage(
+                    model = model,
+                    contentDescription = contentDescription,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit,
+                    onError = { decodeFailed = true },
+                    onSuccess = { decodeFailed = false },
+                )
+
+                else -> Icon(
                     imageVector = HugeIcons.Image02,
-                    contentDescription = null,
+                    contentDescription = contentDescription,
                     modifier = Modifier.size(24.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -613,20 +711,26 @@ private fun CompanionImageRow(
             ) {
                 Icon(
                     imageVector = HugeIcons.Delete02,
-                    contentDescription = null,
+                    contentDescription = removeLabel,
                     modifier = Modifier.size(ButtonDefaults.IconSize),
                 )
             }
         }
     }
-    if (resolved == null) {
-        Text(
-            text = stringResource(R.string.floating_companion_image_none),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(top = 4.dp),
-        )
-    }
+    Text(
+        text = if (failed && !statusIsError) {
+            stringResource(R.string.r14_image_status_unreadable)
+        } else {
+            status
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = if (failed || statusIsError) {
+            MaterialTheme.colorScheme.error
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        modifier = Modifier.padding(top = 4.dp),
+    )
 }
 
 /** 内置人设的一句话说明；个性输入框留空时就是它在起作用。 */

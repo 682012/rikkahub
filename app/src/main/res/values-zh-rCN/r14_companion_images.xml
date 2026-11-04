@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r14：图片区照实显示浮窗真正画的那张，不再只看自定义路径。 -->
+    <string name="r14_image_status_builtin_ready">正在使用%1$s的内置待机图。</string>
+    <string name="r14_image_status_custom_active">正在使用自定义待机图，清除后恢复默认。</string>
+    <string name="r14_image_status_custom_missing">这张图读不出来了，现在显示内置的%1$s立绘。可以替换，也可以清除。</string>
+    <string name="r14_image_status_custom_empty">未设置自定义图，暂用%1$s。</string>
+    <string name="r14_image_status_logo_idle">现在是应用图标气泡，不画立绘。在这里选图会自动切到“我的图片”。</string>
+    <string name="r14_image_status_tap_builtin">内置点击图已就绪（%1$s），点一下会短暂显示。</string>
+    <string name="r14_image_status_tap_custom_active">正在用你的点击图。</string>
+    <string name="r14_image_status_tap_custom_missing">自定义点击图无法读取，暂用默认画面。</string>
+    <string name="r14_image_status_tap_inherit">没有点击图，点一下还是待机图。</string>
+    <string name="r14_image_status_tap_same">这张和待机图是同一张，点一下不会换图。</string>
+    <string name="r14_image_status_logo_tap">图标气泡没有点击图。</string>
+    <string name="r14_image_status_logo_tap_custom">图片已保存，但应用图标模式不使用点击图。</string>
+    <string name="r14_image_status_unreadable">这张图打不开，可以替换，也可以清除。</string>
+    <string name="r14_image_restore_default">恢复默认</string>
+    <string name="r14_image_clear_custom">清除</string>
+    <string name="r14_image_thumb_desc">%1$s预览</string>
+    <string name="r14_image_custom_empty_tile">未设置，暂用小鲸</string>
+    <string name="r14_image_idle_desc">可选自定义 PNG、GIF 或动态 WebP，最大16MB。</string>
+    <string name="r14_image_tap_desc">点击时短暂显示。留空使用默认点击图，无默认图则沿用待机图。</string>
+</resources>

@@ -86,7 +86,7 @@ internal fun highlightPreset(preset: FloatingCompanionPreset): FloatingCompanion
 }
 
 /**
- * 大比例透明立绘的横向缩略卡：三个角色 + 自定义图片 + 应用图标。
+ * 大比例透明立绘的横向缩略卡：六个角色 + 自定义图片 + 应用图标。
  *
  * 立绘保持原图比例、不裁成圆头像，选中用主题色描边。
  */
@@ -97,8 +97,11 @@ internal fun PortraitCompanionSelector(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val customImage = remember(companion.customImagePath) {
-        FloatingCompanionFiles.resolve(context, companion.customImagePath)
+    val customPath = remember(companion) {
+        companion.selectPreset(FloatingCompanionPreset.CUSTOM).customImagePath
+    }
+    val customImage = remember(context, customPath) {
+        FloatingCompanionFiles.resolve(context, customPath)
     }
     val current = highlightPreset(companion.preset)
     Row(
@@ -175,7 +178,8 @@ private fun PortraitTileArt(preset: FloatingCompanionPreset, customImage: String
         FloatingCompanionPreset.CUSTOM -> if (customImage != null) {
             PortraitArtImage(model = customImage)
         } else {
-            PortraitGlyph(stringResource(R.string.floating_companion_image_none))
+            // r14：这里以前借用"先用应用图标"的文案，但空的自定义其实会退成小鲸立绘
+            PortraitGlyph(stringResource(R.string.r14_image_custom_empty_tile))
         }
 
         else -> PortraitArtImage(model = portraitAsset(preset))

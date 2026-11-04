@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r14: the image rows show what the floating bubble actually draws, not just the custom path. -->
+    <string name="r14_image_status_builtin_ready">Using %1$s\'s built-in idle image.</string>
+    <string name="r14_image_status_custom_active">Using your idle image. Clearing it restores the default.</string>
+    <string name="r14_image_status_custom_missing">That image can\'t be read any more, so the built-in %1$s portrait is shown. Replace or clear it.</string>
+    <string name="r14_image_status_custom_empty">No custom image yet. Showing %1$s for now.</string>
+    <string name="r14_image_status_logo_idle">The app icon bubble is showing, so no portrait is drawn. Picking an image switches you to My image.</string>
+    <string name="r14_image_status_tap_builtin">Built-in tap image ready (%1$s). It shows for a moment each time you tap.</string>
+    <string name="r14_image_status_tap_custom_active">Using your own tap image.</string>
+    <string name="r14_image_status_tap_custom_missing">The custom tap image is unreadable. Falling back to the default display.</string>
+    <string name="r14_image_status_tap_inherit">No tap image — tapping keeps the idle image.</string>
+    <string name="r14_image_status_tap_same">This is the same picture as the idle image, so tapping doesn\'t change it.</string>
+    <string name="r14_image_status_logo_tap">The icon bubble has no tap image.</string>
+    <string name="r14_image_status_logo_tap_custom">This image is saved, but app icon mode does not use tap images.</string>
+    <string name="r14_image_status_unreadable">This image can\'t be opened. Replace or clear it.</string>
+    <string name="r14_image_restore_default">Restore default</string>
+    <string name="r14_image_clear_custom">Clear</string>
+    <string name="r14_image_thumb_desc">%1$s preview</string>
+    <string name="r14_image_custom_empty_tile">Not set; using the whale</string>
+    <string name="r14_image_idle_desc">Optional custom PNG, GIF or animated WebP, up to 16 MB.</string>
+    <string name="r14_image_tap_desc">Shown briefly on tap. Leave unset to use the built-in tap image, or the idle image if none exists.</string>
+</resources>

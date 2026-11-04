@@ -46,6 +46,7 @@ import kotlinx.coroutines.launch
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.companion.CompanionAiPhase
 import me.rerere.rikkahub.data.companion.CompanionAiState
+import me.rerere.rikkahub.data.companion.CompanionImageResolution
 import me.rerere.rikkahub.data.datastore.FloatingCompanionSettings
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.ArrowLeft01
@@ -88,16 +89,18 @@ fun PortraitCompanionBubble(
     val renderPreset = settings.effectivePreset
     val name = settings.displayName(portraitName(renderPreset))
     val builtInIdle = remember(renderPreset) { portraitAsset(renderPreset) }
-    val builtInTap = remember(renderPreset) { portraitTapAsset(renderPreset) }
     val customIdle = remember(context, settings.customImagePath) {
         FloatingCompanionFiles.resolve(context, settings.customImagePath)
     }
     val customTap = remember(context, settings.customTapImagePath) {
         FloatingCompanionFiles.resolve(context, settings.customTapImagePath)
     }
-    val idleUri = customIdle ?: builtInIdle
-    // 点上一下才用的图：自定义优先，其次同角色的内置点击图；没有就不换图，绝不拿上一只的图顶上。
-    val tapUri = (customTap ?: builtInTap)?.takeIf { it != idleUri }
+    // r14：设置页和真实浮窗共用一份来源决策；路径验证与解码失败回退仍沿用现有规则。
+    val imagePlan = remember(settings, customIdle, customTap) {
+        CompanionImageResolution.plan(settings, customIdle, customTap)
+    }
+    val idleUri = imagePlan.idle.model ?: builtInIdle
+    val tapUri = imagePlan.tap.model
 
     var idleFailed by remember(idleUri) { mutableStateOf(false) }
     var tapFailed by remember(tapUri) { mutableStateOf(false) }

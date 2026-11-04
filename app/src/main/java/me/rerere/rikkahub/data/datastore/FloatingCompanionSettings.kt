@@ -168,7 +168,7 @@ data class FloatingCompanionSettings(
     val aiEnabled: Boolean
         get() = aiModelMode != CompanionModelMode.OFF
 
-    /** 真正要画的：选了自定义但没图时退回应用 logo，不留空白。 */
+    /** 真正要画的：自定义没有待机图时临时用小鲸；旧别名仍映射回原角色。 */
     val effectivePreset: FloatingCompanionPreset
         get() = when {
             preset == FloatingCompanionPreset.CUSTOM && customImagePath.isNullOrBlank() -> FloatingCompanionPreset.WHALE_MAID

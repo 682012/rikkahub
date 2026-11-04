@@ -74,7 +74,7 @@ class FloatingCompanionSettingsTest {
     }
 
     @Test
-    fun `custom preset without image falls back to logo instead of blank`() {
+    fun `custom preset without image falls back to whale instead of blank`() {
         val noImage = FloatingCompanionSettings(preset = FloatingCompanionPreset.CUSTOM)
         assertEquals(FloatingCompanionPreset.WHALE_MAID, noImage.effectivePreset)
 
