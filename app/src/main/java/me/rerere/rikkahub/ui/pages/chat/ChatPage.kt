@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyListState
@@ -536,6 +537,47 @@ private fun ChatPageContent(
             )
         }
     }
+    if (showMultiImageSendDialog) {
+        AlertDialog(
+            onDismissRequest = { showMultiImageSendDialog = false },
+            title = {
+                Text(stringResource(R.string.r16_multi_image_title, pendingMultiImageCount))
+            },
+            text = {
+                Text(
+                    if (canUseSequentialImageSend) {
+                        stringResource(R.string.r16_multi_image_message, pendingMultiImageCount)
+                    } else {
+                        stringResource(R.string.r16_multi_image_unsupported)
+                    }
+                )
+            },
+            confirmButton = {
+                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
+                    TextButton(
+                        onClick = {
+                            showMultiImageSendDialog = false
+                            submitCurrentInput(answer = true, sequentialImages = true)
+                        },
+                        enabled = canUseSequentialImageSend,
+                    ) {
+                        Text(stringResource(R.string.r16_multi_image_sequential))
+                    }
+                    TextButton(onClick = {
+                        showMultiImageSendDialog = false
+                        submitCurrentInput(answer = true)
+                    }) {
+                        Text(stringResource(R.string.r16_multi_image_once))
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showMultiImageSendDialog = false }) {
+                    Text(stringResource(R.string.r16_multi_image_cancel))
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -609,47 +651,7 @@ private fun ChatFilesPickerSheet(
         )
     }
 
-    if (showMultiImageSendDialog) {
-        AlertDialog(
-            onDismissRequest = { showMultiImageSendDialog = false },
-            title = {
-                Text(stringResource(R.string.r16_multi_image_title, pendingMultiImageCount))
-            },
-            text = {
-                Text(
-                    if (canUseSequentialImageSend) {
-                        stringResource(R.string.r16_multi_image_message, pendingMultiImageCount)
-                    } else {
-                        stringResource(R.string.r16_multi_image_unsupported)
-                    }
-                )
-            },
-            confirmButton = {
-                Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)) {
-                    TextButton(
-                        onClick = {
-                            showMultiImageSendDialog = false
-                            submitCurrentInput(answer = true, sequentialImages = true)
-                        },
-                        enabled = canUseSequentialImageSend,
-                    ) {
-                        Text(stringResource(R.string.r16_multi_image_sequential))
-                    }
-                    TextButton(onClick = {
-                        showMultiImageSendDialog = false
-                        submitCurrentInput(answer = true)
-                    }) {
-                        Text(stringResource(R.string.r16_multi_image_once))
-                    }
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showMultiImageSendDialog = false }) {
-                    Text(stringResource(R.string.r16_multi_image_cancel))
-                }
-            },
-        )
-    }
+
 }
 
 @Composable

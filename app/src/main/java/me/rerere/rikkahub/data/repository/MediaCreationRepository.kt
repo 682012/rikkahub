@@ -477,7 +477,7 @@ class MediaCreationRepository(
 
         // 到这里 outputs 里已经没有这一条了，磁盘上的隔离文件才是最后的残渣
         val cleaned = runCatching { keep.delete() }.getOrDefault(false)
-        MediaOutputRemoval(
+        return MediaOutputRemoval(
             removed = true,
             reason = null,
             message = if (cleaned) {
