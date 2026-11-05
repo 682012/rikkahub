@@ -9,6 +9,8 @@ import android.media.ExifInterface
 import android.util.Log
 import androidx.core.net.toUri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import me.rerere.ai.core.MessageRole
 import me.rerere.ai.provider.Model
@@ -42,6 +44,8 @@ class ImageClassifier(
         /** 单张请求体上限，超过就降质量重压一次。 */
         private const val MAX_JPEG_BYTES = 1_200 * 1024
         private const val MAX_TOKENS = 256
+        // Keep bitmap allocation bounded independently of network concurrency.
+        private val decodeSlots = Semaphore(2)
     }
 
     /**
@@ -54,7 +58,7 @@ class ImageClassifier(
         providerSetting: ProviderSetting,
     ): ParsedClassification {
         require(file.isFile) { "文件不存在：${file.name}" }
-        val temp = prepareImage(file)
+        val temp = decodeSlots.withPermit { prepareImage(file) }
         try {
             val provider = providerManager.getProviderByType(providerSetting)
             val result = provider.generateText(
