@@ -1,18 +1,18 @@
 # 个人分支：构建、发布与维护
 
-本页只讲**怎么把这个分支构建出来、怎么发、出问题怎么回退**。用户功能与安装说明在 [仓库首页](../README.md) 与 [功能对比](FEATURES.md)，当前版本的变化见 [r20 说明](RELEASE-r20.md)。
+本页只讲**怎么把这个分支构建出来、怎么发、出问题怎么回退**。用户功能与安装说明在 [仓库首页](../README.md) 与 [功能对比](FEATURES.md)，当前版本的变化见 [r21 说明](RELEASE-r21.md)。
 
 ## 当前状态
 
 | 项目 | 值 |
 |---|---|
-| 版本 | `3.1.1-r20` / `3000067` |
+| 版本 | `3.1.1-r21` / `3000068` |
 | 维护分支 | `fork/3.1.1` |
 | 包名 | `me.rerere.rikkahub.fork`（Debug 变体 `me.rerere.rikkahub.fork.debug`） |
 | 应用名 / 图标 / 签名 | 与 r10 及更早的本分支版本一致，未改 |
 | 官方基线 | `3.1.1` / `ad2c4430`，已合入上游 master `5ad19405` |
 | 数据库 | schema 34（沿用 r3 起的本分支编号，不与官方编号混用） |
-| 发布标签 / 资产名 | `v3.1.1-r20` / `rikkahub-3.1.1-r20.apk` |
+| 发布标签 / 资产名 | `v3.1.1-r21` / `rikkahub-3.1.1-r21.apk` |
 
 已发布的历史版本各自保留 tag 与资产，不覆盖、不复用版本号。正式下载入口为 [Latest](https://github.com/682012/rikkahub/releases/latest)，固定版本按 tag 取包。
 
@@ -97,7 +97,7 @@ ZIP 迁移只覆盖 `/workspace` 文件区，不含 Rootfs、数据库与整机�
 
 ## 历史与相关文档
 
-- 当前版本：[r20 说明](RELEASE-r20.md) · [正式包与验收记录](https://github.com/682012/rikkahub/releases/latest)
+- 当前版本：[r21 说明](RELEASE-r21.md) · [正式包与验收记录](https://github.com/682012/rikkahub/releases/latest)
 - 功能计数与源码位置：[FEATURES.md](FEATURES.md)；逐版历史：[CHANGES.md](CHANGES.md)
 - r1–r10 的发布说明：`RELEASE-r1.md` … `RELEASE-r10.md`；更早的 fork.38–fork.43 见 `RELEASE-fork38.md` … `RELEASE-fork43.md`
 - 专项记录：[草稿持久化](AGENT-DRAFTS.md) · [工具效率](AGENT-EFFICIENCY-r11.md) · [架构](AGENT-ARCHITECTURE.md) · [工作区权限](WORKSPACE-ACCESS.md) · [网页会话](WEB-ACCOUNTS.md) · [历史维护现场](HANDOFF.md)
