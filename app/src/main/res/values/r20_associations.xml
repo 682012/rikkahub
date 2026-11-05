@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Inbound sharing: assistant picker -->
+    <string name="r20_share_attachment_count">%1$d attachment(s)</string>
+    <string name="r20_share_attachment_unknown">Attachment</string>
+    <string name="r20_share_attachment_dropped">%1$d attachment(s) could not be loaded and were not added</string>
+    <string name="r20_share_review_hint">The shared text and attachments are placed in the input box of a new chat. Nothing is sent until you confirm.</string>
+    <string name="r20_share_open_failed">Could not switch assistant, please try again</string>
+    <string name="r20_share_nothing_usable">Nothing was shared that this app can read</string>
+
+    <!-- Permission hub -->
+    <string name="r20_permissions_title">Permissions and app links</string>
+    <string name="r20_permissions_group_system">System access</string>
+    <string name="r20_permissions_notifications">Notifications</string>
+    <string name="r20_permissions_camera">Camera</string>
+    <string name="r20_permissions_microphone">Microphone</string>
+    <string name="r20_permissions_overlay">Display over other apps</string>
+    <string name="r20_permissions_battery">Background work (battery optimization)</string>
+    <string name="r20_permissions_all_files">All files access</string>
+    <string name="r20_permissions_granted">Allowed</string>
+    <string name="r20_permissions_denied">Not allowed</string>
+    <string name="r20_permissions_blocked">Open settings</string>
+    <string name="r20_permissions_blocked_hint">The system will not show this prompt again. Turn it on in the system settings page that opens from here.</string>
+    <string name="r20_permissions_group_reading">Reading with AI</string>
+    <string name="r20_permissions_read_links">Read public links in messages</string>
+    <string name="r20_permissions_read_links_desc">Only fetches links you send, never crawls other pages. The page text is handed to the current model as reference material.</string>
+    <string name="r20_permissions_app_details">App details and link settings</string>
+    <string name="r20_permissions_app_details_desc">Share or open text and multiple files from a browser or file manager, or select text and pick RikkaHub from the text menu.</string>
+    <string name="r20_permissions_hint">Files can be granted one by one through the system picker, all files access is not required. Background work also depends on battery policy; after a force stop, reopen the app to restore it.</string>
+</resources>

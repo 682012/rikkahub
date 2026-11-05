@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 分享进来：助手选择页 -->
+    <string name="r20_share_attachment_count">%1$d 个附件</string>
+    <string name="r20_share_attachment_unknown">附件</string>
+    <string name="r20_share_attachment_dropped">有 %1$d 个附件读不到，没有加入会话</string>
+    <string name="r20_share_review_hint">分享的文字和附件会放进新会话的输入框，确认发送前还可以修改。</string>
+    <string name="r20_share_open_failed">没能切换到该助手，请重试</string>
+    <string name="r20_share_nothing_usable">这次分享没有本应用能读取的内容</string>
+
+    <!-- 权限页 -->
+    <string name="r20_permissions_title">权限与软件关联</string>
+    <string name="r20_permissions_group_system">系统授权</string>
+    <string name="r20_permissions_notifications">通知</string>
+    <string name="r20_permissions_camera">相机</string>
+    <string name="r20_permissions_microphone">麦克风</string>
+    <string name="r20_permissions_overlay">悬浮窗</string>
+    <string name="r20_permissions_battery">后台运行（电池优化）</string>
+    <string name="r20_permissions_all_files">所有文件访问</string>
+    <string name="r20_permissions_granted">已允许</string>
+    <string name="r20_permissions_denied">未允许</string>
+    <string name="r20_permissions_blocked">去设置开启</string>
+    <string name="r20_permissions_blocked_hint">系统不会再弹这个授权了，点进系统设置里手动打开。</string>
+    <string name="r20_permissions_group_reading">与 AI 一起阅读</string>
+    <string name="r20_permissions_read_links">读取消息中的公开网址</string>
+    <string name="r20_permissions_read_links_desc">只读你发来的链接，不爬其他页面；正文作为参考资料交给当前模型。</string>
+    <string name="r20_permissions_app_details">应用详情与关联设置</string>
+    <string name="r20_permissions_app_details_desc">从浏览器、文件管理器分享文字或多个文件到本应用，也可选中文字后在文本菜单里点 RikkaHub。</string>
+    <string name="r20_permissions_hint">文件访问可以用系统选择器逐项授权，不必开启所有文件访问。后台任务还受系统省电与厂商策略影响；强行停止应用后，需要重新打开才会恢复。</string>
+</resources>

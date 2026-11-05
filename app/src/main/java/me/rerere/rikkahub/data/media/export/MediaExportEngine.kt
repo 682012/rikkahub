@@ -113,7 +113,8 @@ object MediaExportEngine {
     }
 
     private suspend fun encodeGif(source: Bitmap, frame: Bitmap, file: File, spec: MotionSpec, progress: ExportProgressListener?) {
-        draw(source, frame, ExportFit.CROP, MotionTimeline.frameAt(spec.style, 0f, spec.zoom))
+        // Learn from the opaque source, not the blank first frame of a fade.
+        draw(source, frame, ExportFit.CROP, null)
         val pixels = IntArray(frame.width * frame.height)
         frame.getPixels(pixels, 0, frame.width, 0, 0, frame.width, frame.height)
         val palette = GifPaletteQuantizer.learn(frame.width, frame.height, pixels, sampleFactor = 4)
@@ -126,7 +127,11 @@ object MediaExportEngine {
                 draw(source, frame, ExportFit.CROP, MotionTimeline.frameAt(spec.style, index.toFloat() / (spec.frameCount - 1), spec.zoom))
                 // Centisecond rounding is distributed so the total duration matches the chosen seconds.
                 val delay = (((index + 1) * 100.0 / spec.fps).roundToInt() - (index * 100.0 / spec.fps).roundToInt()) * 10
-                writer.writeFrame(null, delay) { row, out ->
+                val framePalette = if (spec.style == MotionStyle.FADE_IN || spec.style == MotionStyle.ZOOM_FADE) {
+                    frame.getPixels(pixels, 0, frame.width, 0, 0, frame.width, frame.height)
+                    GifPaletteQuantizer.learn(frame.width, frame.height, pixels, sampleFactor = 4)
+                } else null
+                writer.writeFrame(framePalette, delay) { row, out ->
                     state.ensureActive()
                     frame.getPixels(out, 0, frame.width, 0, row, frame.width, 1)
                 }
@@ -160,8 +165,12 @@ object MediaExportEngine {
             codecStarted = true
             val writer = MediaMuxer(file.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             muxer = writer
+            val encodeContext = currentCoroutineContext()
             fun drain(waitUs: Long) {
+                val drainDeadline = System.nanoTime() + 10_000_000_000L
                 while (true) {
+                    encodeContext.ensureActive()
+                    check(System.nanoTime() < drainDeadline) { "视频编码输出等待超时" }
                     val index = codec.dequeueOutputBuffer(info, waitUs)
                     if (index == MediaCodec.INFO_TRY_AGAIN_LATER) return
                     if (index == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {

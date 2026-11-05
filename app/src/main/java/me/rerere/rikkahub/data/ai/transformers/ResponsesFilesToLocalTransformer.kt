@@ -147,7 +147,9 @@ internal fun responsesFileFetchPolicy(provider: ProviderSetting?): ResponsesFile
  * 上游给的 id 理论上都是安全字符，但这是拼进 URL 路径的最后一道关：
  * `/`、`\`、`..`、`?`、`#`、`%` 都必须被编码，绝不能拼出别的路径。
  */
-internal fun String.encodePathSegment(): String = buildString {
+internal fun String.encodePathSegment(): String {
+    require(this != "." && this != ".." && isNotBlank()) { "invalid file identifier" }
+    return buildString {
     this@encodePathSegment.encodeToByteArray().forEach { byte ->
         val value = byte.toInt() and 0xFF
         val char = value.toChar()
@@ -157,6 +159,7 @@ internal fun String.encodePathSegment(): String = buildString {
             append('%').append(HEX_UPPER[value shr 4]).append(HEX_UPPER[value and 0x0F])
         }
     }
+}
 }
 
 private const val HEX_UPPER = "0123456789ABCDEF"

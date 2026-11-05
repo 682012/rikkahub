@@ -72,22 +72,27 @@ internal fun collectInjections(
 
     // 1. 获取关联的 ModeInjection
     modeInjections
+        .distinctBy { it.id }
         .filter { it.enabled && assistant.modeInjectionIds.contains(it.id) }
         .forEach { injections.add(it) }
 
     // 2. 获取关联的 Lorebook 中被触发的 RegexInjection
-    val enabledLorebooks = lorebooks.filter {
+    val enabledLorebooks = lorebooks.distinctBy { it.id }.filter {
         it.enabled && assistant.lorebookIds.contains(it.id)
     }
     if (enabledLorebooks.isNotEmpty()) {
         // 提取上下文用于匹配（只取非 SYSTEM 消息）
         val nonSystemMessages = messages.filter { it.role != MessageRole.SYSTEM }
 
+        val contexts = HashMap<Int, String>()
         enabledLorebooks.forEach { lorebook ->
-            lorebook.entries
+            lorebook.entries.distinctBy { it.id }
                 .filter { entry ->
-                    val context = extractContextForMatching(nonSystemMessages, entry.scanDepth)
-                    entry.isTriggered(context)
+                    if (!entry.enabled) false
+                    else if (entry.constantActive) true
+                    else entry.isTriggered(contexts.getOrPut(entry.scanDepth.coerceAtLeast(0)) {
+                        extractContextForMatching(nonSystemMessages, entry.scanDepth.coerceAtLeast(0))
+                    })
                 }
                 .forEach { injections.add(it) }
         }

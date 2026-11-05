@@ -109,6 +109,7 @@ fun ImageOrganizerPage(
     val scope = rememberCoroutineScope()
 
     var query by remember { mutableStateOf("") }
+    var planIds by remember { mutableStateOf<Set<String>?>(null) }
     var sourceFilter by remember { mutableStateOf<ImageSource?>(null) }
     var categoryFilter by remember { mutableStateOf<ImageCategory?>(null) }
     var selectedIds by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -136,7 +137,7 @@ fun ImageOrganizerPage(
     }
 
     // 来源 + 类别 + 搜索名/描述
-    val filtered = remember(state.items, query, sourceFilter, categoryFilter) {
+    val filtered = remember(state.items, query, sourceFilter, categoryFilter, planIds) {
         val keyword = query.trim()
         state.items.filter { item ->
             val sourceOk = sourceFilter == null || item.source == sourceFilter
@@ -148,7 +149,7 @@ fun ImageOrganizerPage(
             val keywordOk = keyword.isEmpty() ||
                 item.name.contains(keyword, ignoreCase = true) ||
                 item.description?.contains(keyword, ignoreCase = true) == true
-            sourceOk && categoryOk && keywordOk
+            sourceOk && categoryOk && keywordOk && (planIds == null || item.id in planIds!!)
         }
     }
     val filteredIds = remember(filtered) { filtered.mapTo(LinkedHashSet()) { it.id } }
@@ -458,6 +459,8 @@ fun ImageOrganizerPage(
                 Text(state.workers.toString(), style = MaterialTheme.typography.titleMedium)
                 TextButton(onClick = { vm.setWorkers(state.workers + 1) }, enabled = !state.busy && state.workers < 16) { Text("+") }
             }
+            ImageOrganizerAutomationCard(state, vm) { planIds = it }
+
             FilterChipsRow(
                 sourceFilter = sourceFilter,
                 categoryFilter = categoryFilter,

@@ -213,6 +213,14 @@ class MediaCreationVM(
             assets
         }
         val modelId = session.draft.modelId?.takeIf { providers.findSelection(it) != null }
+            // Prefer the tested channel only for a fresh, unselected draft. Credentials remain
+            // in the user's provider settings; never ship an account key inside the APK.
+            ?: providers.filterIsInstance<MediaGenerationProviderSetting.OpenAI>().firstNotNullOfOrNull { provider ->
+                val host = runCatching { java.net.URI(provider.baseUrl).host }.getOrNull()
+                if (host.equals("o10.top", ignoreCase = true)) provider.models.firstOrNull {
+                    it.kind == MediaKind.IMAGE && it.modelId == "gpt-image-2.6"
+                }?.id else null
+            }
             ?: providers.firstNotNullOfOrNull { provider ->
                 provider.models.firstOrNull { provider.capabilities(it.kind) != null }
             }?.id

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r20_organizer_channel_name">图片整理</string>
+    <string name="r20_organizer_channel_desc">后台图片识别进度</string>
+    <string name="r20_organizer_notification_title">正在后台整理图片</string>
+    <string name="r20_organizer_notification_progress">已识别 %1$d/%2$d</string>
+    <string name="r20_organizer_notification_paused">任务已中断，还剩 %1$d 张</string>
+    <string name="r20_organizer_notification_done">后台图片整理已完成</string>
+
+    <string name="r20_organizer_auto_title">自动整理</string>
+    <string name="r20_organizer_auto_desc">在后台识别新图片。默认关闭；打开后会按你选的模型消耗额度。</string>
+    <string name="r20_organizer_auto_sources">自动整理的来源</string>
+    <string name="r20_organizer_auto_hint">每次最多处理 %1$d 张；失败的图片不会自动重试。</string>
+    <string name="r20_organizer_background_hint">离开本页不会中断后台识别</string>
+    <string name="r20_organizer_paused">任务已中断，还剩 %1$d 张</string>
+    <string name="r20_organizer_resume">继续</string>
+
+    <string name="r20_organizer_plan_title">虚拟分类方案（AI）</string>
+    <string name="r20_organizer_plan_desc">只发送文件名和描述，不上传图片；分类只用于浏览，不会移动或删除文件。</string>
+    <string name="r20_organizer_plan_generate">生成方案</string>
+    <string name="r20_organizer_plan_regenerate">重新生成</string>
+    <string name="r20_organizer_plan_edit">编辑</string>
+    <string name="r20_organizer_plan_clear">清除方案</string>
+    <string name="r20_organizer_plan_empty">还没有方案</string>
+    <string name="r20_organizer_plan_summary">%1$d 组 · %2$d 张</string>
+    <string name="r20_organizer_plan_dialog_title">编辑虚拟分类</string>
+    <string name="r20_organizer_plan_bucket_name">分组名称</string>
+    <string name="r20_organizer_plan_unassigned">未分类</string>
+    <string name="r20_organizer_plan_only_hint">只对图片分组，文件位置保持不变</string>
+    <string name="r20_organizer_plan_save">保存</string>
+    <string name="r20_organizer_plan_remove_bucket">删除分组</string>
+    <string name="r20_organizer_close">关闭</string>
+</resources>

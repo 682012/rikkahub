@@ -1236,6 +1236,7 @@ class ChatService(
         val guard = TitleWriteGuard(
             title = conversation.title,
             source = current.source,
+            revision = current.revision,
             branch = branch,
             force = force,
         )

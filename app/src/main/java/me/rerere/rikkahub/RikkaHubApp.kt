@@ -130,6 +130,8 @@ class RikkaHubApp : Application() {
         // Resume media generations interrupted by the last process death
         resumeMediaCreations()
         resumeMemoryConsolidation()
+        // Restore opt-in schedule/state only, never upload the library on startup.
+        get<me.rerere.rikkahub.data.organization.ImageOrganizerController>()
 
         // Increment launch count
         incrementLaunchCount()

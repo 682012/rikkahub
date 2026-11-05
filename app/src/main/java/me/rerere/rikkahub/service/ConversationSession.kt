@@ -17,6 +17,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 import me.rerere.ai.ui.withoutEmptyGeneratedImages
 import me.rerere.ai.ui.finishReasoning
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.ConversationTitleState
+import me.rerere.rikkahub.data.model.titleSnapshot
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.uuid.Uuid
@@ -114,7 +116,15 @@ class ConversationSession(
     @Synchronized
     fun tryUpdate(transform: (Conversation) -> Conversation?): Conversation? {
         check(isInitialized) { "Conversation $id is not loaded yet" }
-        val updated = transform(_state.value) ?: return null
+        val before = _state.value
+        val proposed = transform(before) ?: return null
+        val titleState = before.automaticTitleState
+        // Streaming copies retain state. Switching/editing away the triggering user message
+        // drops only automatic branch progress, never the user's explicit title protection.
+        val updated = if (titleState != null && titleState.isAuto &&
+            proposed.automaticTitleState === titleState && titleState.triggerMessageId != null &&
+            proposed.currentMessages.none { it.id == titleState.triggerMessageId && it.toText().titleSnapshot() == titleState.anchor }
+        ) proposed.copy(automaticTitleState = ConversationTitleState()) else proposed
         require(updated.id == id)
         _state.value = updated
         return updated

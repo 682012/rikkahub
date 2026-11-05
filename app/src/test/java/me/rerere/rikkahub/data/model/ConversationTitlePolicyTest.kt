@@ -445,7 +445,7 @@ class ConversationTitlePolicyTest {
         val retitled = captured.withEarlyTitle("另一个标题", requireNotNull(TitleTrigger.of(userMessage)))
         assertFalse(guard.allows(retitled))
 
-        // 用户手动重新生成不看这些
-        assertTrue(guard.copy(force = true).allows(renamed))
+        // 强制重生成允许替换已捕获的手动标题，但不能绕过请求之后发生的新手改。
+        assertFalse(guard.copy(force = true).allows(renamed))
     }
 }

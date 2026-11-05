@@ -85,6 +85,17 @@ data class ImageOrganizerState(
     val scanning: Boolean = false,
     val progress: ImageProgress? = null,
     val error: String? = null,
+    /** 当前后台任务 id（null 表示没有任务）。 */
+    val jobId: String? = null,
+    /** 后台任务状态，进程重启后从 queue.json 恢复，页面重新进来也能看到。 */
+    val jobStatus: ImageJobStatus? = null,
+    /** 后台任务里还没处理完的张数。 */
+    val jobRemaining: Int = 0,
+    /** 自动整理开关（默认关闭，必须用户显式打开）。 */
+    val auto: ImageAutoConfig = ImageAutoConfig(),
+    /** AI 生成的虚拟分类方案，可编辑；只记 id，不动文件。 */
+    val plan: ImagePlan? = null,
+    val planBusy: Boolean = false,
     /**
      * 这一批识别同时放几个请求在飞。
      *

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r20_organizer_channel_name">Image organizing</string>
+    <string name="r20_organizer_channel_desc">Background image classification progress</string>
+    <string name="r20_organizer_notification_title">Organizing images in background</string>
+    <string name="r20_organizer_notification_progress">Recognized %1$d/%2$d</string>
+    <string name="r20_organizer_notification_paused">Interrupted, %1$d images left</string>
+    <string name="r20_organizer_notification_done">Background image organizing finished</string>
+
+    <string name="r20_organizer_auto_title">Automatic organizing</string>
+    <string name="r20_organizer_auto_desc">Recognizes new images in the background. Off by default, costs provider quota when on.</string>
+    <string name="r20_organizer_auto_sources">Sources for automatic organizing</string>
+    <string name="r20_organizer_auto_hint">At most %1$d images per run. Failed images are never retried automatically.</string>
+    <string name="r20_organizer_background_hint">Leaving this page will not cancel the run</string>
+    <string name="r20_organizer_paused">Interrupted, %1$d images left</string>
+    <string name="r20_organizer_resume">Resume</string>
+
+    <string name="r20_organizer_plan_title">Virtual categories (AI)</string>
+    <string name="r20_organizer_plan_desc">Only file names and descriptions are sent, never the images. Categories never move or delete files.</string>
+    <string name="r20_organizer_plan_generate">Generate plan</string>
+    <string name="r20_organizer_plan_regenerate">Regenerate</string>
+    <string name="r20_organizer_plan_edit">Edit</string>
+    <string name="r20_organizer_plan_clear">Clear plan</string>
+    <string name="r20_organizer_plan_empty">No plan yet</string>
+    <string name="r20_organizer_plan_summary">%1$d groups · %2$d images</string>
+    <string name="r20_organizer_plan_dialog_title">Edit virtual categories</string>
+    <string name="r20_organizer_plan_bucket_name">Group name</string>
+    <string name="r20_organizer_plan_unassigned">Unassigned</string>
+    <string name="r20_organizer_plan_only_hint">Groups images for browsing only; files stay where they are</string>
+    <string name="r20_organizer_plan_save">Save</string>
+    <string name="r20_organizer_plan_remove_bucket">Delete group</string>
+    <string name="r20_organizer_close">Close</string>
+</resources>

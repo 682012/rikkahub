@@ -35,6 +35,8 @@ data class ConversationTitleState(
     val fingerprint: String = "",
     /** 已经自动起过标题的次数，0 表示还只有空白标题 */
     val autoTitles: Int = 0,
+    /** Includes manual renames to the same text, so late requests cannot overwrite them. */
+    val revision: Long = 0,
 ) {
     /** 是否还允许自动标题写入（没被用户手改过） */
     val isAuto: Boolean get() = source == ConversationTitleSource.AUTO
@@ -115,6 +117,7 @@ fun Conversation.withManualTitle(newTitle: String): Conversation {
         newTitle = newTitle,
         state = state.copy(
             source = ConversationTitleSource.MANUAL,
+            revision = state.revision + 1,
             pendingEarly = false,
             autoTitles = maxOf(state.autoTitles, 1),
         ),
@@ -133,6 +136,7 @@ fun Conversation.withEarlyTitle(newTitle: String, trigger: TitleTrigger): Conver
         newTitle = newTitle,
         state = state.copy(
             source = ConversationTitleSource.AUTO,
+            revision = state.revision + 1,
             anchor = trigger.userText,
             triggerMessageId = trigger.messageId,
             pendingEarly = true,
@@ -155,6 +159,7 @@ fun Conversation.refinedTitle(newTitle: String, fingerprint: String): Conversati
         state = state.copy(
             pendingEarly = false,
             fingerprint = fingerprint,
+            revision = state.revision + 1,
             autoTitles = state.autoTitles + 1,
         ),
     )
@@ -172,6 +177,7 @@ fun Conversation.withForcedTitle(newTitle: String, fingerprint: String): Convers
         state = state.copy(
             pendingEarly = false,
             fingerprint = fingerprint,
+            revision = state.revision + 1,
             autoTitles = if (state.isAuto) state.autoTitles + 1 else state.autoTitles,
         ),
     )
@@ -298,20 +304,19 @@ fun List<UIMessage>.titleBranchAnchor(answerMessageId: Uuid? = null): TitleBranc
  * @param title 发起时看到的标题：期间标题被别的路径改过，这一版就作废
  * @param source 发起时标题的来路：期间被用户手改过（哪怕改成同一个字符串）就作废
  * @param branch 发起时的分支，见 [TitleBranchAnchor]
- * @param force 用户手动点的重新生成：只核对会话是否被换掉，标题和分支都随用户意愿
+ * @param force 用户主动重新生成可替换手动标题，但不覆盖请求之后的新修改
  */
 data class TitleWriteGuard(
     val title: String,
     val source: ConversationTitleSource,
     val branch: TitleBranchAnchor?,
     val force: Boolean,
+    val revision: Long? = null,
 ) {
     fun allows(latest: Conversation): Boolean {
-        if (force) return true
         val state = latest.titleState
-        if (state.source != source || !state.isAuto) return false
-        if (latest.title != title) return false
-        val branch = branch ?: return false
-        return branch.isIntactIn(latest.currentMessages)
+        if (state.source != source || (!force && !state.isAuto)) return false
+        if (latest.title != title || (revision != null && state.revision != revision)) return false
+        return branch?.isIntactIn(latest.currentMessages) ?: force
     }
 }

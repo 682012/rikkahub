@@ -48,6 +48,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.ui.toast.ToastType
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -102,6 +104,7 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
         }
     )
     val filesManager: FilesManager = koinInject()
+    val context = LocalContext.current
     val navController = LocalNavController.current
     val scope = rememberCoroutineScope()
 
@@ -176,12 +179,14 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
         if (!draftReady || importApplied) return@LaunchedEffect
         importApplied = true
         if (files.isNotEmpty()) {
-            val localFiles = filesManager.createChatFilesByContents(files)
+            val localFiles = withContext(Dispatchers.IO) {
+                files.mapNotNull { source ->
+                    filesManager.createChatFilesByContents(listOf(source)).firstOrNull()?.let { source to it }
+                }
+            }
             val parts = buildList {
-                // 按本地文件下标取对应的 mime：mapNotNull 会丢掉拿不到类型的文件，
-                // 之后的图片/视频就会错位认领别人的类型
-                localFiles.forEachIndexed { index, file ->
-                    val source = files.getOrNull(index)
+                // Keep each imported URI paired with its original; skipped files cannot shift MIME/name ownership.
+                localFiles.forEach { (source, file) ->
                     val type = source?.let { filesManager.getFileMimeType(it) }
                     when {
                         type?.startsWith("image/") == true -> add(UIMessagePart.Image(url = file.toString()))
@@ -198,6 +203,8 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                 }
             }
             inputState.messageContent = inputState.messageContent + parts
+            if (localFiles.size != files.size) android.widget.Toast.makeText(context,
+                "${files.size - localFiles.size} 个附件未能导入，授权可能已失效或文件过大，请重新分享。", android.widget.Toast.LENGTH_LONG).show()
         }
         text?.base64Decode()?.let { decodedText ->
             if (decodedText.isNotEmpty()) {

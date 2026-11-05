@@ -238,13 +238,18 @@ class ChatCompletionsAPI(
     ): JsonObject {
         val host = providerSetting.baseUrl.toHttpUrl().host
         val isOpenRouter = host == "openrouter.ai"
+        // DeepSeek requires reasoning on every assistant message when tools are declared,
+        // including completed turns. This protocol requirement is not a display preference.
+        val requiresFullToolReasoningReplay = params.model.abilities.contains(ModelAbility.TOOL) &&
+            params.tools.isNotEmpty() && (host == "api.deepseek.com" || host.endsWith(".deepseek.com") ||
+            params.model.modelId.contains("deepseek", ignoreCase = true))
         return buildJsonObject {
             put("model", params.model.modelId)
             put(
                 "messages",
                 buildMessages(
                     messages = messages,
-                    includeHistoryReasoning = providerSetting.includeHistoryReasoning,
+                    includeHistoryReasoning = providerSetting.includeHistoryReasoning || requiresFullToolReasoningReplay,
                     includeOpenRouterReasoningDetails = isOpenRouter,
                     supportInputModalities = params.model.inputModalities,
                 )
@@ -465,11 +470,17 @@ class ChatCompletionsAPI(
     ) = buildJsonArray {
         val filteredMessages = messages.filter { it.isValidToUpload() }
 
-        filteredMessages.forEach { message ->
+        val lastUserIndex = filteredMessages.indexOfLast { it.role == MessageRole.USER }
+        val currentTurnUsesTools = filteredMessages.drop(lastUserIndex + 1).any { message ->
+            message.role == MessageRole.ASSISTANT && message.parts.any { it is UIMessagePart.Tool && it.isExecuted }
+        }
+        filteredMessages.forEachIndexed { index, message ->
             if (message.role == MessageRole.ASSISTANT) {
                 addAssistantMessages(
                     message = message,
-                    includeReasoning = includeHistoryReasoning,
+                    // Never strip protocol state from an active tool chain, even on compatible
+                    // relays whose model alias does not reveal the underlying model family.
+                    includeReasoning = includeHistoryReasoning || (currentTurnUsesTools && index > lastUserIndex),
                     includeOpenRouterReasoningDetails = includeOpenRouterReasoningDetails,
                     supportInputModalities = supportInputModalities,
                 )
@@ -494,8 +505,13 @@ class ChatCompletionsAPI(
                 is PartGroup.Content -> {
                     // 从当前 group 中提取 reasoning（保持顺序）
                     if (includeReasoning) {
-                        group.parts.filterIsInstance<UIMessagePart.Reasoning>().firstOrNull()?.let {
-                            reasoningPart = it
+                        group.parts.filterIsInstance<UIMessagePart.Reasoning>().forEach { next ->
+                            reasoningPart = reasoningPart?.let { previous ->
+                                previous.copy(
+                                    reasoning = previous.reasoning + next.reasoning,
+                                    metadata = next.metadata ?: previous.metadata,
+                                )
+                            } ?: next
                         }
                     }
                     group.parts
@@ -559,7 +575,7 @@ class ChatCompletionsAPI(
         } else {
             null
         }
-        val hasReasoning = !reasoningPart?.reasoning.isNullOrBlank() || !reasoningDetails.isNullOrEmpty()
+        val hasReasoning = reasoningPart != null || !reasoningDetails.isNullOrEmpty()
         if (!hasUsableContent && !hasReasoning && tools.isEmpty()) {
             return null
         }
@@ -753,6 +769,18 @@ class ChatCompletionsAPI(
                         )
                     )
                 }
+                // Match the streaming path: preamble and media belong to this assistant
+                // response before its tool calls. Putting text after tools creates a spurious
+                // second assistant wire message with no reasoning_content on continuation.
+                if (content.isNotEmpty()) add(UIMessagePart.Text(content))
+                images.forEach { image ->
+                    val imageObject = image.jsonObjectOrNull ?: return@forEach
+                    val type = imageObject["type"]?.jsonPrimitive?.contentOrNull ?: return@forEach
+                    if (type != "image_url") return@forEach
+                    val url = imageObject["image_url"]?.jsonObjectOrNull?.get("url")?.jsonPrimitive?.contentOrNull ?: return@forEach
+                    require(url.startsWith("data:image")) { "Only data uri is supported" }
+                    add(UIMessagePart.Image(url))
+                }
                 toolCalls.forEach { toolCalls ->
                     val type = toolCalls.jsonObject["type"]?.jsonPrimitive?.contentOrNull
                     if (!type.isNullOrEmpty() && type != "function") error("tool call type not supported: $type")
@@ -769,15 +797,6 @@ class ChatCompletionsAPI(
                             output = emptyList()
                         )
                     )
-                }
-                if (content.isNotEmpty()) add(UIMessagePart.Text(content))
-                images.forEach { image ->
-                    val imageObject = image.jsonObjectOrNull ?: return@forEach
-                    val type = imageObject["type"]?.jsonPrimitive?.contentOrNull ?: return@forEach
-                    if (type != "image_url") return@forEach
-                    val url = imageObject["image_url"]?.jsonObjectOrNull?.get("url")?.jsonPrimitive?.contentOrNull ?: return@forEach
-                    require(url.startsWith("data:image")) { "Only data uri is supported" }
-                    add(UIMessagePart.Image(url))
                 }
             },
             annotations = parseAnnotations(

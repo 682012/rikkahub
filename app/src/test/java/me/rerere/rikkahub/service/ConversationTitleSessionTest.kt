@@ -230,7 +230,8 @@ class ConversationTitleSessionTest {
         session.update { it.withEarlyTitle("A 标题", requireNotNull(TitleTrigger.of(user))) }
 
         // 切到另一条分支：新实例按标题推断，不会带着 A 的锚点
-        val switched = session.update { it.copy(title = "") }
+        val switched = session.update { it.copy(title = "",
+            messageNodes = listOf(UIMessage.user("B 分支").toMessageNode())) }
         assertTrue("空白标题的新分支可以重新起标题", switched.titleState.isAuto)
         assertEquals("", switched.titleState.anchor)
     }
@@ -343,7 +344,7 @@ class ConversationTitleSessionTest {
         session.update { it.withManualTitle("我的周报") }
 
         val captured = session.state.value
-        // 手动重新生成：只核对会话有没有被删/换掉，手改和分支都不挡
+        // 手动重新生成允许替换已经存在的手动标题，仍受请求快照保护
         val guard = TitleWriteGuard(
             title = captured.title,
             source = captured.titleState.source,

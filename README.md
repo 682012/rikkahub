@@ -4,11 +4,11 @@
 
 与官方团队没有隶属关系；上游版权与 AGPL-3.0 许可保持不变；不提供官方或面向终端用户的技术支持。
 
-当前源码 **3.1.1-r19 / 3000066** · 包名 `me.rerere.rikkahub.fork`。在 r18 上增加图片整理并发、语音语言与播放调节并优化 TTS 等待和取消链路。已有队列、重连、中文、六角色本名和多图规则全部保留，应用名、图标与签名不变。
+当前源码 **3.1.1-r20 / 3000067** · 包名 `me.rerere.rikkahub.fork`。在 r19 上增加后台图片整理、AI 虚拟分组、网页共读和真实媒体导出，并修复子代理思考字段续传。已有队列、重连、语音调节、六角色与多图规则保留，应用名、图标、原图、人设与签名不变。
 
 ## 下载与安装
 
-**[下载最新正式 APK](https://github.com/682012/rikkahub/releases/latest)** · [r19 更新说明](fork/RELEASE-r19.md) · [历史版本](https://github.com/682012/rikkahub/releases)
+**[下载最新正式 APK](https://github.com/682012/rikkahub/releases/latest)** · [r20 更新说明](fork/RELEASE-r20.md) · [历史版本](https://github.com/682012/rikkahub/releases)
 
 源码分支与下载渠道分开：只有完成正式 R8 构建和验包的版本才标为 Latest；实际发布状态、安装包与校验值以 Release 页面为准。
 
@@ -16,6 +16,14 @@
 - 本分支包名与官方不同，**不能覆盖安装官方版**；同包名、同签名的本分支旧版可以按常规覆盖升级。
 - 升级前备份聊天与设置，不要为了升级先卸载（卸载会连应用数据一起丢）。从早期 `fork.*` 版本过来请直接下载安装，旧更新器不认识 `r` 系列版本号。
 - 下载安装不需要构建环境；聊天模型与服务账号仍由你自己配置，不提供共享 API 额度。
+
+## r20：后台整理、共读与媒体导出
+
+- 子代理非流式工具续轮保留完整思考字段，修复 `reasoning_content` 400；不靠关闭思考或切模型绕过。
+- 图片整理交给 WorkManager，离开页面继续；可选自动增量整理、AI 规划虚拟分组，保留原图和 1–16 路并发。
+- 生图真实格式/尺寸验证、高质量默认；已配置 o10 的新草稿优先 `gpt-image-2.6`。本地图片导出 PNG/JPEG/WebP、多帧 GIF 与 H.264 MP4 动效，生成物可保存/分享。
+- 主动发链接与 AI 共读，更多文档文字提取；技能元数据/正文缓存、提示词组成查看、消息发出即后台标题及手改保护。
+- 权限与软件关联集中入口，接收分享/文档打开；不绕 Android 授权，不烘焙私人密钥。[完整 r20 说明与真实边界](fork/RELEASE-r20.md)。
 
 ## r19：图片并发与语音调节
 
@@ -125,7 +133,7 @@
 
 ## 文档导航
 
-- 当前源码：[r16 说明与边界](fork/RELEASE-r16.md) · [正式包与机器可读验收](https://github.com/682012/rikkahub/releases/latest)
+- 当前源码：[r20 说明与边界](fork/RELEASE-r20.md) · [正式包与机器可读验收](https://github.com/682012/rikkahub/releases/latest)
 - 六角色素材历史：[r12 立绘与动态](fork/COMPANIONS-r12.md) · [r15 即兴互动](fork/COMPANIONS-r15.md)
 - 横向对比：[完整功能对比](fork/FEATURES.md) · [版本历史](fork/CHANGES.md)
 - 维护：[构建、签名与回退](fork/README.md) · [修改声明](NOTICE.md) · [免责声明](DISCLAIMER.md)
@@ -138,5 +146,7 @@
 上游项目与官方下载渠道：[rikkahub/rikkahub](https://github.com/rikkahub/rikkahub)。本分支保留上游版权声明与 **AGPL-3.0** 许可（见 [LICENSE](LICENSE)）；上游的赞助、贡献者与支持渠道不属于本分支。
 
 ### English summary
+
+**r20** adds background image classification and virtual AI groups, explicit URL co-reading, additional document text extraction, validated image outputs, and real local PNG/JPEG/WebP/GIF/MP4 exports. It fixes nonstreaming subagent reasoning replay without disabling thinking or repeating executed tools. No private API key is bundled. Android UI/background scheduling and device MediaCodec still need device validation; exact build and check receipts ship with the release.
 
 Unofficial personal fork of RikkaHub **3.1.1**. Keeps the upstream client and adds subagents, workspace background jobs, optional HTTP execution, automatic context compression, ZIP workspace migration, configurable retries, a per-chat usage panel, and a reworked tool-calling layer (batched read-only calls, compact MCP catalog, offloaded paged tool output, `workspace_grep`/`workspace_glob`, read-only `run_script`). **r16** adds conversation/image organization, system-WebView link previews, math normalization, sequential image recognition, conversation-bound sending, immediate network-recovery wakeups, and six complete read-only companion personas with full-text viewing/copying/editing. AI taps generate fresh text; user overrides and original settings remain separate. See the r16 notes and release assets for current validation. **r11 (historical baseline)** adds a configurable default for long-message collapsing, durable per-conversation/per-assistant drafts, stable memory and `AGENTS` injection, isolated WebView HTML preview plus Markdown/CSV/TSV/JSON/EPUB text previews, consolidated tool guidance, a 1–3600 s threshold (default 30 s) for moving slow tool calls to the background with `background_tool`, and background manual compression with an optional completion notification. The formal R8/lintVital build and package checks pass; the 168 previously passed targeted tests across 16 suites were not rerun. No device/UI regression and no real-provider cache-hit measurements have been run. Package name, app name, icon and signing key are unchanged. Licensed under AGPL-3.0.
