@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.R
 import me.rerere.ui.components.SelectTextField
 import java.util.Locale
@@ -35,8 +36,9 @@ internal fun SystemTtsVoicePicker(value: String, languageTag: String, onChange: 
         onDispose { disposed = true; engine?.shutdown() }
     }
     val automatic = stringResource(R.string.r19_tts_auto_voice)
-    val language = Locale.forLanguageTag(languageTag).language
-    val available = voices.filter { languageTag.isBlank() || it.locale.language == language }
+    val effectiveTag = languageTag.ifBlank { LocalSettings.current.ttsPlaybackSettings.sanitized().languageTag }
+    val language = if (effectiveTag.isBlank()) Locale.getDefault().language else Locale.forLanguageTag(effectiveTag).language
+    val available = voices.filter { it.locale.language == language }
     val names = listOf("") + available.map { it.name }
     SelectTextField(value = value.ifBlank { automatic }, options = names,
         onValueChange = onChange, onOptionSelected = onChange,

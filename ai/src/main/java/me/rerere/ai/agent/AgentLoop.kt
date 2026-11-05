@@ -21,6 +21,7 @@ import me.rerere.ai.ui.StreamChunkHandler
 import me.rerere.ai.ui.ToolApprovalState
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
+import me.rerere.ai.ui.withoutEmptyGeneratedImages
 import me.rerere.ai.ui.finishReasoning
 import me.rerere.ai.util.json
 import kotlin.time.Clock
@@ -46,10 +47,10 @@ internal class AgentLoop(
     init {
         val last = request.messages.lastOrNull()
         if (last?.role == MessageRole.ASSISTANT) {
-            history = request.messages.dropLast(1)
-            message = last
+            history = request.messages.dropLast(1).map { it.withoutEmptyGeneratedImages() }
+            message = last.withoutEmptyGeneratedImages()
         } else {
-            history = request.messages
+            history = request.messages.map { it.withoutEmptyGeneratedImages() }
             message = null
         }
     }
@@ -159,7 +160,7 @@ internal class AgentLoop(
                         throw StreamChunkHandlingException(e)
                     }
                 }
-                attempt.withStepStats(base, timer.finish(attempt.usage?.completionTokens))
+                attempt.withoutEmptyGeneratedImages().withStepStats(base, timer.finish(attempt.usage?.completionTokens))
             }
         } catch (e: StreamChunkHandlingException) {
             throw e.cause
@@ -188,7 +189,7 @@ internal class AgentLoop(
             modelId = params.model.id,
             usage = result.usage,
             lastUsage = result.message.lastUsage,
-        ).finishReasoning().withStepStats(base, timing)
+        ).withoutEmptyGeneratedImages().finishReasoning().withStepStats(base, timing)
         preview(generated, newPartsFrom = base.parts.size)
         return generated
     }

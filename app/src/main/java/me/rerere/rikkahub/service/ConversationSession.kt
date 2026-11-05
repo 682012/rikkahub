@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import me.rerere.ai.ui.withoutEmptyGeneratedImages
 import me.rerere.ai.ui.finishReasoning
 import me.rerere.rikkahub.data.model.Conversation
 import java.time.Instant
@@ -86,14 +87,22 @@ class ConversationSession(
             val loaded = load()
             val conversation = loaded ?: create()
             require(conversation.id == id)
+            // A persisted ImageStart with no bytes belongs to an interrupted old generation.
+            val nodes = conversation.messageNodes.map { node ->
+                val cleaned = node.messages.map { it.withoutEmptyGeneratedImages() }
+                if (cleaned == node.messages) node else node.copy(messages = cleaned)
+            }
+            val cleanedConversation = if (nodes == conversation.messageNodes) conversation
+                else conversation.copy(messageNodes = nodes)
             writeMutex.withLock {
                 lastWritten = conversation
                 existsInDatabase = loaded != null
             }
             synchronized(this) {
-                _state.value = conversation
+                _state.value = cleanedConversation
                 isInitialized = true
             }
+            if (cleanedConversation !== conversation) withContext(NonCancellable) { flush() }
         }
     }
 
@@ -205,7 +214,7 @@ class ConversationSession(
         update { current ->
             current.copy(
                 messageNodes = current.messageNodes.map { node ->
-                    node.copy(messages = node.messages.map { it.finishReasoning() })
+                    node.copy(messages = node.messages.map { it.finishReasoning().withoutEmptyGeneratedImages() })
                 },
                 updateAt = Instant.now(),
             )

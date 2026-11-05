@@ -380,7 +380,10 @@ class StreamChunkHandler(private val model: Model? = null) {
                 }
             }
 
-            is StreamChunk.ImageEnd -> this.also { imagePartIndexes.remove(chunk.id) }
+            is StreamChunk.ImageEnd -> {
+                val index = imagePartIndexes.remove(chunk.id)
+                removeEmptyImageParts(if (index == null) emptySet() else setOf(index))
+            }
             is StreamChunk.Annotations -> copy(annotations = (annotations + chunk.annotations).distinct())
             is StreamChunk.Usage -> copy(
                 usage = if (chunk.completeSnapshot) chunk.usage else usage.merge(chunk.usage),
@@ -388,7 +391,7 @@ class StreamChunkHandler(private val model: Model? = null) {
             )
             is StreamChunk.Finish -> copy(
                 finishedAt = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
-            ).finishReasoning().also {
+            ).finishReasoning().removeEmptyImageParts(imagePartIndexes.values.toSet()).also {
                 // Finish 同时结束尚未显式结束的 reasoning，并释放本次响应流的索引状态。
                 textPartIndexes.clear()
                 reasoningPartIndexes.clear()
@@ -397,6 +400,22 @@ class StreamChunkHandler(private val model: Model? = null) {
                 toolCallSlots.clear()
             }
         }
+    }
+
+    /** Removing a placeholder must not shift later interleaved text/reasoning/image slots. */
+    private fun UIMessage.removeEmptyImageParts(candidates: Set<Int>): UIMessage {
+        val removed = candidates.filter { index ->
+            (parts.getOrNull(index) as? UIMessagePart.Image)?.isEmptyStreamImage() == true
+        }.toSet()
+        if (removed.isEmpty()) return this
+        for (slots in listOf(textPartIndexes, reasoningPartIndexes, imagePartIndexes)) {
+            val adjusted = slots.filterValues { it !in removed }.mapValues { (_, index) ->
+                index - removed.count { it < index }
+            }
+            slots.clear()
+            slots.putAll(adjusted)
+        }
+        return copy(parts = parts.filterIndexed { index, _ -> index !in removed })
     }
 
     /**
