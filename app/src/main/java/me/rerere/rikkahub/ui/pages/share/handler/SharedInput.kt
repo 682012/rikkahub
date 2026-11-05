@@ -84,7 +84,7 @@ object SharedInput {
             }
         }.getOrNull() ?: runCatching {
             intent.clipData?.let { clip ->
-                (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).text?.toString() }
+                (0 until minOf(clip.itemCount, MAX_SCANNED_URIS)).mapNotNull { clip.getItemAt(it).text?.toString() }
                     .filter { it.isNotEmpty() }
                     .distinct()
                     .joinToString("\n\n")
@@ -110,19 +110,20 @@ object SharedInput {
     @Suppress("DEPRECATION")
     private fun allUris(intent: Intent): List<Uri> {
         val found = LinkedHashMap<String, Uri>()
+        var scanned = 0
         fun offer(uri: Uri?) {
-            if (uri != null) found.putIfAbsent(uri.toString(), uri)
+            if (scanned++ < MAX_SCANNED_URIS && uri != null) found.putIfAbsent(uri.toString(), uri)
         }
         runCatching { offer(intent.data) }
         runCatching {
             when (val raw = intent.extras?.get(Intent.EXTRA_STREAM)) {
                 is Uri -> offer(raw)
-                is Collection<*> -> raw.forEach { offer(it as? Uri) }
-                is Array<*> -> raw.forEach { offer(it as? Uri) }
+                is Collection<*> -> raw.asSequence().take((MAX_SCANNED_URIS - scanned).coerceAtLeast(0)).forEach { offer(it as? Uri) }
+                is Array<*> -> raw.asSequence().take((MAX_SCANNED_URIS - scanned).coerceAtLeast(0)).forEach { offer(it as? Uri) }
             }
         }
         runCatching {
-            intent.clipData?.let { clip -> repeat(clip.itemCount) { offer(clip.getItemAt(it).uri) } }
+            intent.clipData?.let { clip -> repeat(minOf(clip.itemCount, (MAX_SCANNED_URIS - scanned).coerceAtLeast(0))) { offer(clip.getItemAt(it).uri) } }
         }
         return found.values.toList()
     }

@@ -40,6 +40,8 @@ enum class ImageJobStatus {
 data class ImageOrganizerJob(
     val id: String,
     val status: ImageJobStatus = ImageJobStatus.QUEUED,
+    /** Only automation-owned batches are stopped when the automatic switch is disabled. */
+    val automatic: Boolean = false,
     /** 还没处理的图片 id，顺序就是入队时的顺序。 */
     val pendingIds: List<String> = emptyList(),
     /** 已经拿到结果（成功或单张失败）的图片 id。 */
@@ -108,7 +110,7 @@ data class ImageOrganizerJob(
 /**
  * `filesDir/image_organizer/queue.json` 的读写。
  *
- * 写入走「临时文件 → fsync → rename」，读失败一律当没有（不影响页面打开，也不会重复发请求）。
+ * 写入走「临时文件 → fsync → rename」；读失败报告 lastFailure，控制器关闭自动整理并隔离损坏文件。
  */
 class ImageOrganizerJobStore(private val file: File) {
     companion object {
@@ -130,6 +132,13 @@ class ImageOrganizerJobStore(private val file: File) {
         if (!file.exists()) return@synchronized null
         runCatching { json.decodeFromString<ImageOrganizerJob>(file.readText()) }
             .onFailure { lastFailure = "后台队列无法读取：${it.message}" }.getOrNull()
+    }
+
+    /** Preserve an unreadable task for recovery rather than silently deleting it. */
+    fun quarantineUnreadable(): Boolean = synchronized(lock) {
+        if (lastFailure == null || !file.isFile) return@synchronized false
+        val backup = File(file.parentFile, "${file.name}.corrupt-${java.util.UUID.randomUUID()}")
+        file.renameTo(backup)
     }
 
     fun write(job: ImageOrganizerJob?): Boolean = synchronized(lock) {

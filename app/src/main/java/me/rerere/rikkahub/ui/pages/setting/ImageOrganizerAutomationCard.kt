@@ -59,8 +59,13 @@ internal fun ImageOrganizerAutomationCard(state: ImageOrganizerState, vm: ImageO
                     TextButton(onClick = vm::cancelClassification) { Text("取消排队") }
                 }
                 if (state.jobStatus in setOf(ImageJobStatus.PAUSED, ImageJobStatus.FAILED)) {
-                    Text("上次任务已暂停，还剩 ${state.jobRemaining} 张。已发出但结果不确定的请求不会自动重发。", style = MaterialTheme.typography.bodySmall)
+                    Text(state.jobError ?: "上次任务已暂停，还剩 ${state.jobRemaining} 张。", style = MaterialTheme.typography.bodySmall)
+                    Text("自动整理等待这单处理；已发出但结果不确定的请求不会自动重发。", style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = vm::resume, enabled = !state.busy) { Text("继续未发送的图片") }
+                    TextButton(onClick = vm::cancelClassification, enabled = !state.busy) { Text("放弃剩余任务") }
+                }
+                if (state.jobStatus == ImageJobStatus.CANCELLED) {
+                    Text(state.jobError ?: "本次任务已取消，已完成的分类保留。", style = MaterialTheme.typography.bodySmall)
                 }
                 Row {
                     TextButton(onClick = { vm.setWorkers(16) }, enabled = !state.busy) { Text("16路并发") }

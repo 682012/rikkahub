@@ -27,6 +27,28 @@ class ImageOrganizerBackgroundTest {
         assertEquals(ImageJobStatus.DONE, updated.status); assertEquals(2, updated.progress().done)
         file.writeText("broken"); assertNull(store.read()); assertNotNull(store.lastFailure)
     }
+    @Test fun interruptedAndCancelledJobsNeverBecomeQueued() {
+        val job = ImageOrganizerJob("j", automatic = true, status = ImageJobStatus.RUNNING,
+            pendingIds = listOf("a", "b"), total = 2).record("a", false)
+        val paused = job.pausedAfterInterruption()
+        val cancelled = job.cancelled()
+        assertEquals(ImageJobStatus.PAUSED, paused.status)
+        assertEquals(ImageJobStatus.CANCELLED, cancelled.status)
+        assertFalse(paused.active); assertFalse(cancelled.active)
+        assertEquals(listOf("b"), cancelled.pendingIds)
+        assertEquals(listOf("a"), cancelled.doneIds)
+        assertTrue(cancelled.automatic)
+    }
+    @Test fun badQueueIsPreservedForRecovery() {
+        val file = temp.newFile("queue.json").apply { writeText("broken") }
+        val store = ImageOrganizerJobStore(file)
+        assertNull(store.read()); assertNotNull(store.lastFailure)
+        assertTrue(store.quarantineUnreadable()); assertFalse(file.exists())
+        val backup = file.parentFile.listFiles()!!.single { it.name.startsWith("queue.json.corrupt-") }
+        assertEquals("broken", backup.readText())
+        assertNull(store.read()); assertNull(store.lastFailure)
+        assertTrue(store.write(ImageOrganizerJob("new")))
+    }
     @Test fun planFiltersInventedAndDuplicateIds() {
         val result = ImagePlanParser.parse("""{"buckets":[{"name":"风景","items":["a","a","fake"]},{"name":"截图","items":["a","b"]}]}""", setOf("a", "b"))
         assertNotNull(result.plan); assertEquals(2, result.plan!!.totalItems); assertEquals(1, result.droppedItems)

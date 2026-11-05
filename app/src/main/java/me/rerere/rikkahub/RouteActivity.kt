@@ -264,8 +264,14 @@ class RouteActivity : ComponentActivity() {
             }
             // 只处理外部进来的分享/打开。内部跳转（工件、会话、媒体会话）都不带 action，
             // 走下面的 internalDestination，所以 VIEW 分支不会抢到内部 intent。
-            Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE, Intent.ACTION_PROCESS_TEXT, Intent.ACTION_VIEW ->
-                shareDestination(intent)
+            Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE, Intent.ACTION_PROCESS_TEXT, Intent.ACTION_VIEW -> {
+                lifecycleScope.launch {
+                    shareDestination(intent)?.let { destination ->
+                        if (backStack.lastOrNull() != destination) backStack.add(destination)
+                    }
+                }
+                null
+            }
             else -> internalDestination(intent)
         }
         if (destination != null && backStack.lastOrNull() != destination) {
@@ -280,11 +286,8 @@ class RouteActivity : ComponentActivity() {
             // 外部可以伪造这个 extra，非法 id 会让 ChatPage 的 Uuid.parse 抛异常，所以先校验。
             ?.let { id -> runCatching { Uuid.parse(id) }.getOrNull()?.let { Screen.Chat(it.toString()) } }
 
-    /**
-     * 外部分享进来的内容。只取 intent 自己给的东西：文字全文（不截断）、可读的 content URI 附件。
-     * 自己的 provider 和不可读的 URI 直接丢掉，并把丢弃数量交给页面显示，不静默。
-     */
-    private fun shareDestination(intent: Intent): Screen? {
+    /** Only explicit share content; URI readability is checked by actual import, not grant flags. */
+    private suspend fun shareDestination(intent: Intent): Screen? {
         val candidates = SharedInput.readUris(intent, packageName)
         val readable = candidates
         val kept = readable.take(SharedInput.MAX_ATTACHMENTS)
@@ -296,21 +299,27 @@ class RouteActivity : ComponentActivity() {
             return null
         }
         persistReadGrants(intent, kept)
+        val textRef = if (text.isNotEmpty()) {
+            try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    me.rerere.rikkahub.ui.pages.share.handler.SharedTextStore(
+                        java.io.File(cacheDir, me.rerere.rikkahub.ui.pages.share.handler.SharedTextStore.DIRECTORY)
+                    ).write(text)
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) {
+                android.widget.Toast.makeText(this, e.message ?: "分享文字保存失败，请重新分享", android.widget.Toast.LENGTH_LONG).show()
+                if (kept.isEmpty()) return null
+                null
+            }
+        } else null
         return Screen.ShareHandler(
-            text = text,
+            text = "",
+            textRef = textRef,
             streamUris = kept.map(Uri::toString),
             droppedAttachments = candidates.size - kept.size,
         )
     }
-
-    /**
-     * 只接受真正能读到的 URI：读取权限是随 intent 一起授予的瞬时授权，
-     * 没授权却仍然列出来的话，导入时只会静默失败。
-     */
-    private fun canReadSharedUri(uri: Uri): Boolean = runCatching {
-        checkUriPermission(uri, android.os.Process.myPid(), android.os.Process.myUid(),
-            Intent.FLAG_GRANT_READ_URI_PERMISSION) == PackageManager.PERMISSION_GRANTED
-    }.getOrDefault(false)
 
     /**
      * 分享页可能被重建（进程被杀后恢复导航栈），那时瞬时授权已经没了，所以显式请求持久化授权。
@@ -441,7 +450,8 @@ class RouteActivity : ComponentActivity() {
                                     id = Uuid.parse(key.id),
                                     text = key.text,
                                     files = key.files.map { it.toUri() },
-                                    nodeId = key.nodeId?.let { Uuid.parse(it) }
+                                    nodeId = key.nodeId?.let { Uuid.parse(it) },
+                                    textRef = key.textRef,
                                 )
                             }
 
@@ -450,6 +460,7 @@ class RouteActivity : ComponentActivity() {
                                     text = key.text,
                                     images = (key.streamUris + listOfNotNull(key.streamUri)).distinct(),
                                     droppedAttachments = key.droppedAttachments,
+                                    textRef = key.textRef,
                                 )
                             }
 
@@ -760,7 +771,8 @@ sealed interface Screen : NavKey {
         val id: String,
         val text: String? = null,
         val files: List<String> = emptyList(),
-        val nodeId: String? = null
+        val nodeId: String? = null,
+        val textRef: String? = null,
     ) : Screen
 
     @Serializable
@@ -771,6 +783,7 @@ sealed interface Screen : NavKey {
         val streamUris: List<String> = emptyList(),
         /** 没能带进来的附件数量：不可读或超过上限，页面会显示出来。 */
         val droppedAttachments: Int = 0,
+        val textRef: String? = null,
     ) : Screen
 
     @Serializable

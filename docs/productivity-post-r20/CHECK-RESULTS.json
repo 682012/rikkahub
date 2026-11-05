@@ -1,0 +1,46 @@
+{
+  "base": "d151224e458aaaf4a4f46e9989a00a7cdb23d8d5",
+  "publishedRelease": "5eb88813335b680e4538698378e979ea5446dd43",
+  "uniqueSourceFiles": 14,
+  "excludedAlreadyPublished": [
+    "document/src/main/java/me/rerere/document/ExtraDocumentParser.kt"
+  ],
+  "checks": {
+    "logic": {
+      "runId": "8e4c4f112a38-20261105T124641Z-b2333d",
+      "verdict": "pass",
+      "totals": {
+        "scopesOk": 7,
+        "scopesTotal": 7,
+        "testsPassed": 27
+      },
+      "noDrift": true,
+      "sourcesByteIdentical": true
+    },
+    "wiring": {
+      "runId": "aee9fbcffb70-20261105T124812Z-953495",
+      "verdict": "compiled",
+      "totals": {
+        "scopesCompiled": 2,
+        "scopesTotal": 2,
+        "testsRun": 0
+      },
+      "noDrift": true,
+      "sourcesByteIdentical": true
+    }
+  },
+  "staticChecks": {
+    "gitDiffCheck": "pass",
+    "resourceXml": "pass",
+    "privateStopReceiver": "pass",
+    "textRefRoundTrip": "pass",
+    "sourceManifestsCurrent": "pass"
+  },
+  "notRun": [
+    "Full Gradle build",
+    "R8/lintVital for this delta",
+    "Compose compilation for sharing/settings pages",
+    "Android device/runtime tests",
+    "Paid media API tests"
+  ]
+}

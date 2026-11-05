@@ -1,0 +1,43 @@
+{
+  "combo": "8e4c4f112a38",
+  "runId": "8e4c4f112a38-20261105T124641Z-b2333d",
+  "generatedAt": "20261105T124641Z",
+  "sourceTree": "/workspace/rk-sync/r20-productivity-src",
+  "fileShas": {
+    "skills": {
+      "app/src/main/java/me/rerere/rikkahub/data/skills/SkillFileCache.kt": "1f3bb2ece34f3d5e391166e5e793f3ec6093cf9dd8f6469dc97a817e972b7baf",
+      "app/src/main/java/me/rerere/rikkahub/data/skills/SkillFrontmatterParser.kt": "86d7c10e34bf8d9c329d317f420fba056cb568d72b18da8e5d8dc0a7af487179",
+      "app/src/main/java/me/rerere/rikkahub/data/skills/SkillValidator.kt": "d0e5a11e6a8ccd4c8a9a3b61ff9a11f4e1819eedde2f99ff48ebf64f843cf8f9",
+      "app/src/test/java/me/rerere/rikkahub/data/skills/SkillValidatorTest.kt": "0b8d052daa458c5e44f6448e48432ea3d5511fdffb03c94f65d74f0335523fe8"
+    },
+    "skills-cache": {
+      "app/src/main/java/me/rerere/rikkahub/data/skills/SkillFileCache.kt": "1f3bb2ece34f3d5e391166e5e793f3ec6093cf9dd8f6469dc97a817e972b7baf",
+      "app/src/main/java/me/rerere/rikkahub/data/skills/SkillFrontmatterParser.kt": "86d7c10e34bf8d9c329d317f420fba056cb568d72b18da8e5d8dc0a7af487179",
+      "app/src/test/java/me/rerere/rikkahub/data/skills/SkillFileCacheTest.kt": "5f9c5ffa8cccda83227d6a04daab60d261d98229cd107a4d80b50639d4aa791c"
+    },
+    "reading": {
+      "app/src/main/java/me/rerere/rikkahub/data/reading/LinkReader.kt": "257958a581195109a1963dc884b5c24c14218496c43a8cdeb3a6de0cd63656a7",
+      "app/src/test/java/me/rerere/rikkahub/data/reading/ReadingUrlsTest.kt": "fc9c36db0883bd8ae873ad4af3cbb0c25a96713d3a6feac88270be65cc0bcb9e"
+    },
+    "document": {
+      "document/src/main/java/me/rerere/document/ExtraDocumentParser.kt": "a951224301786c7bd6d5f83fb5665f75a7045090c9489e7d0decde703aaec8ca",
+      "document/src/test/java/me/rerere/document/ExtraDocumentParserTest.kt": "ad6388bb63a639b6aef167b47dfc9b7387a86da6c142528d6a477a092bb5cf81"
+    },
+    "prompts": {
+      "app/src/main/java/me/rerere/rikkahub/data/ai/transformers/InjectionRegexCache.kt": "cfcce2452355c206ca629e998678354211f6755620560197b4510d202514c437",
+      "app/src/main/java/me/rerere/rikkahub/data/ai/transformers/PromptInjectionTransformer.kt": "933036fc55982b61b932edf0d6f8249a67b17814bcbc2ce81114181309466da5",
+      "app/src/test/java/me/rerere/rikkahub/data/ai/transformers/InjectionRegexCacheTest.kt": "c24045fb694c91237ecf878d974cf334c7f060ba2d0e49a80dbfb9a845dd863e"
+    },
+    "organizer": {
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerAutoConfig.kt": "4ddd6a8440c33465fa0723966616f9c9e2c8e6e30062f15f993b16ec1e0d9a69",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImagePlan.kt": "592bb63f7f5496bfc3bba15e1501aa5d93919dfc0e72e07c145c30dcd7cd135c",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerModels.kt": "897d6943303af6e8359cf0e6d0388d52b874e0031b59bb41a89ff3527d4ff29e",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerJob.kt": "295a08b97c14271b4e3e0678a77fe729a4e2caa8ccdecee4c99901e6b1c2d070",
+      "app/src/test/java/me/rerere/rikkahub/data/organization/ImageOrganizerBackgroundTest.kt": "6ee5652e38b98753e13a15f637c31c88e705733f432ca1c27fef924b4f998565"
+    },
+    "share-text": {
+      "app/src/main/java/me/rerere/rikkahub/ui/pages/share/handler/SharedTextStore.kt": "4e0e1cabf3f38dfa2cc95820e7c449c7c14677a1469d82f242fd5532f5a53644",
+      "app/src/test/java/me/rerere/rikkahub/ui/pages/share/handler/SharedTextStoreTest.kt": "eb21060cce8a56a2565a41d8b71bdc4045375e65f4ce1610c3887354a1b36705"
+    }
+  }
+}

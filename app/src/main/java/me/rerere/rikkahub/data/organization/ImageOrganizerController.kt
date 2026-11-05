@@ -208,14 +208,44 @@ class ImageOrganizerController(
     }
 
     fun cancelClassification() {
-        classifyJob?.cancel()
-        androidx.work.WorkManager.getInstance(appContext).cancelUniqueWork("${ImageOrganizerWork.MANUAL}-${currentJob?.id}")
-        val cancelledId = currentJob?.id
-        appScope.launch {
-            queueMutex.withLock {
-                currentJob?.takeIf { it.id == cancelledId }?.let { saveJob(it.cancelled()) }
+        val jobId = state.value.jobId ?: return
+        appScope.launch { cancelJob(jobId) }
+    }
+
+    /** Both UI and notification use a fixed job ID: a stale notification cannot stop a newer batch. */
+    suspend fun cancelJob(jobId: String) = withContext(Dispatchers.Main.immediate) {
+        initialized.join()
+        queueMutex.withLock {
+            val job = currentJob?.takeIf {
+                it.id == jobId && it.status !in setOf(ImageJobStatus.DONE, ImageJobStatus.CANCELLED)
+            } ?: return@withLock
+            classifyJob?.cancel()
+            try {
+                saveJob(job.cancelled())
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { updateState { it.copy(error = "任务已停止，但取消状态未能保存：${e.message.orEmpty()}") } }
+            finally {
+                androidx.work.WorkManager.getInstance(appContext).cancelUniqueWork("${ImageOrganizerWork.MANUAL}-$jobId")
                 updateState { it.copy(progress = null) }
             }
+        }
+    }
+
+    /** Failure before execution (including foreground-service denial) must release QUEUED UI state. */
+    suspend fun workerFailed(jobId: String?, reason: String) = withContext(Dispatchers.Main.immediate) {
+        initialized.join()
+        queueMutex.withLock {
+            currentJob?.takeIf { it.id == jobId && it.active }?.let {
+                saveJob(it.copy(status = ImageJobStatus.FAILED, runnerToken = null, error = reason))
+            }
+            updateState { it.copy(error = reason) }
+        }
+    }
+
+    suspend fun workerInterrupted(jobId: String?) = withContext(Dispatchers.Main.immediate) {
+        initialized.join()
+        queueMutex.withLock {
+            currentJob?.takeIf { it.id == jobId && it.active }?.let { saveJob(it.pausedAfterInterruption()) }
         }
     }
 
@@ -455,16 +485,25 @@ class ImageOrganizerController(
 
     private val initialized = appScope.launch {
         try {
+            var recoveryWarning: String? = null
             val restored = withContext(Dispatchers.IO) {
                 val stored = jobStore.read()
-                check(jobStore.lastFailure == null) { jobStore.lastFailure.orEmpty() }
+                var auto = autoStore.read()
+                if (jobStore.lastFailure != null) {
+                    // Persist the opt-out first: a failed quarantine must not restore automatic uploads.
+                    auto = auto.copy(enabled = false)
+                    check(autoStore.write(auto)) { autoStore.lastFailure.orEmpty() }
+                    check(jobStore.quarantineUnreadable()) { jobStore.lastFailure.orEmpty() }
+                    recoveryWarning = "旧后台队列无法读取，已保留损坏文件并关闭自动整理；可重新选择图片开始。"
+                }
                 val job = if (stored?.status == ImageJobStatus.RUNNING) stored.pausedAfterInterruption() else stored
                 job?.let { check(jobStore.write(it)) { jobStore.lastFailure.orEmpty() } }
-                Triple(job, autoStore.read(), planStore.read())
+                Triple(job, auto, planStore.read())
             }
             currentJob = restored.first
             updateState { it.copy(auto = restored.second, plan = restored.third, jobId = currentJob?.id,
-                jobStatus = currentJob?.status, jobRemaining = currentJob?.remaining ?: 0) }
+                jobStatus = currentJob?.status, jobRemaining = currentJob?.remaining ?: 0,
+                jobError = currentJob?.error, error = recoveryWarning ?: it.error) }
             ImageOrganizerWork.schedule(appContext, restored.second.enabled)
             currentJob?.takeIf { it.status == ImageJobStatus.QUEUED }?.let { ImageOrganizerWork.enqueue(appContext, it.id) }
         } catch (e: CancellationException) { throw e }
@@ -477,7 +516,7 @@ class ImageOrganizerController(
     private suspend fun saveJob(job: ImageOrganizerJob) {
         check(withContext(Dispatchers.IO) { jobStore.write(job) }) { jobStore.lastFailure.orEmpty() }
         currentJob = job
-        updateState { it.copy(jobId = job.id, jobStatus = job.status, jobRemaining = job.remaining) }
+        updateState { it.copy(jobId = job.id, jobStatus = job.status, jobRemaining = job.remaining, jobError = job.error) }
     }
 
     private suspend fun enqueue(ids: Set<String>) {
@@ -508,12 +547,17 @@ class ImageOrganizerController(
 
     fun resume() { appScope.launch {
         initialized.join()
-        queueMutex.withLock {
-            currentJob?.takeIf { it.status in setOf(ImageJobStatus.PAUSED, ImageJobStatus.FAILED) }?.let {
-                saveJob(it.copy(status = ImageJobStatus.QUEUED))
-                ImageOrganizerWork.enqueue(appContext, currentJob!!.id)
+        if (initializationError != null || state.value.busy) return@launch
+        try {
+            queueMutex.withLock {
+                currentJob?.takeIf { it.status in setOf(ImageJobStatus.PAUSED, ImageJobStatus.FAILED) }?.let {
+                    // The explicit resume becomes a manual request, but uncertain images stay blocked.
+                    saveJob(it.copy(status = ImageJobStatus.QUEUED, automatic = false, error = null))
+                    ImageOrganizerWork.enqueue(appContext, it.id)
+                }
             }
-        }
+        } catch (e: CancellationException) { throw e }
+        catch (e: Exception) { workerFailed(currentJob?.id, e.message ?: "后台任务未能恢复") }
     } }
 
     fun setAuto(config: ImageAutoConfig) { appScope.launch {
@@ -522,10 +566,17 @@ class ImageOrganizerController(
             updateState { it.copy(error = "先选一个识别模型") }; return@launch
         }
         val value = config.coerce()
-        if (withContext(Dispatchers.IO) { autoStore.write(value) }) {
-            updateState { it.copy(auto = value) }
+        val saved = queueMutex.withLock {
+            if (withContext(Dispatchers.IO) { autoStore.write(value) }) {
+                updateState { it.copy(auto = value) }
+                true
+            } else { updateState { it.copy(error = autoStore.lastFailure) }; false }
+        }
+        if (saved) {
             ImageOrganizerWork.schedule(appContext, value.enabled)
-        } else updateState { it.copy(error = autoStore.lastFailure) }
+            if (!value.enabled) currentJob?.takeIf { it.automatic && it.status != ImageJobStatus.DONE }
+                ?.let { cancelJob(it.id) }
+        }
     } }
 
     suspend fun executeQueue(automatic: Boolean, expectedJobId: String?) = withContext(Dispatchers.Main.immediate) {
@@ -535,8 +586,11 @@ class ImageOrganizerController(
         runningQueue = true
         updateState { it }
         try {
-            if (deleting || pendingSaves > 0 || state.value.planBusy) return@withContext
             if (!automatic && currentJob?.id != expectedJobId) return@withContext
+            if (deleting || pendingSaves > 0 || state.value.planBusy) {
+                if (!automatic) error("图片设置正在保存或整理，稍后可继续这单任务")
+                return@withContext
+            }
             if (automatic && (!state.value.auto.enabled || currentJob?.status in setOf(ImageJobStatus.PAUSED, ImageJobStatus.RUNNING, ImageJobStatus.QUEUED))) return@withContext
             refresh(); scanJob?.join()
             if (automatic) {
@@ -547,8 +601,13 @@ class ImageOrganizerController(
                 }
                 if (candidates.size < config.minNewImages) return@withContext
                 val modelId = state.value.selectedModelId ?: return@withContext
-                saveJob(ImageOrganizerJob(id = Uuid.random().toString(), pendingIds = candidates, total = candidates.size,
-                    modelId = modelId.toString(), workers = state.value.workers, createdAt = System.currentTimeMillis()))
+                queueMutex.withLock {
+                    // The switch may have been disabled while the scan was suspended.
+                    if (!state.value.auto.enabled || state.value.auto != config) return@withContext
+                    saveJob(ImageOrganizerJob(id = Uuid.random().toString(), automatic = true,
+                        pendingIds = candidates, total = candidates.size, modelId = modelId.toString(),
+                        workers = state.value.workers, createdAt = System.currentTimeMillis()))
+                }
             }
             if (automatic) {
                 currentJob?.let { ImageOrganizerWork.enqueue(appContext, it.id) }
@@ -557,14 +616,18 @@ class ImageOrganizerController(
     }
 
     private suspend fun runQueuedBatch() {
-        val job = currentJob?.takeIf { it.status == ImageJobStatus.QUEUED } ?: return
-        val settings = settingsStore.settingsFlow.value
-        val model = job.modelId?.let { runCatching { Uuid.parse(it) }.getOrNull() }?.let(settings::findModelById)
-        val provider = model?.findProvider(settings.providers)
-        if (model == null || provider == null || !provider.enabled) {
-            saveJob(job.copy(status = ImageJobStatus.FAILED, error = "识别模型不可用")); return
+        val (job, model, provider) = queueMutex.withLock {
+            val job = currentJob?.takeIf { it.status == ImageJobStatus.QUEUED } ?: return
+            if (job.automatic && !state.value.auto.enabled) { saveJob(job.cancelled()); return }
+            val settings = settingsStore.settingsFlow.value
+            val model = job.modelId?.let { runCatching { Uuid.parse(it) }.getOrNull() }?.let(settings::findModelById)
+            val provider = model?.findProvider(settings.providers)
+            if (model == null || provider == null || !provider.enabled) {
+                saveJob(job.copy(status = ImageJobStatus.FAILED, error = "识别模型不可用")); return
+            }
+            saveJob(job.copy(status = ImageJobStatus.RUNNING, runnerToken = Uuid.random().toString(), error = null))
+            Triple(job, model, provider)
         }
-        saveJob(job.copy(status = ImageJobStatus.RUNNING, runnerToken = Uuid.random().toString()))
         classifyJob = kotlin.coroutines.coroutineContext[Job]
         val done = AtomicInteger(job.doneIds.size + job.failedIds.size)
         val failed = AtomicInteger(job.failedIds.size)
@@ -589,7 +652,7 @@ class ImageOrganizerController(
             queueMutex.withLock { currentJob?.takeIf { it.id == job.id && it.status != ImageJobStatus.CANCELLED }?.let { saveJob(it.settled()) } }
         } catch (e: CancellationException) {
             withContext(kotlinx.coroutines.NonCancellable) {
-                queueMutex.withLock { currentJob?.takeIf { it.status != ImageJobStatus.CANCELLED }?.let { saveJob(it.pausedAfterInterruption()) } }
+                queueMutex.withLock { currentJob?.takeIf { it.id == job.id && it.status != ImageJobStatus.CANCELLED }?.let { saveJob(it.pausedAfterInterruption()) } }
             }
             throw e
         } catch (e: Exception) {

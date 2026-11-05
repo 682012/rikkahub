@@ -91,6 +91,7 @@ data class ImageOrganizerState(
     val jobStatus: ImageJobStatus? = null,
     /** 后台任务里还没处理完的张数。 */
     val jobRemaining: Int = 0,
+    val jobError: String? = null,
     /** 自动整理开关（默认关闭，必须用户显式打开）。 */
     val auto: ImageAutoConfig = ImageAutoConfig(),
     /** AI 生成的虚拟分类方案，可编辑；只记 id，不动文件。 */

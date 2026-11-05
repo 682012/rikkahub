@@ -46,8 +46,6 @@ import kotlinx.coroutines.withContext
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalToaster
-import me.rerere.rikkahub.utils.base64Encode
-import me.rerere.rikkahub.utils.navigateToChatPage
 import me.rerere.rikkahub.utils.plus
 import me.rerere.ui.toast.ToastType
 import org.koin.androidx.compose.koinViewModel
@@ -66,13 +64,23 @@ fun ShareHandlerPage(
     text: String,
     images: List<String> = emptyList(),
     droppedAttachments: Int = 0,
+    textRef: String? = null,
 ) {
-    val vm: ShareHandlerVM = koinViewModel(parameters = { parametersOf(text) })
+    val context = LocalContext.current
+    val loadedText by produceState<Result<String>?>(if (textRef == null) Result.success(text) else null, textRef, text) {
+        value = if (textRef == null) Result.success(text) else null
+        value = withContext(Dispatchers.IO) {
+            runCatching { textRef?.let { SharedTextStore(java.io.File(context.cacheDir, SharedTextStore.DIRECTORY)).read(it) } ?: text }
+        }
+    }
+    val shareText = loadedText?.getOrNull().orEmpty()
+    // 分享内容不再由 VM 承载（只传引用），所以 key 固定：每个 NavEntry 有自己的 ViewModelStore，
+    // key 跟着分享内容变只会在页面里堆出多余的 VM。
+    val vm: ShareHandlerVM = koinViewModel(key = "share-handler", parameters = { parametersOf("") })
     val settings by vm.settings.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val navController = LocalNavController.current
     val toaster = LocalToaster.current
-    val context = LocalContext.current
     val attachments = remember(images) { images.distinct() }
     // Only real images are decoded. Documents are listed by name, so a provider that hands over an
     // odd URI can never force bitmap decoding of something that is not an image.
@@ -85,29 +93,37 @@ fun ShareHandlerPage(
     }
     // One navigation at a time: a second tap while the assistant is being switched must not
     // push a second new chat, and a failed switch has to release the guard again.
-    var opening by remember(vm) { mutableStateOf(false) }
+    var opening by remember(vm, textRef, text, images) { mutableStateOf(false) }
     val failed = stringResource(R.string.r20_share_open_failed)
 
     fun open(assistantId: kotlin.uuid.Uuid) {
-        if (opening) return
+        if (opening || loadedText == null) return
+        if (loadedText?.isFailure == true) {
+            // 文字没了就只剩附件，不能让用户以为整段分享都带进去了。
+            if (attachments.isEmpty()) {
+                toaster.show("分享文字无法读取，请重新分享", type = ToastType.Error)
+                return
+            }
+            toaster.show("分享文字无法读取，只带入 ${attachments.size} 个附件", type = ToastType.Warning)
+        }
         opening = true
         scope.launch {
-            val switched = runCatching { vm.updateAssistant(assistantId) }.isSuccess
-            if (!switched) {
-                opening = false
+            try {
+                vm.updateAssistant(assistantId)
+                val reference = if (shareText.isEmpty()) null else textRef ?: withContext(Dispatchers.IO) {
+                    SharedTextStore(java.io.File(context.cacheDir, SharedTextStore.DIRECTORY)).write(shareText)
+                }
+                navController.clearAndNavigate(me.rerere.rikkahub.Screen.Chat(
+                    id = kotlin.uuid.Uuid.random().toString(),
+                    files = attachments,
+                    textRef = reference,
+                ))
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
                 toaster.show(failed, type = ToastType.Error)
-                return@launch
-            }
-            val opened = runCatching {
-                navigateToChatPage(
-                    navigator = navController,
-                    initText = vm.shareText.base64Encode(),
-                    initFiles = attachments.map { it.toUri() },
-                )
-            }.isSuccess
-            if (!opened) {
+            } finally {
                 opening = false
-                toaster.show(failed, type = ToastType.Error)
             }
         }
     }
@@ -126,7 +142,11 @@ fun ShareHandlerPage(
             contentPadding = innerPadding + PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (vm.shareText.isNotBlank() || attachments.isNotEmpty() || droppedAttachments > 0) {
+            if (loadedText == null) item { Text("正在读取分享文字…") }
+            loadedText?.exceptionOrNull()?.let { error ->
+                item { Text(error.message ?: "分享文字无法读取，请重新分享", color = MaterialTheme.colorScheme.error) }
+            }
+            if (shareText.isNotBlank() || attachments.isNotEmpty() || droppedAttachments > 0) {
                 item {
                     Card {
                         Column(
@@ -135,11 +155,11 @@ fun ShareHandlerPage(
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            if (vm.shareText.isNotBlank()) {
+                            if (shareText.isNotBlank()) {
                                 // Full shared text, scrollable instead of truncated: nothing the user
                                 // shared may be dropped before it reaches the input box.
                                 Text(
-                                    text = vm.shareText,
+                                    text = shareText,
                                     style = MaterialTheme.typography.bodySmall,
                                     modifier = Modifier
                                         .fillMaxWidth()

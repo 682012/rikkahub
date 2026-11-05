@@ -38,16 +38,28 @@ class ImageOrganizerWorker(context: Context, params: WorkerParameters) : Corouti
             .setSmallIcon(android.R.drawable.ic_menu_gallery).setContentTitle("正在整理图片")
             .setContentText("可以离开页面；完成的分类会自动保存")
             .setOngoing(true).addAction(android.R.drawable.ic_delete, "停止本次任务",
-                WorkManager.getInstance(applicationContext).createCancelPendingIntent(id)).build()
+                ImageOrganizerStopReceiver.pendingIntent(applicationContext, inputData.getString("job_id") ?: id.toString())).build()
         return if (Build.VERSION.SDK_INT >= 29) ForegroundInfo(20720, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         else ForegroundInfo(20720, notification)
     }
-    override suspend fun doWork(): Result = try {
+    override suspend fun doWork(): Result {
         val automatic = inputData.getBoolean("automatic", false)
-        // The periodic trigger only queues a one-shot batch; cancelling the batch never disables automation.
-        if (!automatic) setForeground(getForegroundInfo())
-        GlobalContext.get().get<ImageOrganizerController>().executeQueue(automatic, inputData.getString("job_id"))
-        Result.success()
-    } catch (e: CancellationException) { throw e }
-    catch (e: Exception) { Result.failure(workDataOf("error" to e.message?.take(300))) }
+        val jobId = inputData.getString("job_id")
+        val controller = GlobalContext.get().get<ImageOrganizerController>()
+        return try {
+            // The periodic trigger only queues a one-shot batch; stopping it never disables automation.
+            if (!automatic) setForeground(getForegroundInfo())
+            controller.executeQueue(automatic, jobId)
+            Result.success()
+        } catch (e: CancellationException) {
+            if (!automatic) kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                runCatching { controller.workerInterrupted(jobId) }
+            }
+            throw e
+        } catch (e: Exception) {
+            val reason = e.message?.take(300) ?: "后台整理启动失败"
+            runCatching { controller.workerFailed(jobId, reason) }
+            Result.failure(workDataOf("error" to reason))
+        }
+    }
 }

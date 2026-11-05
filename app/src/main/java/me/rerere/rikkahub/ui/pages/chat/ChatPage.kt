@@ -92,7 +92,7 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.Uuid
 
 @Composable
-fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
+fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null, textRef: String? = null) {
     // key 必须带上会话 id：koinViewModel 不传 key 时默认按类名取，一旦 NavDisplay/抽屉把两个会话
     // 复用成同一个 ViewModelStore（同一 entry 换参数、或共享 owner），拿到的还是 A 会话的 ChatVM，
     // 于是 B 的输入框和发送都落到 A 上——「在 A 发起任务切到 B 会送错会话」。带上 id 后每个会话
@@ -163,7 +163,10 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
     val draftReady by vm.draftReady.collectAsStateWithLifecycle()
     // 导入只做一次，但换会话/换分享内容时必须重新做：只用一个裸 boolean 会在复用页面时吞掉新的分享。
     // 同时按 vm 记忆：换了 ChatVM（另一个会话）就不能沿用上一个页面的「已导入」。
-    var importApplied by rememberSaveable(vm, id, text, files) { mutableStateOf(false) }
+    // 分开记录：附件导入和文字读取各自成功后才置位。导入/读取过程中被取消（配置重建、离开页面）时，
+    // 上一个「已完成」的记录不会挡住重跑，否则分享内容会被记成已导入却从没进输入框。
+    var filesApplied by rememberSaveable(vm, id, text, textRef, files) { mutableStateOf(false) }
+    var textApplied by rememberSaveable(vm, id, text, textRef, files) { mutableStateOf(false) }
 
     // 进程可能在页面离开后被杀：暂停和离开时都存一次（onCleared 只是最后一道保险）
     LifecycleEventEffect(Lifecycle.Event.ON_PAUSE) {
@@ -175,19 +178,32 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
 
     // 初始化输入状态（处理传入的 files 和 text 参数）
     // 按 vm 分组：换会话后必须用新会话的 inputState，绝不能把分享内容写进上一个会话的输入框
-    LaunchedEffect(vm, files, text, draftReady) {
-        if (!draftReady || importApplied) return@LaunchedEffect
-        importApplied = true
-        if (files.isNotEmpty()) {
+    LaunchedEffect(vm, files, text, textRef, draftReady) {
+        if (!draftReady) return@LaunchedEffect
+        if (files.isNotEmpty() && !filesApplied) {
             val localFiles = withContext(Dispatchers.IO) {
                 files.mapNotNull { source ->
-                    filesManager.createChatFilesByContents(listOf(source)).firstOrNull()?.let { source to it }
+                    filesManager.createChatFilesByContents(listOf(source)).firstOrNull()?.let { file ->
+                        val name = filesManager.getFileNameFromUri(source)?.takeIf { it.isNotBlank() }
+                            ?: source.lastPathSegment?.takeIf { it.isNotBlank() } ?: "file"
+                        val sourceMime = filesManager.getFileMimeType(source)
+                            ?.takeIf { it.isNotBlank() && it != "application/octet-stream" }
+                        // 回退顺序：源 URI 的 MIME -> 源文件名猜 -> 落地文件内容嗅探。猜不出来只能是文档，
+                        // 不能让 path 为空把整批附件一起抛掉。
+                        val type = sourceMime ?: run {
+                            val stored = file.path?.let { java.io.File(it) }
+                            if (stored == null || !stored.isFile) "application/octet-stream"
+                            else me.rerere.rikkahub.data.files.FileUtils.guessMimeType(stored, name)
+                        }
+                        Triple(file, name, type)
+                    }
                 }
             }
+            // 落地结果已经完整返回才置位：读入过程中被取消时下次还能重来，不会静默丢附件。
+            filesApplied = true
             val parts = buildList {
-                // Keep each imported URI paired with its original; skipped files cannot shift MIME/name ownership.
-                localFiles.forEach { (source, file) ->
-                    val type = source?.let { filesManager.getFileMimeType(it) }
+                // Keep metadata paired with each successful import, even when another file was skipped.
+                localFiles.forEach { (file, name, type) ->
                     when {
                         type?.startsWith("image/") == true -> add(UIMessagePart.Image(url = file.toString()))
                         type?.startsWith("video/") == true -> add(UIMessagePart.Video(url = file.toString()))
@@ -195,8 +211,8 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
                         else -> add(
                             UIMessagePart.Document(
                                 url = file.toString(),
-                                fileName = source?.let { filesManager.getFileNameFromUri(it) } ?: "file",
-                                mime = type ?: "application/octet-stream",
+                                fileName = name,
+                                mime = type,
                             ),
                         )
                     }
@@ -206,12 +222,29 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null) {
             if (localFiles.size != files.size) android.widget.Toast.makeText(context,
                 "${files.size - localFiles.size} 个附件未能导入，授权可能已失效或文件过大，请重新分享。", android.widget.Toast.LENGTH_LONG).show()
         }
-        text?.base64Decode()?.let { decodedText ->
-            if (decodedText.isNotEmpty()) {
-                if (inputState.textContent.text.isBlank()) {
-                    inputState.setMessageText(decodedText)
-                } else {
-                    inputState.appendText("\n$decodedText")
+        if (!textApplied && (textRef != null || text != null)) {
+            val incomingText = try {
+                withContext(Dispatchers.IO) {
+                    textRef?.let {
+                        me.rerere.rikkahub.ui.pages.share.handler.SharedTextStore(java.io.File(context.cacheDir,
+                            me.rerere.rikkahub.ui.pages.share.handler.SharedTextStore.DIRECTORY)).read(it)
+                    } ?: text?.base64Decode()
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(context, e.message ?: "分享文字读取失败，请重新分享", android.widget.Toast.LENGTH_LONG).show()
+                null
+            }
+            // 置位紧跟写入、中间没有挂起点：被取消时要么整段没写（下次重来），要么已写好（不会重复追加）。
+            textApplied = true
+            incomingText?.let { decodedText ->
+                if (decodedText.isNotEmpty()) {
+                    if (inputState.textContent.text.isBlank()) {
+                        inputState.setMessageText(decodedText)
+                    } else {
+                        inputState.appendText("\n$decodedText")
+                    }
                 }
             }
         }

@@ -1,0 +1,34 @@
+{
+  "combo": "aee9fbcffb70",
+  "runId": "aee9fbcffb70-20261105T124812Z-953495",
+  "generatedAt": "20261105T124812Z",
+  "mode": "compile-only",
+  "sourceTree": "/workspace/rk-sync/r20-productivity-src",
+  "fileShas": {
+    "wiring": {
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerController.kt": "dbbefe66dd89695ba0da1f14211b7f88d588474b5c731b41b5cd7955294843da",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerWork.kt": "82150cdbf4261e65daede96824dcede67e34083a40224a00f722d206d27debbb",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerJob.kt": "295a08b97c14271b4e3e0678a77fe729a4e2caa8ccdecee4c99901e6b1c2d070",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerAutoConfig.kt": "4ddd6a8440c33465fa0723966616f9c9e2c8e6e30062f15f993b16ec1e0d9a69",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerModels.kt": "897d6943303af6e8359cf0e6d0388d52b874e0031b59bb41a89ff3527d4ff29e",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImagePlan.kt": "592bb63f7f5496bfc3bba15e1501aa5d93919dfc0e72e07c145c30dcd7cd135c",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerWorkers.kt": "883867b251988f1916784e11d39d273062c9792a928fde6ec7ec23bca054c11c",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerCache.kt": "6523987f68ac88e1a3a701c21881b9cc8b83114826c7814a21a4736c0861d999",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageDeletePlanner.kt": "5f0e0395eca2570c884b8385b25b1012daaa45f55554dd337879e8b59ae3e5e7",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageClassifier.kt": "c15e88f4938b345fbcec012bf8ac846150a2838a7763a7749540c529d07e7ffd",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageClassificationParser.kt": "ab1cc751747b9ddaa04f66afbe0d9068c29f5e5dc6d842f4b39068f6f2b22972",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerSources.kt": "dc84e5e0fbada72bef1c0334cb083f1ac975b42848437bd05ce6b097e7eba224",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerWorkerStore.kt": "542462265f775ecfcb304deff5192bdd7b09942a462187c6e9416e2020694eed",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerModelStore.kt": "50be66e2742927592673b2d6d4c08edde5557de57af96d325bfc7b5f1a927fc9",
+      "app/src/main/java/me/rerere/rikkahub/data/repository/MediaCreationRepository.kt": "b69a6610a58983d47c4c391a485c9ce70e91417cf2a7a8e9fe1b72ce86ef1155",
+      "app/src/main/java/me/rerere/rikkahub/data/repository/GenMediaRepository.kt": "db70b070f94e9d3ae313fbcde4aa63ddaadda91187becc82f127c404dcdb7c11",
+      "app/src/main/java/me/rerere/rikkahub/data/db/dao/MediaCreationDAO.kt": "a75a83c915a9c14fee9e88a07357da7d8c317b349922113d5f5fb6d02df06a12",
+      "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerStopReceiver.kt": "7b00a499b73ffcb07068916910c74c247eba3c2f1b397875323ff3907f962039"
+    },
+    "reading": {
+      "app/src/main/java/me/rerere/rikkahub/data/reading/LinkReader.kt": "257958a581195109a1963dc884b5c24c14218496c43a8cdeb3a6de0cd63656a7",
+      "app/src/main/java/me/rerere/rikkahub/data/reading/ReadingPreferences.kt": "bdd25b1f4a125b7879662369630636bdfc06d465efec929f24ac97a12715df09",
+      "app/src/main/java/me/rerere/rikkahub/data/ai/transformers/LinkReadingTransformer.kt": "9207a40914b763e8161c889a04e4d332c6f7efe9e66fd6955f238521e88ac83d"
+    }
+  }
+}

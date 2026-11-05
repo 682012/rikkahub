@@ -1,0 +1,64 @@
+{
+  "base": "d151224e458aaaf4a4f46e9989a00a7cdb23d8d5",
+  "publishedRelease": "5eb88813335b680e4538698378e979ea5446dd43",
+  "createdAt": "2026-11-05T12:52:18.618693+00:00",
+  "paths": [
+    "app/src/main/AndroidManifest.xml",
+    "app/src/main/java/me/rerere/rikkahub/RouteActivity.kt",
+    "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerController.kt",
+    "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerJob.kt",
+    "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerModels.kt",
+    "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerStopReceiver.kt",
+    "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerWork.kt",
+    "app/src/main/java/me/rerere/rikkahub/ui/pages/chat/ChatPage.kt",
+    "app/src/main/java/me/rerere/rikkahub/ui/pages/setting/ImageOrganizerAutomationCard.kt",
+    "app/src/main/java/me/rerere/rikkahub/ui/pages/share/handler/ShareHandlerPage.kt",
+    "app/src/main/java/me/rerere/rikkahub/ui/pages/share/handler/SharedInput.kt",
+    "app/src/main/java/me/rerere/rikkahub/ui/pages/share/handler/SharedTextStore.kt",
+    "app/src/test/java/me/rerere/rikkahub/data/organization/ImageOrganizerBackgroundTest.kt",
+    "app/src/test/java/me/rerere/rikkahub/ui/pages/share/handler/SharedTextStoreTest.kt"
+  ],
+  "excludedAlreadyPublished": [
+    "document/src/main/java/me/rerere/document/ExtraDocumentParser.kt"
+  ],
+  "fileShas": {
+    "app/src/main/AndroidManifest.xml": "58d664bbc63a1a6a2fdd4bec5db7893fbbee70fef7280a1b060e58df7680f680",
+    "app/src/main/java/me/rerere/rikkahub/RouteActivity.kt": "bebddc352a1e52d1e352056d93bea12d5822de480fb17ce829f98413c32adf26",
+    "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerController.kt": "dbbefe66dd89695ba0da1f14211b7f88d588474b5c731b41b5cd7955294843da",
+    "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerJob.kt": "295a08b97c14271b4e3e0678a77fe729a4e2caa8ccdecee4c99901e6b1c2d070",
+    "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerModels.kt": "897d6943303af6e8359cf0e6d0388d52b874e0031b59bb41a89ff3527d4ff29e",
+    "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerStopReceiver.kt": "7b00a499b73ffcb07068916910c74c247eba3c2f1b397875323ff3907f962039",
+    "app/src/main/java/me/rerere/rikkahub/data/organization/ImageOrganizerWork.kt": "82150cdbf4261e65daede96824dcede67e34083a40224a00f722d206d27debbb",
+    "app/src/main/java/me/rerere/rikkahub/ui/pages/chat/ChatPage.kt": "73ed1dcd43a556d79b1e769735088988586f3e4c074eea1e364aa17520281879",
+    "app/src/main/java/me/rerere/rikkahub/ui/pages/setting/ImageOrganizerAutomationCard.kt": "aba5db7cc4cf9454d07642aedb0d3bb4c044441e98832ddbe4ae7180106c4f9c",
+    "app/src/main/java/me/rerere/rikkahub/ui/pages/share/handler/ShareHandlerPage.kt": "7eb49173aa36ae46becffbdea5b1fc7a2c2a23c16180df7e68ee7f726fad6118",
+    "app/src/main/java/me/rerere/rikkahub/ui/pages/share/handler/SharedInput.kt": "926d480a339488401433336267acd8129febf423c0278d31584ee4dd33240d7e",
+    "app/src/main/java/me/rerere/rikkahub/ui/pages/share/handler/SharedTextStore.kt": "4e0e1cabf3f38dfa2cc95820e7c449c7c14677a1469d82f242fd5532f5a53644",
+    "app/src/test/java/me/rerere/rikkahub/data/organization/ImageOrganizerBackgroundTest.kt": "6ee5652e38b98753e13a15f637c31c88e705733f432ca1c27fef924b4f998565",
+    "app/src/test/java/me/rerere/rikkahub/ui/pages/share/handler/SharedTextStoreTest.kt": "eb21060cce8a56a2565a41d8b71bdc4045375e65f4ce1610c3887354a1b36705"
+  },
+  "checks": {
+    "logic": {
+      "runId": "8e4c4f112a38-20261105T124641Z-b2333d",
+      "verdict": "pass",
+      "totals": {
+        "scopesOk": 7,
+        "scopesTotal": 7,
+        "testsPassed": 27
+      },
+      "noDrift": true,
+      "sourcesByteIdentical": true
+    },
+    "wiring": {
+      "runId": "aee9fbcffb70-20261105T124812Z-953495",
+      "verdict": "compiled",
+      "totals": {
+        "scopesCompiled": 2,
+        "scopesTotal": 2,
+        "testsRun": 0
+      },
+      "noDrift": true,
+      "sourcesByteIdentical": true
+    }
+  }
+}
