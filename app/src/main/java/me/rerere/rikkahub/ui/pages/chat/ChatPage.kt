@@ -1,7 +1,6 @@
 package me.rerere.rikkahub.ui.pages.chat
 
 import android.net.Uri
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -117,7 +116,8 @@ fun ChatPage(id: Uuid, text: String?, files: List<Uri>, nodeId: Uuid? = null, te
     val errors by vm.errors.collectAsStateWithLifecycle()
 
     // 新会话发出第一条消息前，跟随抽屉当前选中的文件夹（#2133）
-    val drawerVm: ChatDrawerVM = koinViewModel(viewModelStoreOwner = LocalContext.current as ComponentActivity)
+    val drawerVm: ChatDrawerVM = koinViewModel(key = chatDrawerViewModelKey(conversation.assistantId))
+    androidx.compose.runtime.SideEffect { drawerVm.bindAssistant(conversation.assistantId) }
     val selectedFolderId by drawerVm.selectedFolderId.collectAsStateWithLifecycle()
     LaunchedEffect(selectedFolderId) {
         vm.updateDraftFolder(selectedFolderId)
@@ -431,6 +431,13 @@ private fun ChatPageContent(
                     assistant = assistant,
                     chatModel = currentChatModel,
                     conversation = conversation,
+                    generationActive = loadingJob != null,
+                    hasError = errors.isNotEmpty(),
+                    // 只有"任务没在跑但状态还挂着"才算恢复；OCR / 压缩这类普通进度不算
+                    recovering = orbitRecovering(
+                        hasPendingStatus = processingStatus != null,
+                        generationActive = loadingJob != null,
+                    ),
                     bigScreen = bigScreen,
                     drawerState = drawerState,
                     previewMode = previewMode,
@@ -661,6 +668,9 @@ private fun TopBar(
     onNewChat: () -> Unit,
     onUpdateTitle: (String) -> Unit,
     onHeaderExpandedChange: (Boolean) -> Unit,
+    generationActive: Boolean = false,
+    hasError: Boolean = false,
+    recovering: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
     val toaster = LocalToaster.current
@@ -677,6 +687,9 @@ private fun TopBar(
     // 标题栏本身按风格换形态；抽屉、编辑标题、用量、预览、新会话这些回调三套共用
     ChatStyleHeader(
         spec = styleSpec,
+        generationActive = generationActive,
+        hasError = hasError,
+        recovering = recovering,
         settings = settings,
         conversation = conversation,
         chatModel = chatModel,

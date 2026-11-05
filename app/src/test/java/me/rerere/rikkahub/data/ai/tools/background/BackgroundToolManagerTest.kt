@@ -1,13 +1,18 @@
 package me.rerere.rikkahub.data.ai.tools.background
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -28,6 +33,7 @@ import java.util.Collections
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.CoroutineContext
 import kotlin.uuid.Uuid
 
 /**
@@ -238,5 +244,119 @@ class BackgroundToolManagerTest {
         assertEquals(BackgroundToolStatus.COMPLETED, task.status)
         assertNotNull(task.persistenceError)
         assertTrue(task.persistenceError!!.contains("persistence failed"))
+    }
+
+    /**
+     * 取消的是**这条后台任务**，不是等它的调用方。
+     *
+     * 以前把 CancellationException 塞进 completion，前台 `getOrThrow()` 一抛，
+     * 共用同一个 job 的整轮对话就被判成"用户停止了生成"——一条命令行超时被 cancel 就把对话打断了。
+     */
+    @Test
+    fun cancellingTheTaskDoesNotCancelTheForegroundCaller() {
+        val started = CompletableDeferred<Unit>()
+        val slow = tool {
+            started.complete(Unit)
+            awaitCancellation()
+        }
+
+        val output = runBlocking {
+            val call = async { manager.execute(slow, args, owner, waitMillis = 5_000) }
+            started.await()
+            val task = manager.list(owner).single()
+            assertTrue(manager.cancel(task.id, owner))
+            val result = call.await()
+            // 调用方自己必须还活着：这里再检查一次当前协程没被取消
+            currentCoroutineContext().ensureActive()
+            result
+        }
+
+        val text = (output.single() as UIMessagePart.Text).text
+        assertTrue(text, text.contains("\"status\":\"cancelled\""))
+        assertTrue(text, text.contains("\"cancelled\":true"))
+        val task = manager.list(owner).single()
+        assertTrue(text, text.contains(task.id))
+        assertEquals(BackgroundToolStatus.CANCELLED, task.status)
+    }
+
+    /**
+     * 任务在协程体开始之前就被取消：这条 completion 是在 `runWorker` 的 try/catch **之外**
+     * 完成的（`invokeOnCompletion`），必须同样交付普通 Exception，不能漏成 CancellationException。
+     */
+    @Test
+    fun cancelBeforeTheBodyStartsIsAlsoDeliveredAsAToolResult() {
+        val paused = PausedDispatcher()
+        val pausedManager = BackgroundToolManager(root, CoroutineScope(SupervisorJob() + paused))
+        val calls = AtomicInteger()
+        val slow = tool {
+            calls.incrementAndGet()
+            listOf(UIMessagePart.Text("never"))
+        }
+        val output = CompletableDeferred<List<UIMessagePart>>()
+
+        runBlocking {
+            launch(paused) {
+                output.complete(pausedManager.execute(slow, args, owner, waitMillis = 5_000))
+            }
+            paused.drain(1) // 跑到 begin() 之后挂起，工具体还排在队列里没开始
+            val task = pausedManager.list(owner).single()
+            assertEquals(BackgroundToolStatus.RUNNING, task.status)
+            assertTrue(pausedManager.cancel(task.id, owner))
+            paused.drain()
+            val result = withTimeout(5_000) { output.await() }
+            val text = (result.single() as UIMessagePart.Text).text
+            assertTrue(text, text.contains("\"status\":\"cancelled\""))
+            assertTrue(text, text.contains("before execution started"))
+        }
+
+        assertEquals("工具体一次都不该跑", 0, calls.get())
+        val task = pausedManager.list(owner).single()
+        assertEquals(BackgroundToolStatus.CANCELLED, task.status)
+        assertFalse(task.isDetached)
+    }
+
+    /** 调用方自己被取消时，取消必须原样上抛（不能被翻译成一条普通工具结果）。 */
+    @Test
+    fun callerCancellationStillPropagatesAndCancelsTheNotYetBackgroundedTask() {
+        val started = CompletableDeferred<Unit>()
+        val stopped = AtomicBoolean(false)
+        val slow = tool {
+            started.complete(Unit)
+            try {
+                awaitCancellation()
+            } finally {
+                stopped.set(true)
+            }
+        }
+
+        runBlocking {
+            val call = async { manager.execute(slow, args, owner, waitMillis = 5_000) }
+            started.await()
+            call.cancel()
+            val failure = runCatching { call.await() }.exceptionOrNull()
+            assertTrue(
+                "调用方取消必须上抛 CancellationException，而不是被翻译成 UI 文本：$failure",
+                failure is CancellationException,
+            )
+            awaitUntil { stopped.get() && manager.list(owner).singleOrNull()?.isFinished == true }
+        }
+        assertEquals(BackgroundToolStatus.CANCELLED, manager.list(owner).single().status)
+    }
+}
+
+/** 手动泵的调度器：把派发动作扣在队列里，用来稳定制造「协程体还没开始」的窗口。 */
+private class PausedDispatcher : CoroutineDispatcher() {
+    private val queued = ArrayDeque<Runnable>()
+
+    override fun dispatch(context: CoroutineContext, block: Runnable) {
+        synchronized(queued) { queued.addLast(block) }
+    }
+
+    fun drain(max: Int = Int.MAX_VALUE) {
+        var remaining = max
+        while (remaining-- > 0) {
+            val next = synchronized(queued) { if (queued.isEmpty()) null else queued.removeFirst() } ?: return
+            next.run()
+        }
     }
 }

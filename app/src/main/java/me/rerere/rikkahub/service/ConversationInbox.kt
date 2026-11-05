@@ -49,6 +49,8 @@ data class QueuedNotice(
     override val id: Uuid = Uuid.random(),
     val key: String,
     val notice: UIMessagePart.Notice,
+    /** Passive tool completions are consumed by an existing/user-started turn, never start one. */
+    val wakeOnArrival: Boolean = true,
 ) : InboxItem
 
 /**
@@ -74,6 +76,7 @@ data class InboxState(
      */
     val inFlight: QueuedMessage? = null,
     val ownerAssistantId: Uuid? = null,
+    val mutedNoticeKeys: Set<String> = emptySet(),
 ) {
     val messages: List<QueuedMessage> get() = items.filterIsInstance<QueuedMessage>()
     val notices: List<QueuedNotice> get() = items.filterIsInstance<QueuedNotice>()
@@ -118,10 +121,15 @@ class MessageQueuePausedException : IllegalStateException()
  * 写失败直接抛给调用方、内存和回执都保持原样。进程被杀以后 [restore] 把没确认的那一条
  * 放回队首继续发，队列不会因为崩溃丢掉用户输入。
  *
+ * 两个例外，都是为了「内存不能落在数据库后面」：[pause] 落盘失败也照样在内存里暂停，
+ * [migrateOwner] 落盘失败也照样切换 owner（异常仍然抛出），两种情况下磁盘内容由下一次
+ * 成功的写入补齐。
+ *
  * 不传 [storage] 时行为和以前完全一样：纯内存、出队即移除、没有 inFlight 牵制。
  */
 class ConversationInbox(
     private val storage: ConversationInboxStorage? = null,
+    private val onPersistenceFailure: (Throwable) -> Unit = {},
 ) {
     private val mutableState = MutableStateFlow(InboxState())
     val state = mutableState.asStateFlow()
@@ -156,6 +164,7 @@ class ConversationInbox(
             pauseReason = if (current.paused) current.pauseReason else if (wasEditing) InboxPauseReason.USER else stored.pauseReason,
             inFlight = current.inFlight,
             ownerAssistantId = current.ownerAssistantId ?: stored.ownerAssistantId,
+            mutedNoticeKeys = stored.mutedNoticeKeys + current.mutedNoticeKeys,
         ).normalized()
         mutableState.value = next
         restored = true
@@ -206,16 +215,17 @@ class ConversationInbox(
 
     /** 放入一条通知；同一来源已有没发出的通知时原地替换 */
     @Synchronized
-    fun post(key: String, notice: UIMessagePart.Notice): QueuedNotice? {
+    fun post(key: String, notice: UIMessagePart.Notice, wakeOnArrival: Boolean = true): QueuedNotice? {
         restore()
         val current = mutableState.value
+        if (key in current.mutedNoticeKeys) return null
         val index = current.items.indexOfFirst { it is QueuedNotice && it.key == key }
         val next = if (index == -1) {
-            current.copy(items = current.items + QueuedNotice(key = key, notice = notice))
+            current.copy(items = current.items + QueuedNotice(key = key, notice = notice, wakeOnArrival = wakeOnArrival))
         } else {
             current.copy(
                 items = current.items.toMutableList()
-                    .apply { set(index, (get(index) as QueuedNotice).copy(notice = notice)) },
+                    .apply { set(index, (get(index) as QueuedNotice).copy(notice = notice, wakeOnArrival = wakeOnArrival)) },
             )
         }
         commit(next)
@@ -260,7 +270,7 @@ class ConversationInbox(
             }
             return InboxTurn.Message(head)
         }
-        return InboxTurn.Notices.takeIf { current.notices.isNotEmpty() }
+        return InboxTurn.Notices.takeIf { current.notices.any { it.wakeOnArrival } }
     }
 
     /** 取出全部通知，按放入顺序；不受暂停影响 */
@@ -272,6 +282,41 @@ class ConversationInbox(
         if (notices.isEmpty()) return emptyList()
         commit(current.copy(items = current.items.filterNot { it is QueuedNotice }))
         return notices.map { it.notice }
+    }
+
+    /**
+     * 当前待发通知的快照，按放入顺序，**不删除任何东西**（[restore] 之后的状态）。
+     *
+     * 给「通知先被模型消费、之后才确认」的路径用：调用方拿这份快照把通知塞进会话并 flush，
+     * 成功后再用同一份快照调 [acknowledgeNotices]。中途失败或进程被杀，通知都还在队列里，
+     * 重启后 [restore] 会把它放回队首重发，不会因为「已经出队」而丢掉结果。
+     */
+    @Synchronized
+    fun peekNotices(): List<QueuedNotice> {
+        restore()
+        return mutableState.value.notices
+    }
+
+    /**
+     * 交付确认：只移除仍然与 [delivered] 里那条**完全相等**的通知。
+     *
+     * 用整条 [QueuedNotice] 判等（含 id、key、内容、唤醒标记）而不是按 key/id 匹配：
+     * 交付期间同一来源又 [post] 了新内容时，那条已经是新版本、还没被模型看见，
+     * 不能被旧快照顺带删掉，继续留在队列里等下一轮。已 [withdraw] 或已交付的条目
+     * 因为不在队列里，匹配不到就什么都不做，重复确认是安全的。
+     *
+     * 落盘失败时抛给调用方，内存和磁盘都保持原状（通知仍在队列里），
+     * 不会出现「内存说已确认、磁盘还留着」的半截状态。
+     */
+    @Synchronized
+    fun acknowledgeNotices(delivered: List<QueuedNotice>) {
+        restore()
+        if (delivered.isEmpty()) return
+        val targets = delivered.toSet()
+        val current = mutableState.value
+        val remaining = current.items.filterNot { it is QueuedNotice && it in targets }
+        if (remaining.size == current.items.size) return
+        commit(current.copy(items = remaining))
     }
 
     /**
@@ -361,11 +406,27 @@ class ConversationInbox(
      */
     @Synchronized
     fun pause(reason: InboxPauseReason = InboxPauseReason.ERROR) {
-        restore()
+        val readable = try {
+            restore()
+            true
+        } catch (e: Exception) {
+            // A corrupt/unreadable queue must not crash a generation completion callback or be overwritten.
+            runCatching { onPersistenceFailure(e) }
+            false
+        }
         val current = mutableState.value
         val nextReason = stickyReason(current, reason)
         if (!current.paused || current.pauseReason != nextReason) {
-            commit(current.copy(paused = true, pauseReason = nextReason))
+            val next = current.copy(paused = true, pauseReason = nextReason)
+            try {
+                if (readable) commit(next) else mutableState.value = next
+            } catch (e: Exception) {
+                runCatching { onPersistenceFailure(e) }
+                // 暂停是「停下来」的开关：写盘失败也必须在内存里生效，否则这一轮结束后队列会
+                // 继续把用户刚停掉的输入发出去。这条路径从生成任务的完成回调里进来，让异常
+                // 冒出去会变成未捕获异常；磁盘上的暂停标记由下一次成功的写入补上。
+                mutableState.value = next
+            }
         }
         mutableState.value.messages.forEach {
             it.reply?.completeExceptionally(MessageQueuePausedException())
@@ -408,10 +469,43 @@ class ConversationInbox(
         restore()
         val current = state.value
         if (current.ownerAssistantId == assistantId) return
-        check(current.ownerAssistantId == null || (current.items.isEmpty() && current.inFlight == null)) {
+        check(current.ownerAssistantId == null || (current.messages.isEmpty() && current.inFlight == null)) {
             "Pending input still belongs to another assistant"
         }
-        commit(current.copy(ownerAssistantId = assistantId))
+        if (current.ownerAssistantId != null) {
+            migrateOwner(assistantId)
+        } else {
+            commit(current.copy(ownerAssistantId = assistantId))
+        }
+    }
+
+    /**
+     * User-confirmed ownership transfer never carries the old assistant's queued notices.
+     *
+     * 调用这个的时候数据库里的 owner 已经换掉了（调用方先落库再改内存），所以内存里的 owner
+     * 必须跟着换：落盘失败只该丢掉「旧通知已作废」这份记录，不能让内存停在旧 owner 上，
+     * 否则下一次 dispatch 会把旧助手的通知当成新助手的输入发出去。写失败时内存照旧切换到
+     * 新状态，异常继续抛给调用方，下一次成功的写入会把整份新状态补上。
+     */
+    @Synchronized
+    fun migrateOwner(assistantId: Uuid, previousNoticeKeys: Set<String> = emptySet()) {
+        restore()
+        val current = state.value
+        check(current.messages.isEmpty() && current.inFlight == null) {
+            "Pending messages must be handled before moving the conversation"
+        }
+        val next = InboxState(
+            ownerAssistantId = assistantId,
+            mutedNoticeKeys = (current.mutedNoticeKeys + previousNoticeKeys + current.notices.map { it.key })
+                .takeLastSet(MUTED_NOTICE_KEY_LIMIT),
+        )
+        try {
+            commit(next)
+        } catch (e: Exception) {
+            // 数据库里已经是新助手了：内存跟着换，落盘留给下一次写入
+            mutableState.value = next
+            throw e
+        }
     }
 
     /** 先把新状态落盘，写成功才发布；写失败时内存保持旧状态，异常交给调用方 */
@@ -433,3 +527,8 @@ class ConversationInbox(
         }
     }
 }
+
+private fun Set<String>.takeLastSet(limit: Int): Set<String> = if (size <= limit) this else toList().takeLast(limit).toSet()
+
+/** 静音键的上限：迁移过的旧任务不会再回来，超出的最老的键可以安全丢掉 */
+private const val MUTED_NOTICE_KEY_LIMIT = 512

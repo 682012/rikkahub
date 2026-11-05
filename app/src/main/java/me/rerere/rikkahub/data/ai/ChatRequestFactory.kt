@@ -2,6 +2,8 @@ package me.rerere.rikkahub.data.ai
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.CancellationException
+import me.rerere.rikkahub.data.ai.learning.AssistantLearningRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import me.rerere.ai.agent.AgentHooks
 import me.rerere.ai.agent.AgentRequest
@@ -75,7 +77,11 @@ class ChatTurnContext(
     val workspaceCwd: String?,
     val memories: List<MemoryFile>,
     val tools: List<Tool>,
-)
+    val learningPrompt: String = "",
+) {
+    // The memory snapshot is fixed for this turn; avoid rebuilding it on every tool step.
+    val memoryPrompt: String by lazy { if (assistant.enableMemory) buildMemoryPrompt(memories) else "" }
+}
 
 /** 把会话变成发给模型的请求：系统提示词、上下文裁剪、输入输出转换都在这里 */
 class ChatRequestFactory(
@@ -84,6 +90,7 @@ class ChatRequestFactory(
     private val usageRecorder: UsageRecorder,
     private val chatToolFactory: ChatToolFactory,
     private val memoryRepository: MemoryRepository,
+    private val learningRepository: AssistantLearningRepository,
     templateTransformer: TemplateTransformer,
     workspaceRepository: WorkspaceRepository,
     okHttpClient: okhttp3.OkHttpClient,
@@ -133,6 +140,9 @@ class ChatRequestFactory(
         modelOverride: Model? = null,
     ): ChatTurnContext {
         // 模型、思考级别、搜索、工具等以会话上固定的配置为准；modelOverride 只给压缩这类旁路请求单独指定模型
+        check(settings.assistants.any { it.id == conversation.assistantId }) {
+            context.getString(R.string.r21_assistant_missing)
+        }
         val assistant = settings.getAssistantOf(conversation)
         val model = modelOverride ?: settings.getChatModelOf(conversation)
             ?: throw IllegalStateException("No chat model selected")
@@ -146,6 +156,14 @@ class ChatRequestFactory(
             conversationSystemPrompt = conversation.customSystemPrompt,
             workspaceCwd = conversation.workspaceCwd,
             memories = if (assistant.enableMemory) memoryRepository.getFiles(assistant.memoryId) else emptyList(),
+            learningPrompt = if (modelOverride != null) "" else try {
+                learningRepository.buildPrompt(learningRepository.snapshot(assistant.id.toString()), model.id.toString())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Learning unavailable; continuing without experience hints", e)
+                ""
+            },
             // 压缩这类旁路请求只需要文本，指定了单独模型时不带工具，
             // 避免不支持工具调用的上游直接拒绝请求
             tools = if (modelOverride != null || (provider is ProviderSetting.WebAccount && !provider.toolBridgeEnabled)) {
@@ -367,7 +385,8 @@ class ChatRequestFactory(
             turn.conversationSystemPrompt else assistant.systemPrompt
         val sections = buildList {
             add("主提示词" to effective)
-            if (assistant.enableMemory) add("记忆" to buildMemoryPrompt(turn.memories))
+            if (assistant.enableMemory) add("记忆" to turn.memoryPrompt)
+            if (turn.learningPrompt.isNotBlank()) add("经验学习" to turn.learningPrompt)
             tools.forEach { tool ->
                 val guidance = tool.systemPrompt(turn.model, messages)
                 if (guidance.isNotBlank()) add("工具 · ${tool.name}" to guidance)

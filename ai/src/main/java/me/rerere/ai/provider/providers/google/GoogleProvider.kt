@@ -56,6 +56,7 @@ import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
+import me.rerere.ai.util.HttpException
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.configureSessionHeaders
@@ -65,6 +66,7 @@ import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.mergeCustomHeaders
 import me.rerere.ai.util.removeElements
 import me.rerere.ai.util.stringSafe
+import me.rerere.ai.util.withStatusCode
 import me.rerere.common.http.await
 import me.rerere.common.http.jsonPrimitiveOrNull
 import me.rerere.common.http.sse.newEventSource
@@ -209,7 +211,10 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
 
         val response = client.newCall(request).await()
         if (!response.isSuccessful) {
-            throw Exception("Failed to get response: ${response.code} ${response.body?.string()}")
+            throw HttpException(
+                message = "Failed to get response: ${response.code} ${response.body?.string()}",
+                statusCode = response.code,
+            )
         }
 
         val bodyStr = response.body?.string() ?: ""
@@ -308,24 +313,22 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
                 println("[onFailure] 发生错误: ${t?.message}")
 
                 try {
-                    if (t == null && response != null) {
+                    // 只要有真实响应码就带上：body 是 HTML（CDN/代理的 502 页）、空 body、
+                    // 甚至 JSON 解析失败时，都不能把响应码丢掉——重试层只认这个码。
+                    if (response != null) {
                         val bodyStr = response.body.stringSafe()
-                        if (!bodyStr.isNullOrEmpty()) {
-                            val bodyElement = json.parseToJsonElement(bodyStr)
-                            println(bodyElement)
-                            if (bodyElement is JsonObject) {
-                                exception = Exception(
-                                    bodyElement["error"]?.jsonObject?.get("message")?.jsonPrimitive?.content
-                                        ?: "unknown"
-                                )
-                            }
-                        } else {
-                            exception = Exception("Unknown error: ${response.code}")
-                        }
+                        val messagePart = runCatching {
+                            (json.parseToJsonElement(bodyStr.orEmpty()) as? JsonObject)
+                                ?.get("error")?.jsonObject?.get("message")
+                                ?.jsonPrimitive?.content
+                        }.getOrNull()
+                        exception = HttpException(
+                            message = messagePart ?: "Unknown error: ${response.code}",
+                            statusCode = response.code,
+                        ).withStatusCode(response.code, cause = t)
                     }
                 } catch (e: Throwable) {
                     e.printStackTrace()
-                    exception = e
                 } finally {
                     close(exception ?: Exception("Stream failed"))
                 }

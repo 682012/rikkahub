@@ -31,6 +31,7 @@ import kotlinx.coroutines.withContext
 import me.rerere.ai.agent.AgentEvent
 import me.rerere.ai.agent.AgentFinishReason
 import me.rerere.ai.agent.RetryAttempt
+import me.rerere.ai.agent.httpStatusOf
 import me.rerere.rikkahub.data.ai.retryPolicy
 import me.rerere.common.http.NetworkHandover
 import me.rerere.ai.agent.runAgent
@@ -44,6 +45,8 @@ import me.rerere.ai.ui.isEmptyInputMessage
 import me.rerere.common.android.Logging
 import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.LearningTurnMetrics
+import me.rerere.rikkahub.data.ai.learning.AssistantLearningRepository
 import me.rerere.rikkahub.data.ai.ChatRequestFactory
 import me.rerere.rikkahub.data.ai.ChatTurnContext
 import me.rerere.rikkahub.data.ai.ConversationMetaGenerator
@@ -75,6 +78,8 @@ import me.rerere.rikkahub.data.model.fillModelSnapshots
 import me.rerere.rikkahub.data.model.fork
 import me.rerere.rikkahub.data.model.getAssistantOf
 import me.rerere.rikkahub.data.model.getChatModelOf
+import me.rerere.rikkahub.data.model.migrateToAssistant
+import me.rerere.rikkahub.data.ai.tools.background.BackgroundToolOwner
 import me.rerere.rikkahub.data.model.getStoredAssistantOf
 import me.rerere.rikkahub.data.model.insertContextCheckpoint
 import me.rerere.rikkahub.data.model.isMateriallyNewContext
@@ -145,6 +150,7 @@ class ChatService(
     private val settingsStore: SettingsStore,
     private val conversationRepo: ConversationRepository,
     private val requestFactory: ChatRequestFactory,
+    private val learningRepository: AssistantLearningRepository,
     private val memoryConsolidationScheduler: MemoryConsolidationScheduler,
     private val translationHandler: TranslationHandler,
     private val metaGenerator: ConversationMetaGenerator,
@@ -185,6 +191,63 @@ class ChatService(
 
     private val inboxDirectory = File(context.filesDir, "conversation-inbox")
     private val reconnectTickets = ConcurrentHashMap<Uuid, ChatReconnectTicket>()
+    private val recoveryLedger = ChatRecoveryLedger(clock = SystemClock::elapsedRealtime)
+    private val recoveryJobs = ConcurrentHashMap<Uuid, Job>()
+
+    private fun clearRecovery(id: Uuid) {
+        reconnectTickets.remove(id)
+        recoveryJobs.remove(id)?.cancel()
+        recoveryLedger.clear(id)
+        appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(id, "", ""))
+    }
+
+    private fun scheduleRecovery(session: ConversationSession, ticket: ChatReconnectTicket, sender: String) {
+        val wait = settingsStore.settingsFlow.value.retryPolicy().delayFor(recoveryLedger.attempts(session.id))
+        session.processingStatus.value = context.getString(R.string.r21_recovery_scheduled, wait.inWholeSeconds)
+        appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(session.id, sender, session.processingStatus.value.orEmpty()))
+        val job = appScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+            delay(wait)
+            if (reconnectTickets[session.id] !== ticket) return@launch
+            // Timed retry also works when the network stays on the same route (timeout/5xx/half stream).
+            try {
+                tryReconnect(session, timed = true)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                synchronized(session) {
+                    if (reconnectTickets[session.id] === ticket) {
+                        clearRecovery(session.id)
+                        session.awaitingNetworkRecovery = false
+                        session.processingStatus.value = null
+                        session.inbox.pause(InboxPauseReason.ERROR)
+                        addError(e, session.id)
+                        appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(session.id, sender,
+                            context.getString(R.string.r21_recovery_stopped), terminal = true))
+                        session.scheduleIdleCheck()
+                    }
+                }
+                return@launch
+            }
+            if (reconnectTickets[session.id] !== ticket) return@launch
+            delay((ChatAutoRecovery.TICKET_TTL_MS - wait.inWholeMilliseconds).coerceAtLeast(0L))
+            synchronized(session) {
+                if (reconnectTickets[session.id] === ticket) {
+                    reconnectTickets.remove(session.id)
+                    recoveryLedger.clear(session.id)
+                    session.awaitingNetworkRecovery = false
+                    session.processingStatus.value = null
+                    session.inbox.pause(InboxPauseReason.ERROR)
+                    addError(IllegalStateException(context.getString(R.string.r21_recovery_timeout)), session.id)
+                    appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(session.id, sender,
+                        context.getString(R.string.r21_recovery_timeout), terminal = true))
+                    session.scheduleIdleCheck()
+                }
+            }
+        }
+        recoveryJobs.put(session.id, job)?.cancel()
+        job.invokeOnCompletion { recoveryJobs.remove(session.id, job) }
+        job.start()
+    }
 
     private val sessionManager = ConversationSessionManager(
         scope = appScope,
@@ -193,8 +256,17 @@ class ChatService(
             Conversation.ofId(id, assistantId = settingsStore.settingsFlow.value.getCurrentAssistant().id)
         },
         onGenerationFinished = ::onSessionGenerationFinished,
-        onSessionRemoved = memoryConsolidationScheduler::onConversationLeft,
-        createInbox = { id -> ConversationInbox(FileConversationInboxStorage(inboxDirectory, id)) },
+        onSessionRemoved = { id ->
+            clearRecovery(id)
+            lastStreamPersistAt.remove(id)
+            memoryConsolidationScheduler.onConversationLeft(id)
+        },
+        createInbox = { id ->
+            ConversationInbox(FileConversationInboxStorage(inboxDirectory, id), onPersistenceFailure = { error ->
+                Log.w(TAG, "Queue pause could not be saved for $id", error)
+                addError(error, id)
+            })
+        },
     )
 
     // 流式生成期间定期落库，进程被强杀时最多丢最近一次落库之后的内容
@@ -231,19 +303,19 @@ class ChatService(
     fun cleanup() = runCatching { sessionManager.cleanup() }
 
     // Background completions are delivered at the next existing model step, never start a turn.
-    private val backgroundToolNotices = java.util.concurrent.ConcurrentHashMap<Uuid, java.util.concurrent.ConcurrentLinkedQueue<UIMessagePart.Notice>>()
 
     init {
         // Queue completion notices only. An idle parent does not incur an unsolicited model request.
         subagentRunner.noticeSink = { event ->
-            sessionManager.getOrCreate(event.conversationId).inbox.post(event.key, event.notice)
+            val session = sessionManager.getOrCreate(event.conversationId)
+            synchronized(session) {
+                if (!session.isChangingOwner) session.inbox.post(event.key, event.notice, wakeOnArrival = false)
+            }
         }
         backgroundToolManager.noticeSink = { event ->
-            backgroundToolNotices.computeIfAbsent(event.conversationId) {
-                java.util.concurrent.ConcurrentLinkedQueue()
-            }.apply {
-                add(event.notice)
-                while (size > 64) poll()
+            val session = sessionManager.getOrCreate(event.conversationId)
+            synchronized(session) {
+                if (!session.isChangingOwner) session.inbox.post(event.key, event.notice, wakeOnArrival = false)
             }
         }
         appScope.launch {
@@ -368,7 +440,9 @@ class ChatService(
 
     suspend fun initializeConversation(conversationId: Uuid) {
         withLoadedSession(conversationId) { session ->
-            settingsStore.selectAssistant(session.state.value.assistantId)
+            if (settingsStore.awaitLoaded().assistants.any { it.id == session.state.value.assistantId }) {
+                settingsStore.selectAssistant(session.state.value.assistantId)
+            }
         }
     }
 
@@ -377,6 +451,7 @@ class ChatService(
             load = { loadConversation(session.id) },
             create = { newConversation(session.id, session.inbox.state.value.ownerAssistantId ?: session.state.value.assistantId) },
         )
+        session.inbox.bindOwner(session.state.value.assistantId)
     }
 
     /** 持有会话引用并确保已加载后执行 [block]；[createIfMissing] 为 false 时数据库里没有就抛 NotFoundException */
@@ -392,6 +467,7 @@ class ChatService(
                 newConversation(conversationId, session.inbox.state.value.ownerAssistantId ?: session.state.value.assistantId)
             },
         )
+        session.inbox.bindOwner(session.state.value.assistantId)
         block(session)
     }
 
@@ -423,7 +499,11 @@ class ChatService(
      */
     private suspend fun mutate(conversationId: Uuid, transform: (Conversation) -> Conversation): Conversation =
         withLoadedSession(conversationId) { session ->
-            session.update(transform)
+            val updated = session.tryUpdate(transform)
+            if (updated == null) {
+                addError(IllegalStateException(context.getString(R.string.r21_assistant_busy)), conversationId)
+                return@withLoadedSession session.state.value
+            }
             session.flush().also { dispatchInbox(conversationId) }
         }
 
@@ -521,19 +601,28 @@ class ChatService(
         appScope.launch(Dispatchers.IO) {
             var acceptedByQueue = false
             try {
-                val session = sessionManager.getOrCreate(conversationId)
-                session.inbox.restore()
-                session.inbox.bindOwner(assistantId ?: session.state.value.assistantId)
-                ensureInitialized(session)
-                synchronized(session) {
-                    reconnectTickets.remove(conversationId)
-                    session.awaitingNetworkRecovery = false
-                    // Sending a new user message is explicit permission to continue an old paused queue.
-                    session.inbox.resume()
-                    val queued = session.inbox.enqueue(parts, answer, persisted = CompletableDeferred())
-                    acceptedByQueue = queued != null
-                    accepted.complete(acceptedByQueue)
-                    dispatchInbox(conversationId)
+                sessionManager.withSession(conversationId) { session ->
+                    session.inbox.restore()
+                    // Only a brand-new draft may acquire its first owner from the sender.
+                    if (!session.isInitialized && !conversationRepo.existsConversationById(conversationId)) {
+                        session.inbox.bindOwner(assistantId ?: session.state.value.assistantId)
+                    }
+                    ensureInitialized(session)
+                    synchronized(session) {
+                        check(!session.isChangingOwner) { context.getString(R.string.r21_assistant_busy) }
+                        check(assistantId == null || assistantId == session.state.value.assistantId) {
+                            context.getString(R.string.r21_assistant_changed)
+                        }
+                        session.inbox.bindOwner(session.state.value.assistantId)
+                        clearRecovery(conversationId)
+                        session.awaitingNetworkRecovery = false
+                        // Sending a new user message is explicit permission to continue an old paused queue.
+                        session.inbox.resume()
+                        val queued = session.inbox.enqueue(parts, answer, persisted = CompletableDeferred())
+                        acceptedByQueue = queued != null
+                        accepted.complete(acceptedByQueue)
+                        dispatchInbox(conversationId)
+                    }
                 }
             } catch (e: Exception) {
                 accepted.complete(false)
@@ -550,6 +639,7 @@ class ChatService(
         val session = sessionManager.getOrCreate(conversationId)
         val reply = CompletableDeferred<String?>()
         synchronized(session) {
+            check(!session.isChangingOwner) { context.getString(R.string.r21_assistant_busy) }
             check(text.isNotBlank()) { context.getString(R.string.chat_page_voice_empty) }
             check(!session.inbox.state.value.paused || session.inbox.state.value.messages.isEmpty()) {
                 context.getString(R.string.chat_page_voice_resume_queue)
@@ -557,6 +647,9 @@ class ChatService(
             check(!session.state.value.isAwaitingToolApproval) {
                 context.getString(R.string.chat_page_voice_tools_before_resume)
             }
+            clearRecovery(conversationId)
+            session.awaitingNetworkRecovery = false
+            session.processingStatus.value = null
             if (session.inbox.state.value.messages.isEmpty()) session.inbox.resume()
             session.inbox.enqueue(listOf(UIMessagePart.Text(text)), reply = reply)
             dispatchInbox(conversationId)
@@ -566,11 +659,13 @@ class ChatService(
 
     /**
      * 放入一条运行时通知，例如后台命令结束。
-     * 正在生成时这一轮在下一步请求模型前取走；空闲时主动开一轮，不用等用户再发消息。
+     * 在已有轮次的下一步或用户下次发送时取走；后台完成不能自行触发计费轮次。
      */
     fun postNotice(conversationId: Uuid, key: String, notice: UIMessagePart.Notice) {
-        sessionManager.getOrCreate(conversationId).inbox.post(key, notice)
-        dispatchInbox(conversationId)
+        val session = sessionManager.getOrCreate(conversationId)
+        synchronized(session) {
+            if (!session.isChangingOwner) session.inbox.post(key, notice, wakeOnArrival = false)
+        }
     }
 
     /** 会话空闲时从收件箱开始下一轮：先发用户输入，只剩通知时单独开一轮 */
@@ -579,7 +674,7 @@ class ChatService(
         synchronized(session) {
             // A pending tool approval is still part of the current turn.
             if (session.getJob() != null || session.state.value.isAwaitingToolApproval) return null
-            if (session.awaitingNetworkRecovery) return null
+            if (session.awaitingNetworkRecovery || session.isChangingOwner) return null
             if (!networkHandover.state.value.available && settingsStore.settingsFlow.value.retryPolicy().maxRetries > 0) {
                 session.inbox.pause(InboxPauseReason.NETWORK)
                 session.processingStatus.value = context.getString(R.string.r18_waiting_network)
@@ -690,15 +785,19 @@ class ChatService(
                 )
                 // 加载前不知道是否在等审批；审批后执行完工具，这一轮会自己取走通知
                 if (session.state.value.isAwaitingToolApproval) return@launchGenerationJob
-                val notices = session.inbox.takeNotices()
-                if (notices.isEmpty()) return@launchGenerationJob
-                session.update {
-                    it.copy(
-                        messageNodes = it.messageNodes +
-                            UIMessage(role = MessageRole.ASSISTANT, parts = notices).toMessageNode(),
-                    )
+                val queued = session.inbox.peekNotices()
+                if (queued.isEmpty()) return@launchGenerationJob
+                val fresh = queued.filterNot { it.isDeliveredIn(session.state.value.currentMessages) }
+                if (fresh.isNotEmpty()) {
+                    session.update {
+                        it.copy(messageNodes = it.messageNodes + UIMessage(
+                            role = MessageRole.ASSISTANT, parts = fresh.map { item -> item.toDeliveryPart() },
+                        ).toMessageNode())
+                    }
+                    session.flush()
                 }
-                session.flush()
+                session.inbox.acknowledgeNotices(queued)
+                if (fresh.isEmpty()) return@launchGenerationJob
                 runTurn(session)
                 _generationDoneFlow.emit(conversationId)
             } catch (e: NotFoundException) {
@@ -715,7 +814,12 @@ class ChatService(
     // 发送、重新生成和审批失败时报告错误并暂停队列，排队的消息等用户处理完再继续
     private fun reportFailure(session: ConversationSession, error: Exception, @StringRes title: Int) {
         if (error is CancellationException) throw error
+        clearRecovery(session.id)
+        session.awaitingNetworkRecovery = false
+        session.processingStatus.value = null
         session.inbox.pause()
+        appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(session.id, "",
+            context.getString(R.string.r21_recovery_stopped), terminal = true))
         addError(error, session.id, title = context.getString(title))
     }
 
@@ -725,6 +829,12 @@ class ChatService(
     fun regenerateAtMessage(conversationId: Uuid, messageId: Uuid) {
         val session = sessionManager.getOrCreate(conversationId)
         synchronized(session) {
+            if (session.isChangingOwner) {
+                addError(IllegalStateException(context.getString(R.string.r21_assistant_busy)), conversationId)
+                return
+            }
+            clearRecovery(conversationId)
+            session.awaitingNetworkRecovery = false
             val previousJob = session.getJob()
             val job = launchGenerationJob(conversationId = conversationId) {
                 try {
@@ -744,6 +854,9 @@ class ChatService(
                         session.flush()
                         runTurn(session)
                     } else {
+                        try { learningRepository.markRegenerated(session.state.value.assistantId.toString(), messageId.toString()) }
+                        catch (e: CancellationException) { throw e }
+                        catch (e: Exception) { Log.w(TAG, "Could not record regeneration", e) }
                         runTurn(session, regenerateNodeId = node.id)
                     }
 
@@ -768,6 +881,10 @@ class ChatService(
     ) {
         val session = sessionManager.getOrCreate(conversationId)
         synchronized(session) {
+            if (session.isChangingOwner) {
+                addError(IllegalStateException(context.getString(R.string.r21_assistant_busy)), conversationId)
+                return
+            }
             val previousJob = session.getJob()
 
             val hasOtherPendingTools = session.state.value.currentMessages.any { message ->
@@ -793,6 +910,8 @@ class ChatService(
 
                         // Only continue generation when all pending tools are handled
                         if (!updated.isAwaitingToolApproval) {
+                            clearRecovery(conversationId)
+                            session.awaitingNetworkRecovery = false
                             runTurn(session)
                         }
 
@@ -823,8 +942,15 @@ class ChatService(
         // 生成开始前失败时通知只用来取消 Live Update，用不到发送者名称
         var senderName = ""
         val attemptEpoch = networkHandover.state.value.epoch
+        val generationJob = currentCoroutineContext()[Job]
         var reconnectCheckpoint: ChatReconnectCheckpoint? = null
         var activeReplyNodeId: Uuid? = null
+        var previousReplySelectIndex: Int? = null
+        var learningTurn: ChatTurnContext? = null
+        var retries = 0
+        var recoveryProgressVisible = recoveryLedger.attempts(conversationId) > 0
+        var observedReply: UIMessage? = null
+        var turnFinishReason: AgentFinishReason? = null
         try {
             val settings = settingsStore.awaitLoaded()
             // fork: 上下文到阈值时先插入摘要检查点，不删除历史
@@ -840,6 +966,7 @@ class ChatService(
             }
 
             val nodes = conversation.messageNodes
+            previousReplySelectIndex = regenerateNodeId?.let { id -> nodes.firstOrNull { it.id == id }?.selectIndex }
             val history = if (regenerateNodeId != null) {
                 val index = nodes.indexOfFirst { it.id == regenerateNodeId }
                 check(index != -1) { "Message node $regenerateNodeId not found" }
@@ -859,6 +986,7 @@ class ChatService(
             session.replyMessageId.value = history.lastOrNull()?.takeIf { it.role == MessageRole.ASSISTANT }?.id
 
             val turn = requestFactory.createContext(settings, conversation)
+            learningTurn = turn
             senderName = if (turn.assistant.useAssistantAvatar) {
                 turn.assistant.name.ifEmpty { context.getString(R.string.assistant_page_default_assistant) }
             } else {
@@ -866,15 +994,17 @@ class ChatService(
             }
             warnIfToolsUnavailable(turn, conversationId)
 
+            var pendingNotices = emptyList<QueuedNotice>()
             val (request, hooks) = requestFactory.createAgent(
                 turn = turn,
                 messages = history,
                 processingStatus = session.processingStatus,
                 takePendingParts = {
-                    val queued = backgroundToolNotices[conversationId]
-                    session.inbox.takeNotices() + buildList {
-                        if (queued != null) while (true) add(queued.poll() ?: break)
-                    }
+                    val queued = session.inbox.peekNotices()
+                    val (delivered, fresh) = queued.partition { it.isDeliveredIn(session.state.value.currentMessages) }
+                    session.inbox.acknowledgeNotices(delivered)
+                    pendingNotices = fresh
+                    fresh.map { it.toDeliveryPart() }
                 },
             )
             var finishReason: AgentFinishReason? = null
@@ -883,6 +1013,11 @@ class ChatService(
                 runAgent(request, hooks).flowOn(Dispatchers.IO).collect { event ->
                     when (event) {
                         is AgentEvent.MessageUpdated -> {
+                            observedReply = event.message
+                            if (recoveryProgressVisible) {
+                                appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(conversationId, "", ""))
+                                recoveryProgressVisible = false
+                            }
                             reconnectCheckpoint?.observe(event.message)
                             // 生成过程中只有网络重试的提示会留着，收到新内容说明重试已经成功
                             session.processingStatus.value = null
@@ -894,10 +1029,13 @@ class ChatService(
                                 (tool.startedAt != null && previous?.first != tool.startedAt) ||
                                     (tool.isExecuted && previous?.second != true)
                             }
-                            if (lifecycleChanged) {
+                            if (lifecycleChanged || pendingNotices.isNotEmpty()) {
                                 // Commit start before effects and each completed result without stream throttling.
                                 // AgentLoop waits for this collector, so a killed process cannot silently replay a write.
                                 session.flush()
+                                // Commit notice parts before removing their durable queue entries.
+                                session.inbox.acknowledgeNotices(pendingNotices)
+                                pendingNotices = emptyList()
                                 tools.forEach { tool ->
                                     persistedToolStates[tool.toolCallId] = tool.startedAt to tool.isExecuted
                                 }
@@ -913,13 +1051,18 @@ class ChatService(
                         }
 
                         is AgentEvent.Retrying -> {
+                            retries++
+                            recoveryProgressVisible = true
                             logRetry(event.attempt)
                             session.processingStatus.value = retryStatus(event.attempt)
+                            appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(conversationId, senderName,
+                                retryStatus(event.attempt)))
                         }
 
                         is AgentEvent.Finished -> {
                             Log.i(TAG, "runTurn: finished (${event.reason})")
                             finishReason = event.reason
+                            turnFinishReason = event.reason
                         }
                     }
                 }
@@ -933,8 +1076,9 @@ class ChatService(
                         AppEvent.ChatGenerationEnded(
                             conversationId = conversationId,
                             senderName = senderName,
-                            contentPreview = finished.currentMessages.lastOrNull()
-                                ?.toText()?.take(50)?.trim() ?: "",
+                            contentPreview = if (finishReason == AgentFinishReason.Completed)
+                                finished.currentMessages.lastOrNull()?.toText()?.take(50)?.trim().orEmpty()
+                            else null,
                         )
                     )
                 }
@@ -949,14 +1093,20 @@ class ChatService(
                 sessionManager.launchWithSession(conversationId) { generateSuggestion(conversationId) }
                 if (turn.assistant.enableMemory) memoryConsolidationScheduler.onTurnFinished(session.state.value)
             }
-            reconnectTickets.remove(conversationId)
+            clearRecovery(conversationId)
             session.awaitingNetworkRecovery = false
             return TurnResult.Finished(reason)
         } catch (e: CancellationException) {
+            clearRecovery(conversationId)
+            session.awaitingNetworkRecovery = false
             appEventBus.tryEmit(AppEvent.ChatGenerationEnded(conversationId, senderName, null))
             throw e
         } catch (e: InvalidMcpServerNamesException) {
+            clearRecovery(conversationId)
+            session.awaitingNetworkRecovery = false
             session.inbox.pause()
+            appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(conversationId, senderName,
+                context.getString(R.string.r21_recovery_stopped), terminal = true))
             addError(
                 error = IllegalStateException(
                     context.getString(R.string.error_mcp_invalid_server_name, e.names.joinToString(", "))
@@ -967,35 +1117,73 @@ class ChatService(
         } catch (e: Exception) {
             // 兜底取消 Live Update 通知（生成开始前失败时上面的 finally 不会执行）
             appEventBus.tryEmit(AppEvent.ChatGenerationEnded(conversationId, senderName, null))
-            val retry = settingsStore.settingsFlow.value.retryPolicy()
-            val checkpoint = reconnectCheckpoint
-            val recoverable = retry.maxRetries > 0 && retry.retryOn(e) &&
-                e !is java.io.FileNotFoundException && e !is InboxPersistenceException &&
-                checkpoint?.canResume == true && activeReplyNodeId != null
-            if (recoverable) {
-                val current = session.state.value.currentMessages
-                reconnectTickets[conversationId] = ChatReconnectTicket(
-                    failedEpoch = attemptEpoch, incarnation = session.incarnation,
-                    userMessage = current.lastOrNull { it.role == MessageRole.USER },
-                    replyNodeId = checkNotNull(activeReplyNodeId), checkpoint = checkpoint?.message,
-                    failedTail = current.lastOrNull(),
-                )
-                session.awaitingNetworkRecovery = true
-                session.inbox.pause(InboxPauseReason.NETWORK)
-                session.processingStatus.value = context.getString(R.string.r18_waiting_network)
-            } else session.inbox.pause()
+            synchronized(session) {
+                generationJob?.ensureActive()
+                val retry = settingsStore.settingsFlow.value.retryPolicy()
+                val checkpoint = reconnectCheckpoint
+                val blocker = ChatAutoRecovery.blockReason(e,
+                    httpStatus = httpStatusOf(e),
+                    awaitingApproval = session.state.value.isAwaitingToolApproval,
+                    canResume = checkpoint?.canResume == true)
+                val recoverable = retry.maxRetries > 0 && retry.retryOn(e) && blocker == null &&
+                    activeReplyNodeId != null && recoveryLedger.noteFailure(conversationId, retry.maxRetries)
+                if (recoverable) {
+                    val current = session.state.value.currentMessages
+                    reconnectTickets[conversationId] = ChatReconnectTicket(
+                        failedEpoch = attemptEpoch, incarnation = session.incarnation,
+                        userMessage = current.lastOrNull { it.role == MessageRole.USER },
+                        replyNodeId = checkNotNull(activeReplyNodeId), checkpoint = checkpoint?.message,
+                        failedTail = current.lastOrNull(),
+                        interruptedMessageId = observedReply?.id, regenerateNodeId = regenerateNodeId,
+                        previousSelectIndex = previousReplySelectIndex,
+                    )
+                    session.awaitingNetworkRecovery = true
+                    session.inbox.pause(InboxPauseReason.NETWORK)
+                    scheduleRecovery(session, checkNotNull(reconnectTickets[conversationId]), senderName)
+                } else {
+                    val attempts = recoveryLedger.attempts(conversationId)
+                    val stoppedMessage = when (blocker) {
+                        ChatRecoveryBlocker.AUTH -> context.getString(R.string.r21_recovery_blocked_auth)
+                        ChatRecoveryBlocker.QUOTA -> context.getString(R.string.r21_recovery_blocked_quota)
+                        ChatRecoveryBlocker.REQUEST_FORMAT -> context.getString(R.string.r21_recovery_blocked_request)
+                        ChatRecoveryBlocker.UNKNOWN_SIDE_EFFECT -> context.getString(R.string.r21_recovery_blocked_side_effect)
+                        else -> if (retry.maxRetries > 0 && attempts >= retry.maxRetries)
+                            context.getString(R.string.r21_recovery_gave_up, attempts)
+                        else context.getString(R.string.r21_recovery_stopped)
+                    }
+                    clearRecovery(conversationId)
+                    session.awaitingNetworkRecovery = false
+                    session.inbox.pause()
+                    appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(conversationId, senderName,
+                        stoppedMessage, terminal = true))
+                }
+            }
             e.printStackTrace()
             addError(e, conversationId, title = context.getString(R.string.error_title_generation))
             Logging.log(TAG, "runTurn: $e")
             Logging.log(TAG, e.stackTraceToString())
             return TurnResult.Failed
+        } finally {
+            val owner = learningTurn
+            val reply = observedReply
+            if (owner != null && reply != null && turnFinishReason !is AgentFinishReason.AwaitingApproval) {
+                val metric = LearningTurnMetrics.from(owner.assistant.id, conversationId, owner.model.id,
+                    reply, retries, turnFinishReason)
+                // No model call and no message body is retained. Repository I/O never blocks reply delivery.
+                appScope.launch(Dispatchers.IO) {
+                    try {
+                        learningRepository.recordTurn(owner.assistant.id.toString(), metric)
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) { Log.w(TAG, "Could not record learning metrics", e) }
+                }
+            }
         }
     }
 
-    private fun tryReconnect(session: ConversationSession, force: Boolean = false): Boolean {
+    private fun tryReconnect(session: ConversationSession, force: Boolean = false, timed: Boolean = false): Boolean {
         synchronized(session) {
             val ticket = reconnectTickets[session.id] ?: return false
-            if (session.getJob() != null || session.state.value.isAwaitingToolApproval) return false
+            if (session.getJob() != null || session.state.value.isAwaitingToolApproval || session.isChangingOwner) return false
             val pause = session.inbox.state.value
             if (!force && (pause.pauseReason != InboxPauseReason.NETWORK || !pause.paused)) return false
             val route = networkHandover.state.value
@@ -1003,15 +1191,24 @@ class ChatService(
             val user = current.lastOrNull { it.role == MessageRole.USER }
             val unchanged = session.incarnation == ticket.incarnation && user == ticket.userMessage &&
                 current.lastOrNull() == ticket.failedTail
-            if (!unchanged || settingsStore.settingsFlow.value.retryPolicy().maxRetries <= 0) {
-                reconnectTickets.remove(session.id)
+            val expired = !force && !recoveryLedger.resumeAllowed(session.id)
+            if (!unchanged || settingsStore.settingsFlow.value.retryPolicy().maxRetries <= 0 || expired) {
+                clearRecovery(session.id)
                 session.awaitingNetworkRecovery = false
+                session.processingStatus.value = null
                 session.inbox.pause(InboxPauseReason.ERROR)
+                if (unchanged && expired) {
+                    addError(IllegalStateException(context.getString(R.string.r21_recovery_timeout)), session.id)
+                    appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(session.id, "",
+                        context.getString(R.string.r21_recovery_timeout), terminal = true))
+                }
+                session.scheduleIdleCheck()
                 return false
             }
-            if (!route.available || (!force && !ticket.canResume(route.epoch, true, session.incarnation, user))) return false
+            if (!route.available || (!force && !timed && !ticket.canResume(route.epoch, true, session.incarnation, user))) return false
             session.inbox.resumeAfterNetwork()
             reconnectTickets.remove(session.id)
+            recoveryJobs.remove(session.id)?.cancel()
             session.awaitingNetworkRecovery = false
             val job = launchGenerationJob(conversationId = session.id) {
                 try {
@@ -1019,17 +1216,17 @@ class ChatService(
                     session.update { conversation ->
                         conversation.copy(messageNodes = conversation.messageNodes.mapNotNull { node ->
                             if (node.id != ticket.replyNodeId) return@mapNotNull node
-                            val retained = node.messages.mapNotNull { message ->
-                                if (message.id == ticket.failedTail?.id) ticket.checkpoint else message
-                            }
+                            val retained = ticket.restoreReplyVariants(node.messages)
                             if (retained.isEmpty()) null else node.copy(messages = retained,
-                                selectIndex = node.selectIndex.coerceAtMost(retained.lastIndex))
+                                selectIndex = ticket.restoredSelectIndex(node.selectIndex, retained.size))
                         })
                     }
                     session.flush()
                     _errors.update { errors -> errors.filterNot { it.conversationId == session.id &&
                         it.error is IOException && it.error !is InboxPersistenceException } }
-                    runTurn(session)
+                    appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(session.id, "",
+                        context.getString(R.string.r21_recovery_resumed)))
+                    runTurn(session, regenerateNodeId = ticket.retryRegenerateNodeId)
                     _generationDoneFlow.emit(session.id)
                 } catch (e: Exception) { reportFailure(session, e, R.string.error_title_generation) }
             }
@@ -1430,6 +1627,10 @@ class ChatService(
         additionalPrompt: String,
         keepRecentMessages: Int = 0,
     ): Job = synchronized(compressionLock) {
+        if (sessionManager.get(conversationId)?.isChangingOwner == true) {
+            addError(IllegalStateException(context.getString(R.string.r21_assistant_busy)), conversationId)
+            return@synchronized Job().apply { complete() }
+        }
         val running = compressionJobs[conversationId]?.takeIf { it.isActive }
         if (running != null) return@synchronized running
 
@@ -1713,7 +1914,7 @@ class ChatService(
 
     /**
      * 切换搜索方式，传 null 的一项保持不变。
-     * 模型内置搜索在会话开始前是模型自身的开关，开始后固定在会话上。
+     * 草稿与已保存会话都只修改自己的配置，不改变其他助手共用的模型定义。
      */
     suspend fun updateChatSearch(
         conversationId: Uuid,
@@ -1721,51 +1922,19 @@ class ChatService(
         builtInSearch: Boolean? = null,
     ) {
         withLoadedSession(conversationId) { session ->
-            val conversation = session.state.value
-            if (conversation.config != null) {
-                session.updateMetadata(
-                    transform = {
-                        it.copy(
-                            config = it.config?.let { config ->
-                                config.copy(
-                                    enableWebSearch = enableWebSearch ?: config.enableWebSearch,
-                                    builtInSearch = builtInSearch ?: config.builtInSearch,
-                                )
-                            }
+            val settings = settingsStore.awaitLoaded()
+            session.updateMetadata(
+                transform = { latest ->
+                    val bound = latest.bindConfig(settings)
+                    bound.copy(config = bound.config?.let { config ->
+                        config.copy(
+                            enableWebSearch = enableWebSearch ?: config.enableWebSearch,
+                            builtInSearch = builtInSearch ?: config.builtInSearch,
                         )
-                    },
-                    persist = conversationRepo::updateConversationConfig,
-                )
-                return@withLoadedSession
-            }
-            settingsStore.update { settings ->
-                val assistant = settings.getAssistantOf(conversation)
-                val model = settings.getChatModelOf(conversation)
-                settings.copy(
-                    assistants = if (enableWebSearch == null) {
-                        settings.assistants
-                    } else {
-                        settings.assistants.map {
-                            if (it.id == assistant.id) it.copy(enableWebSearch = enableWebSearch) else it
-                        }
-                    },
-                    providers = if (builtInSearch == null || model == null) {
-                        settings.providers
-                    } else {
-                        settings.providers.map { provider ->
-                            provider.editModel(
-                                model.copy(
-                                    tools = if (builtInSearch) {
-                                        model.tools + BuiltInTools.Search
-                                    } else {
-                                        model.tools - BuiltInTools.Search
-                                    }
-                                )
-                            )
-                        }
-                    },
-                )
-            }
+                    })
+                },
+                persist = conversationRepo::updateConversationConfig,
+            )
         }
     }
 
@@ -1832,12 +2001,52 @@ class ChatService(
     }
 
     suspend fun moveConversationToAssistant(conversationId: Uuid, assistantId: Uuid) {
-        updateConversationMetadata(
-            conversationId = conversationId,
-            // 文件夹属于助手，移动后清除原助手的文件夹归属。
-            transform = { it.copy(assistantId = assistantId, folderId = null) },
-            persist = { conversationRepo.updateConversationAssistant(conversationId, it.assistantId) },
-        )
+        val settings = settingsStore.awaitLoaded()
+        val target = settings.assistants.firstOrNull { it.id == assistantId }
+            ?: throw IllegalArgumentException(context.getString(R.string.r21_assistant_missing))
+        withLoadedSession(conversationId, createIfMissing = false) { session ->
+            if (session.state.value.assistantId == assistantId) return@withLoadedSession
+            var oldKeys: Set<String> = emptySet()
+            synchronized(compressionLock) {
+                synchronized(session) {
+                    val childTasks = subagentRunner.list().filter { it.conversationId == conversationId }
+                    val tools = backgroundToolManager.list(BackgroundToolOwner.of(conversationId))
+                    val shells = backgroundShellManager.tasksOf(conversationId)
+                    check(!session.isChangingOwner && session.getJob() == null &&
+                        !session.awaitingNetworkRecovery && !session.state.value.isAwaitingToolApproval &&
+                        session.inbox.state.value.messages.isEmpty() && session.inbox.state.value.inFlight == null &&
+                        compressionJobs[conversationId]?.isActive != true &&
+                        childTasks.none { !it.isFinished } && tools.none { !it.isFinished } &&
+                        shells.none { it.status == BackgroundShellStatus.RUNNING }) {
+                        context.getString(R.string.r21_assistant_busy)
+                    }
+                    check(session.existsInDatabase) { "Only a saved conversation can be moved" }
+                    oldKeys = (childTasks.map { "subagent:${it.id}" } +
+                        tools.map { "background_tool:${it.id}" } + shells.map { "background_shell:${it.id}" }).toSet()
+                    session.isChangingOwner = true
+                }
+            }
+            try {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    // Reject late notices from old tasks even after a restart. Tool results remain readable
+                    // in the explicitly migrated history; they cannot silently start or steer a new turn.
+                    session.changeOwnership(
+                        transform = { it.migrateToAssistant(target, settings) },
+                        persist = conversationRepo::updateConversation,
+                    )
+                    try {
+                        session.inbox.migrateOwner(assistantId, oldKeys)
+                    } catch (e: InboxPersistenceException) {
+                        // DB and in-memory owner have moved; report the queue write, not a failed move.
+                        addError(e, conversationId)
+                    }
+                    clearRecovery(conversationId)
+                    lastStreamPersistAt.remove(conversationId)
+                }
+            } finally {
+                session.isChangingOwner = false
+            }
+        }
     }
 
     /**
@@ -1936,7 +2145,7 @@ class ChatService(
     }
 
     private fun discardQueuedMessages(session: ConversationSession) {
-        reconnectTickets.remove(session.id)
+        clearRecovery(session.id)
         session.awaitingNetworkRecovery = false
         session.inbox.pause(InboxPauseReason.USER)
         session.inbox.state.value.inFlight?.let { session.inbox.acknowledge(it.id) }
@@ -2070,14 +2279,17 @@ class ChatService(
     suspend fun stopGeneration(conversationId: Uuid) {
         val session = sessionManager.get(conversationId) ?: return
         val jobs = synchronized(session) {
-            reconnectTickets.remove(conversationId)
+            clearRecovery(conversationId)
             session.awaitingNetworkRecovery = false
             session.processingStatus.value = null
             session.inbox.pause(InboxPauseReason.USER)
             session.cancelJobs()
         }
-        if (jobs.isEmpty()) return
-        jobs.forEach { it.join() }
-        if (session.isInitialized) finishInterruptedPendingTools(session)
+        if (jobs.isNotEmpty()) {
+            jobs.forEach { it.join() }
+            if (session.isInitialized) finishInterruptedPendingTools(session)
+        }
+        // A timed-out/stopped recovery may have outlived its old idle check without an active job.
+        session.scheduleIdleCheck()
     }
 }

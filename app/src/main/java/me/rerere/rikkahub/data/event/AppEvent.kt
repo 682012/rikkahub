@@ -25,6 +25,24 @@ sealed class AppEvent {
     ) : AppEvent()
 
     /**
+     * 自动恢复（断线续跑）的进度与结果。
+     *
+     * 同一个会话始终用 [conversationId] 作为通知身份：非终态只更新这一条安静提示，
+     * 终态才升级成高重要度提醒，所以一次掉线不会在通知栏留下多条记录。
+     *
+     * [message] 已经由发送方按当前语言取好文案；为空表示这一轮不再需要恢复
+     * （已成功、已停止或已取消），通知层只撤掉进度条，不再发新通知。
+     *
+     * [terminal] 为 true 表示不会再自动继续，需要用户处理；为 false 表示还在等网络或正在重连。
+     */
+    data class ChatRecoveryStatus(
+        val conversationId: Uuid,
+        val senderName: String,
+        val message: String,
+        val terminal: Boolean = false,
+    ) : AppEvent()
+
+    /**
      * 手动压缩在后台开始。[title] 是对话标题（没有标题时用助手名），通知里用它指认是哪个对话。
      * 与生成事件分开，普通生成通知不会冒充压缩进度或结果。
      */

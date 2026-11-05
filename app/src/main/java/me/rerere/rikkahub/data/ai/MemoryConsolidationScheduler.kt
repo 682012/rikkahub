@@ -129,6 +129,22 @@ class MemoryConsolidationScheduler(
     // 上次整理失败、之后还没有新轮次的记忆库
     private val failed = mutableSetOf<String>()
 
+    /**
+     * 每个记忆库这次运行的性质，运行期间用户再点「立即整理」时据此决定请求算不算被覆盖。
+     */
+    private class RequestState {
+        /** 正在跑（或即将跑）的是用户手动整理的运行 */
+        var manual = false
+
+        /** 这次 manual 运行的整个记忆库清理已经交给模型（或马上就会交） */
+        var fullReviewIssued = false
+
+        /** 运行期间用户又点了一次：合并成一次待办，这次结束后补做 */
+        var queued = false
+    }
+
+    private val requests = mutableMapOf<String, RequestState>()
+
     private val status = MutableStateFlow<Map<String, MemoryConsolidationStatus>>(emptyMap())
 
     fun statusOf(memoryId: String): Flow<MemoryConsolidationStatus> =
@@ -185,8 +201,24 @@ class MemoryConsolidationScheduler(
 
     /** 用户手动整理整个记忆库：先处理所有待整理的对话，再把记忆库清理一遍 */
     fun organize(memoryId: String) {
+        // 正在整理时又点了一次：不能悄悄丢掉这次请求。正在跑的这次本来就会清理整个记忆库
+        // （还没把清理交给模型）时，它已经覆盖了这个请求；否则排成一次待办，这次结束后补做
+        if (status.value[memoryId]?.running == true) {
+            synchronized(lock) {
+                val request = requests.getOrPut(memoryId) { RequestState() }
+                if (request.manual && !request.fullReviewIssued) return
+                request.queued = true
+            }
+            return
+        }
         // 查数据库要一会儿，先标成进行中，免得这期间连点几下排上好几次整理
-        if (status.value[memoryId]?.running == true) return
+        synchronized(lock) {
+            requests.getOrPut(memoryId) { RequestState() }.apply {
+                manual = true
+                fullReviewIssued = false
+                queued = false
+            }
+        }
         updateStatus(memoryId) { it.copy(running = true) }
         cancelTimer(memoryId)
         scope.launch {
@@ -216,7 +248,8 @@ class MemoryConsolidationScheduler(
      * 整理这个记忆库下所有待整理的对话。
      *
      * [manual] 时先顺带清理整个记忆库，关了自动整理的助手的对话也算上；一次处理不完就接着整理，直到处理完。
-     * 自动整理一次只处理一批，剩下的交给定时器。
+     * 自动整理一次只处理一批，剩下的交给定时器。运行期间用户手动点的整理已经排成待办时，
+     * 这次结束后再补做一遍，请求不会落空。
      */
     private suspend fun run(
         memoryId: String,
@@ -231,26 +264,70 @@ class MemoryConsolidationScheduler(
         var run: MemoryConsolidationRun? = null
         val hold = keepAlive.acquire()
         try {
-            var fullReview = manual
+            var nextManual = manual
             while (true) {
-                val pass = runOnce(memoryId, pendingOf(memoryId, manual).keys, fullReview)
+                val pass = runPasses(memoryId, nextManual)
                 if (pass != null) run = run?.let { it + pass } ?: pass
-                if (pass?.error != null) break
-                // 有对话可能因为超出长度预算被留到下一次，从数据库里再找一遍
-                val automaticLeft = mergePending(memoryId, worker.findPending(memoryId))
-                // 一批没推进任何对话（进度写不进数据库）就停下，否则同一批会一直被交给模型
-                val advanced = pass?.advancedConversations.orEmpty().isNotEmpty()
-                if (!manual || !advanced || pendingOf(memoryId, manual).isEmpty()) {
-                    if (automaticLeft) restartTimer(memoryId)
-                    break
-                }
-                fullReview = false
+                // 运行期间用户又点了整理：合并成一次待办，在这里补做，不丢请求
+                if (!takeQueuedRequest(memoryId)) break
+                nextManual = true
             }
+        } catch (e: CancellationException) {
+            // 用户取消、关掉记忆或应用退出：排下的待办也不留，免得下次整理替它多跑一遍
+            synchronized(lock) { requests[memoryId]?.queued = false }
+            throw e
         } finally {
             hold.close()
             updateStatus(memoryId) { it.copy(running = false, lastRun = run ?: it.lastRun) }
         }
         run
+    }
+
+    /**
+     * 整理一轮。手动整理先顺带清理整个记忆库，一次处理不完就接着整理，直到处理完；
+     * 自动整理一次只处理一批，剩下的交给定时器。
+     */
+    private suspend fun runPasses(memoryId: String, manual: Boolean): MemoryConsolidationRun? {
+        markRunning(memoryId, manual)
+        var run: MemoryConsolidationRun? = null
+        var fullReview = manual
+        while (true) {
+            val pass = runOnce(memoryId, pendingOf(memoryId, manual).keys, fullReview)
+            if (pass != null) run = run?.let { it + pass } ?: pass
+            if (pass?.error != null) break
+            // 有对话可能因为超出长度预算被留到下一次，从数据库里再找一遍
+            val automaticLeft = mergePending(memoryId, worker.findPending(memoryId))
+            // 一批没推进任何对话（进度写不进数据库）就停下，否则同一批会一直被交给模型
+            val advanced = pass?.advancedConversations.orEmpty().isNotEmpty()
+            if (!manual || !advanced || pendingOf(memoryId, manual).isEmpty()) {
+                if (automaticLeft) restartTimer(memoryId)
+                break
+            }
+            fullReview = false
+        }
+        return run
+    }
+
+    /**
+     * 记下这一轮的性质：手动运行的第一批一定带全文清理，所以运行期间再来的请求先算被它覆盖；
+     * 自动运行不会清理整个记忆库，期间来的请求要排成待办。手动运行本身就满足了之前排队的请求。
+     */
+    private fun markRunning(memoryId: String, isManual: Boolean) {
+        synchronized(lock) {
+            requests.getOrPut(memoryId) { RequestState() }.apply {
+                manual = isManual
+                fullReviewIssued = isManual
+                if (isManual) queued = false
+            }
+        }
+    }
+
+    // 取走运行期间排下的手动整理请求；有的话调用方补做一遍
+    private fun takeQueuedRequest(memoryId: String): Boolean = synchronized(lock) {
+        val request = requests[memoryId] ?: return@synchronized false
+        if (!request.queued) return@synchronized false
+        request.queued = false
+        true
     }
 
     // 整理一批，失败时记下来并返回带 error 的结果；整理完的对话从待整理列表里拿掉，有剩下的由调用方重新找

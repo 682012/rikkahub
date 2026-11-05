@@ -43,6 +43,14 @@ data class FailureFacts(
     val truncatedStream: Boolean = false,
     /** HTTP 状态码，拿不到就是 null。 */
     val httpStatus: Int? = null,
+    /**
+     * 服务端明确说了「额度/余额用完了」。
+     *
+     * 这类 429 和普通的频率限制长得一样，但重发永远不会好：只有这一个事实能把两边区分开。
+     * 少了它，[RecoveryPolicy] 会把额度错误归成 SERVER（可重试），而 [retryableFailure] 已经
+     * 判成不可重试——两层判断分叉，自动恢复就会拿着额度错误反复重发。
+     */
+    val quotaExhausted: Boolean = false,
     /** 是否是传输层故障（IOException 一族）。 */
     val transport: Boolean = true,
 )
@@ -67,6 +75,8 @@ object RecoveryPolicy {
         facts.cancelled -> FailureKind.USER_STOPPED
         facts.notSent -> FailureKind.OFFLINE
         facts.routeRetired -> FailureKind.ROUTE_RETIRED
+        // 额度用尽的 429 必须先于下面的 SERVER 判定：它带着 429 的码，但重发不会好
+        facts.quotaExhausted -> FailureKind.TERMINAL
         facts.httpStatus == 408 || facts.httpStatus == 429 || (facts.httpStatus ?: 0) >= 500 ->
             FailureKind.SERVER
         facts.httpStatus != null -> FailureKind.TERMINAL

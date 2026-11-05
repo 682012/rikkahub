@@ -601,4 +601,183 @@ class ConversationInboxTest {
         assertTrue(inbox.acknowledge(one.id))
         assertEquals(text("two"), inbox.nextMessage()!!.parts)
     }
+
+    // ---- 数据库已经改了之后的内存一致性 ----
+
+    @Test
+    fun `ownership transfer keeps the new owner in memory when the write fails`() {
+        val storage = MemoryInboxStorage()
+        val inbox = ConversationInbox(storage)
+        val old = Uuid.random()
+        val target = Uuid.random()
+        inbox.bindOwner(old)
+        inbox.post("background_tool:old", notice("old"), wakeOnArrival = false)
+        storage.failWrites = true
+
+        val error = runCatching { inbox.migrateOwner(target, setOf("subagent:old")) }.exceptionOrNull()
+
+        // 落盘失败的只是「旧通知作废」的这份记录，owner 在数据库里已经换掉了
+        assertTrue(error is IOException)
+        assertEquals(target, inbox.state.value.ownerAssistantId)
+        assertTrue(inbox.state.value.items.isEmpty())
+        // 老助手的通知不能留给新助手（包括迟到的）
+        assertNull(inbox.post("background_tool:old", notice("late")))
+        assertNull(inbox.post("subagent:old", notice("late")))
+        assertEquals(old, storage.state!!.ownerAssistantId)
+
+        // 下一次成功的写入把整份新状态补上
+        storage.failWrites = false
+        assertNotNull(inbox.post("subagent:new", notice("new"), wakeOnArrival = false))
+        assertEquals(target, storage.state!!.ownerAssistantId)
+        assertTrue(storage.state!!.mutedNoticeKeys.containsAll(setOf("background_tool:old", "subagent:old")))
+        assertEquals(1, storage.state!!.notices.size)
+    }
+
+    @Test
+    fun `ownership transfer mutes at most the newest stale keys`() {
+        val inbox = ConversationInbox()
+        inbox.bindOwner(Uuid.random())
+        inbox.migrateOwner(Uuid.random(), (1..520).map { "background_tool:$it" }.toSet())
+
+        val muted = inbox.state.value.mutedNoticeKeys
+        assertEquals(512, muted.size)
+        assertFalse("background_tool:1" in muted)
+        assertTrue("background_tool:520" in muted)
+    }
+
+    @Test
+    fun `pause that cannot be persisted still stops the queue and releases observers`() = runBlocking {
+        val storage = MemoryInboxStorage()
+        val inbox = ConversationInbox(storage)
+        val reply = CompletableDeferred<String?>()
+        inbox.enqueue(text("queued"), reply = reply)
+        storage.failWrites = true
+
+        // 写盘失败不能让暂停失效，也不能把异常抛进生成任务的完成回调
+        inbox.pause(InboxPauseReason.ERROR)
+
+        assertTrue(inbox.state.value.paused)
+        assertEquals(InboxPauseReason.ERROR, inbox.state.value.pauseReason)
+        assertNull(inbox.takeNext())
+        assertTrue(runCatching { reply.await() }.exceptionOrNull() is MessageQueuePausedException)
+        assertFalse(storage.state!!.paused)
+
+        storage.failWrites = false
+        inbox.resume()
+        assertFalse(inbox.state.value.paused)
+        assertFalse(storage.state!!.paused)
+        assertEquals(listOf("queued"), inbox.state.value.messages.texts())
+    }
+
+    // ---- 通知交付：先看、后确认 ----
+
+    @Test
+    fun `peeking notices does not consume or rewrite them`() {
+        val storage = MemoryInboxStorage()
+        val inbox = ConversationInbox(storage)
+        inbox.post("a", notice("a"))
+        inbox.post("b", notice("b"))
+        val writesBefore = storage.writes
+
+        val peeked = inbox.peekNotices()
+
+        assertEquals(listOf("a", "b"), peeked.map { it.key })
+        assertEquals(listOf(notice("a"), notice("b")), peeked.map { it.notice })
+        // 只看不动：内存、磁盘、写次数都不变，可以反复取同一份
+        assertEquals(peeked, inbox.peekNotices())
+        assertEquals(listOf("a", "b"), inbox.state.value.notices.map { it.key })
+        assertEquals(listOf("a", "b"), storage.state!!.notices.map { it.key })
+        assertEquals(writesBefore, storage.writes)
+        // 未确认时仍然是待发通知，下一轮还会看到它
+        assertEquals(InboxTurn.Notices, inbox.takeNext())
+    }
+
+    @Test
+    fun `acknowledging removes only the notices that were delivered`() {
+        val storage = MemoryInboxStorage()
+        val inbox = ConversationInbox(storage)
+        inbox.post("a", notice("a"))
+        inbox.post("b", notice("b"))
+
+        val delivered = inbox.peekNotices().filter { it.key == "a" }
+        inbox.acknowledgeNotices(delivered)
+
+        assertEquals(listOf("b"), inbox.state.value.notices.map { it.key })
+        assertEquals(listOf("b"), storage.state!!.notices.map { it.key })
+
+        // 重复确认同一条、确认空快照都不会误删
+        inbox.acknowledgeNotices(delivered)
+        inbox.acknowledgeNotices(emptyList())
+        assertEquals(listOf("b"), inbox.state.value.notices.map { it.key })
+        assertEquals(listOf(notice("b")), inbox.takeNotices())
+    }
+
+    @Test
+    fun `a notice updated during delivery survives the stale acknowledgement`() {
+        val inbox = ConversationInbox(MemoryInboxStorage())
+        inbox.post("job", notice("old"))
+        val delivered = inbox.peekNotices()
+        val deliveredId = delivered.single().id
+
+        // 同一来源在交付期间又更新了内容：id 和 key 都没变，只有内容变了
+        val updated = inbox.post("job", notice("new"))!!
+        assertEquals(deliveredId, updated.id)
+        assertEquals("job", updated.key)
+
+        inbox.acknowledgeNotices(delivered)
+
+        // 旧快照不能把它一起删掉：模型还没看到新内容
+        assertEquals(listOf(notice("new")), inbox.state.value.notices.map { it.notice })
+        assertEquals(listOf(notice("new")), inbox.takeNotices())
+    }
+
+    @Test
+    fun `failed acknowledgement keeps the notices in memory and on disk`() {
+        val storage = MemoryInboxStorage()
+        val inbox = ConversationInbox(storage)
+        inbox.post("a", notice("a"))
+        val delivered = inbox.peekNotices()
+        storage.failWrites = true
+
+        val error = runCatching { inbox.acknowledgeNotices(delivered) }.exceptionOrNull()
+
+        assertTrue(error is IOException)
+        assertEquals(listOf("a"), inbox.state.value.notices.map { it.key })
+        assertEquals(listOf("a"), storage.state!!.notices.map { it.key })
+
+        storage.failWrites = false
+        inbox.acknowledgeNotices(delivered)
+        assertTrue(inbox.state.value.notices.isEmpty())
+        assertTrue(storage.state!!.notices.isEmpty())
+    }
+
+    @Test
+    fun `pause persistence failures are reported without escaping the completion callback`() {
+        val storage = MemoryInboxStorage()
+        val errors = mutableListOf<Throwable>()
+        val inbox = ConversationInbox(storage, onPersistenceFailure = { errors += it })
+        inbox.enqueue(text("pending"))
+        storage.failWrites = true
+        inbox.pause(InboxPauseReason.USER)
+        assertTrue(inbox.state.value.paused)
+        assertEquals(1, errors.size)
+        assertTrue(errors.single() is IOException)
+    }
+
+    @Test
+    fun `pause preserves an unreadable queue and reports the read failure`() {
+        var writes = 0
+        val errors = mutableListOf<Throwable>()
+        val storage = object : ConversationInboxStorage {
+            override fun read(): InboxState? = throw IOException("unreadable")
+            override fun write(state: InboxState) { writes++ }
+        }
+        val inbox = ConversationInbox(storage, onPersistenceFailure = { errors += it })
+        inbox.pause(InboxPauseReason.USER)
+        assertTrue(inbox.state.value.paused)
+        assertEquals(InboxPauseReason.USER, inbox.state.value.pauseReason)
+        assertEquals(1, errors.size)
+        assertEquals(0, writes)
+    }
+
 }

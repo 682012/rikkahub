@@ -118,10 +118,12 @@ class MemoryRepository(private val memoryDAO: MemoryDAO) {
         memoryDAO.deleteFilesOfAssistant(assistantId)
     }
 
-    suspend fun copyFiles(fromAssistantId: String, toAssistantId: String) {
-        val files = memoryDAO.getFilesOfAssistant(fromAssistantId)
-        if (files.isEmpty()) return
-        memoryDAO.upsertFiles(files.map { it.copy(assistantId = toAssistantId) })
+    /** Explicit user migration: preserve existing destination files and serialize with edits. */
+    suspend fun copyFiles(fromAssistantId: String, toAssistantId: String) = writeLock.withLock {
+        if (fromAssistantId == toAssistantId) return@withLock
+        val existingPaths = memoryDAO.getFilesOfAssistant(toAssistantId).mapTo(hashSetOf()) { it.path }
+        val files = memoryDAO.getFilesOfAssistant(fromAssistantId).filter { it.path !in existingPaths }
+        if (files.isNotEmpty()) memoryDAO.upsertFiles(files.map { it.copy(assistantId = toAssistantId) })
     }
 
     private sealed interface Edit {
@@ -192,9 +194,9 @@ private fun String.hasLine(line: String): Boolean {
     return lineSequence().any { it.trim() == target }
 }
 
-/** 助手读写的记忆库：开启全局记忆后所有助手共用一份 */
+/** Always assistant-scoped. Legacy shared files remain available only through explicit migration. */
 val Assistant.memoryId: String
-    get() = if (useGlobalMemory) MemoryRepository.GLOBAL_MEMORY_ID else id.toString()
+    get() = id.toString()
 
 private fun MemoryFileEntity.toMemoryFile() = MemoryFile(path = path, content = content, updatedAt = updatedAt)
 

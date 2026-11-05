@@ -109,6 +109,7 @@ class AppearanceIntegrationTest {
             ChatUiStyle.CLASSIC -> R.string.appearance_style_classic
             ChatUiStyle.STUDIO -> R.string.appearance_style_studio
             ChatUiStyle.FOCUS -> R.string.appearance_style_focus
+            ChatUiStyle.ORBIT -> R.string.r21_style_orbit
         }
     )
 

@@ -679,6 +679,56 @@ class AgentLoopTest {
         assertEquals(0, noticeHooks.calls)
         assertTrue(message.parts.none { it is UIMessagePart.Notice })
     }
+
+    @Test
+    fun `an approval resume continues the step budget of the same message`() = runTest {
+        val tools = listOf(tool("read") { ok() })
+        // 这条消息已经用掉 4 步，还剩一个没执行的调用：这次运行是工具续跑，不能拿到全新预算
+        val saved = assistant(
+            UIMessagePart.Text("working"),
+            UIMessagePart.Tool("call-1", "read", "{}"),
+        ).copy(stepCount = 4)
+        provider.stream {
+            toolCall("call-2", "read")
+            finish()
+        }
+
+        val finished = runToEnd(
+            request(messages = listOf(UIMessage.user("hi"), saved), tools = tools, maxSteps = 5)
+        ).finished()
+
+        // 继承的 4 步加上这一次就到上限：工具执行了，但没有预算再问模型
+        assertEquals(AgentFinishReason.StepLimitReached, finished.reason)
+        assertEquals(1, provider.requests.size)
+        assertTrue(finished.message.tool("call-2").isExecuted)
+    }
+
+    @Test
+    fun `continuing a reply keeps a fresh step budget`() = runTest {
+        val tools = listOf(tool("read") { ok() })
+        // 步数很大，但没有待执行的工具：这是接着写回复，仍然是全新的 maxSteps 预算
+        val saved = assistant(UIMessagePart.Text("thinking")).copy(stepCount = 4)
+        provider.stream {
+            toolCall("call-1", "read")
+            finish()
+        }
+        provider.stream {
+            toolCall("call-2", "read")
+            finish()
+        }
+        provider.stream {
+            text("done")
+            finish()
+        }
+
+        val finished = runToEnd(
+            request(messages = listOf(UIMessage.user("hi"), saved), tools = tools, maxSteps = 5)
+        ).finished()
+
+        assertEquals(AgentFinishReason.Completed, finished.reason)
+        assertEquals(3, provider.requests.size)
+        assertTrue(finished.message.getTools().all { it.isExecuted })
+    }
 }
 
 /** 按调用顺序依次返回预设的响应，并记录每次请求 */

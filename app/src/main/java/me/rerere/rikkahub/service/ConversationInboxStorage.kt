@@ -98,7 +98,7 @@ class FileConversationInboxStorage(
     }
 
     private fun writeFile(state: InboxState) {
-        if (state.items.isEmpty() && state.inFlight == null) {
+        if (state.items.isEmpty() && state.inFlight == null && state.mutedNoticeKeys.isEmpty()) {
             if (file.exists() && !file.delete()) throw IOException("cannot remove empty pending queue")
             return
         }

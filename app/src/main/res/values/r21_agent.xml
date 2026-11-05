@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r21_assistant_missing">This conversation’s assistant no longer exists. Move the conversation to an assistant before continuing.</string>
+    <string name="r21_assistant_busy">Finish or stop this conversation’s tasks and queued messages before moving it.</string>
+    <string name="r21_assistant_changed">The conversation now belongs to a different assistant. Reopen it before sending.</string>
+</resources>

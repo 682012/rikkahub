@@ -82,7 +82,7 @@ private val MEMORY_SYSTEM_RULES = """
     - If a question touches the user's own world (their projects, plans, people they have mentioned, a decision they are weighing) and the listing has a file whose description is relevant, call memory_read before answering. When you need several files, pass all the paths in one call.
     - Do not read for general questions anyone might ask (technical concepts, common knowledge), even when a file's topic is close.
     - Before saying "I don't know anything about X", you must have read the files that could be relevant.
-    - profile and preferences are already included above; do not read them again. Their version attribute can be passed as if_version directly.
+    - profile and preferences are already included above; do not read them again unless one of them is marked truncated, in which case memory_read it before using a detail that may be missing. Their version attribute can be passed as if_version directly.
 
     ## How to apply
 
@@ -163,12 +163,26 @@ internal fun buildMemoryConsolidationPrompt(fullReview: Boolean): String = build
     }
 }
 
+// 主对话系统提示里记忆状态（两个全文注入的文件 + 清单）的字符预算。系统提示每轮都要发，
+// 单个文件最大 48KB，全量注入只是白占上下文；超出预算的部分按行/段裁掉并标注怎么读回全文。
+// 后台整理不用这个预算：它要照着全文改文件，只拿到摘要去改是危险的。
+internal const val MEMORY_STATE_BUDGET = 6_000
+
+// 预算里给 profile、preferences、清单各留的份额（三者之和留了余量）
+private const val PINNED_FILE_BUDGET = 1_800
+private const val LISTING_BUDGET = 1_800
+
+// 截断说明占的位置：先从预算里扣掉再裁正文，说明再长也不会把总量顶出预算
+private const val PINNED_NOTICE_RESERVE = 320
+private const val LISTING_NOTICE_RESERVE = 200
+
 /** 主对话 system prompt 里的记忆片段：全文注入 profile 和 preferences，其余文件只给清单 */
 internal fun buildMemoryPrompt(files: List<MemoryFile>): String = buildString {
     appendLine("<memory_system>")
     appendLine(MEMORY_SYSTEM_INTRO)
     appendLine()
-    appendMemoryState(files)
+    // 这两个文件和清单一起算在预算里：文件没有上限，清单随文件数增长，注入不能跟着无限长
+    appendMemoryState(files, MemoryBudget())
     appendLine()
     appendLine(MEMORY_SYSTEM_RULES)
     appendLine("</memory_system>")
@@ -209,29 +223,104 @@ internal fun buildMemoryConsolidationInput(
     }
 }.trimEnd()
 
-private fun StringBuilder.appendMemoryState(files: List<MemoryFile>) {
+/** 记忆状态的字符预算，按追加顺序分配：前面的段先占，后面的段只能用剩下的 */
+private class MemoryBudget(var remaining: Int = MEMORY_STATE_BUDGET) {
+    /** [max] 与剩余预算里较小的一个 */
+    fun allow(max: Int): Int = minOf(max, remaining.coerceAtLeast(0))
+
+    fun spend(length: Int) {
+        remaining = (remaining - length).coerceAtLeast(0)
+    }
+}
+
+/**
+ * 记忆状态：两个全文注入的文件加清单。
+ *
+ * [budget] 为 null 时不设上限（后台整理要照着全文改文件）；主对话传入预算，超出部分按行/段裁掉，
+ * 并写明怎么用 memory_read / memory_list 读回全文。持久记忆本身不动，version 和 path 都保留。
+ */
+private fun StringBuilder.appendMemoryState(files: List<MemoryFile>, budget: MemoryBudget? = null) {
     // 清单顺序必须只取决于内容: 这里按 path 再排一次, 数据库行序、恢复顺序或调用方传入顺序
     // 变了也不会改变系统提示的前缀。同一路径重复出现时保留内容较小的那份, 结果同样确定。
     val ordered = files.sortedWith(compareBy({ it.path }, { it.content })).distinctBy { it.path }
-    appendPinnedFile("profile", ordered.find { it.path == MemoryFile.PROFILE_PATH })
+    appendPinnedFile("profile", ordered.find { it.path == MemoryFile.PROFILE_PATH }, budget)
     appendLine()
-    appendPinnedFile("preferences", ordered.find { it.path == MemoryFile.PREFERENCES_PATH })
+    appendPinnedFile("preferences", ordered.find { it.path == MemoryFile.PREFERENCES_PATH }, budget)
     appendLine()
     appendLine("<memory_listing>")
     val listed = ordered.filter { it.path != MemoryFile.PROFILE_PATH && it.path != MemoryFile.PREFERENCES_PATH }
     if (listed.isEmpty()) {
         appendLine("(no files yet)")
     } else {
-        listed.forEach { appendLine(it.toListingLine()) }
+        appendListing(listed, budget)
     }
     appendLine("</memory_listing>")
 }
 
-private fun StringBuilder.appendPinnedFile(tag: String, file: MemoryFile?) {
+private fun StringBuilder.appendListing(listed: List<MemoryFile>, budget: MemoryBudget?) {
+    val lines = listed.map { it.toListingLine() }
+    val text = lines.joinToString("\n")
+    if (budget == null) {
+        appendLine(text)
+        return
+    }
+    val allowance = budget.allow(LISTING_BUDGET)
+    if (text.length <= allowance) {
+        appendLine(text)
+        budget.spend(text.length)
+        return
+    }
+    // 文件太多：只列前面能放下的整行，其余交给 memory_list
+    val excerpt = text.excerptWithin((allowance - LISTING_NOTICE_RESERVE).coerceAtLeast(0))
+    val shown = if (excerpt.isEmpty()) 0 else excerpt.count { it == '\n' } + 1
+    if (excerpt.isNotEmpty()) appendLine(excerpt)
+    appendLine(
+        "(listing truncated: $shown of ${lines.size} files shown. " +
+            "Call memory_list to get every file's path, then memory_read the ones the question needs.)"
+    )
+    budget.spend(allowance)
+}
+
+private fun StringBuilder.appendPinnedFile(tag: String, file: MemoryFile?, budget: MemoryBudget?) {
+    val content = file?.content?.trim().orEmpty().ifEmpty { "(empty)" }
     appendLine("<$tag version=\"${file?.version ?: MemoryRepository.NEW_FILE_VERSION}\">")
-    appendLine(file?.content?.trim().orEmpty().ifEmpty { "(empty)" })
+    if (budget == null) {
+        appendLine(content)
+    } else {
+        val allowance = budget.allow(PINNED_FILE_BUDGET)
+        if (content.length <= allowance) {
+            appendLine(content)
+            budget.spend(content.length)
+        } else {
+            // 文件比预算长：只给前面一段，并说明这是摘要片段、怎么读全文
+            val excerpt = content.excerptWithin((allowance - PINNED_NOTICE_RESERVE).coerceAtLeast(0))
+            if (excerpt.isNotEmpty()) appendLine(excerpt)
+            appendLine(
+                "[$tag truncated: ${excerpt.length} of ${content.length} characters shown, this is an excerpt " +
+                    "and not the whole file. Call memory_read with \"${file?.path.orEmpty()}\" before relying on a detail " +
+                    "that may be missing here. The version above is still current and can be passed as if_version.]"
+            )
+            budget.spend(allowance)
+        }
+    }
     appendLine("</$tag>")
 }
+
+/**
+ * 按行/段取前缀：先找段落分隔（空行），再退到行尾，都不会把一行切成两半；
+ * 只有一整段就超过预算时才硬切，切点避开代理对（emoji 这类字符由两个 char 组成）。
+ */
+private fun String.excerptWithin(maxChars: Int): String {
+    if (maxChars <= 0) return ""
+    if (length <= maxChars) return this
+    val window = take(maxChars)
+    val breakAt = listOf(window.lastIndexOf("\n\n"), window.lastIndexOf('\n')).filter { it > 0 }.maxOrNull()
+        ?: window.length
+    return window.take(breakAt).dropDanglingSurrogate().trimEnd()
+}
+
+private fun String.dropDanglingSurrogate(): String =
+    if (isNotEmpty() && last().isHighSurrogate()) dropLast(1) else this
 
 /**
  * 清单行。刻意不带 updated 日期: 这个日期跨过午夜就会变, 而清单在系统提示中部,

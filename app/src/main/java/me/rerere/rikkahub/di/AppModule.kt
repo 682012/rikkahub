@@ -1,5 +1,8 @@
 package me.rerere.rikkahub.di
 
+import android.content.Context
+import java.io.File
+import me.rerere.rikkahub.data.ai.learning.AssistantLearningRepository
 import com.google.firebase.Firebase
 import com.google.firebase.analytics.analytics
 import com.google.firebase.crashlytics.crashlytics
@@ -26,6 +29,11 @@ import me.rerere.tts.provider.TTSManager
 import org.koin.dsl.module
 
 val appModule = module {
+    single(createdAtStart = true) {
+        me.rerere.rikkahub.service.ChatRecoveryNotificationManager(
+            context = get(), appScope = get(), eventBus = get(), settingsStore = get())
+    }
+    single { AssistantLearningRepository(File(get<Context>().filesDir, "assistant-learning")) }
     single { me.rerere.rikkahub.data.organization.ImageOrganizerController(
         context = get(), appScope = get(), filesManager = get(), genMediaRepository = get(),
         providerManager = get(), settingsStore = get(), mediaCreationRepository = get()) }
@@ -163,6 +171,7 @@ val appModule = module {
             usageRecorder = get(),
             chatToolFactory = get(),
             memoryRepository = get(),
+            learningRepository = get(),
             templateTransformer = get(),
             workspaceRepository = get(),
             okHttpClient = get(),
@@ -177,6 +186,7 @@ val appModule = module {
             settingsStore = get(),
             conversationRepo = get(),
             requestFactory = get(),
+            learningRepository = get(),
             memoryConsolidationScheduler = get(),
             translationHandler = get(),
             metaGenerator = get(),

@@ -19,6 +19,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -193,6 +194,127 @@ class ToolRepetitionTest {
         run(listOf(poll))
 
         assertEquals(MAX_IDENTICAL_REPEATS + 2, runs.get())
+    }
+
+    // ---------------------------------------------------------------- 有限周期检测
+
+    @Test
+    fun `ABAB oscillation is blocked after four cycles and keeps blocking`() = runTest {
+        val runs = AtomicInteger()
+        val read = repetitionTool("read") { args ->
+            runs.incrementAndGet()
+            listOf(UIMessagePart.Text("data:" + args.jsonObject["path"]?.jsonPrimitive?.content))
+        }
+        // 读 A、读 B 来回振荡：每次调用的参数都和上一次不同，只数连续相同调用抓不到
+        repeat(MAX_IDENTICAL_REPEATS) { cycle ->
+            stepCalling("a-$cycle" to """{"path":"a"}""")
+            stepCalling("b-$cycle" to """{"path":"b"}""")
+        }
+        stepCalling("a-again" to """{"path":"a"}""")
+        stepCalling("a-again-2" to """{"path":"a"}""")
+        provider.result(UIMessage.assistant("done"))
+
+        val tools = (run(listOf(read)).last() as AgentEvent.Finished).message.getTools()
+
+        assertEquals(2 * MAX_IDENTICAL_REPEATS, runs.get())
+        // 被拦下的调用不算新进展，模型坚持重发会一直被拦
+        assertTrue(tools.takeLast(2).all { it.outputText().contains("Not executed") })
+    }
+
+    @Test
+    fun `three call rotation is blocked after four cycles`() = runTest {
+        val runs = AtomicInteger()
+        val read = repetitionTool("read") { args ->
+            runs.incrementAndGet()
+            listOf(UIMessagePart.Text("data:" + args.jsonObject["path"]?.jsonPrimitive?.content))
+        }
+        repeat(MAX_IDENTICAL_REPEATS) { cycle ->
+            listOf("a", "b", "c").forEach { path ->
+                stepCalling("$path-$cycle" to """{"path":"$path"}""")
+            }
+        }
+        stepCalling("a-again" to """{"path":"a"}""")
+        provider.result(UIMessage.assistant("done"))
+
+        val tools = (run(listOf(read)).last() as AgentEvent.Finished).message.getTools()
+
+        assertEquals(3 * MAX_IDENTICAL_REPEATS, runs.get())
+        assertTrue(tools.last().outputText(), tools.last().outputText().contains("Not executed"))
+    }
+
+    @Test
+    fun `oscillation with changing output is not a loop`() = runTest {
+        val runs = AtomicInteger()
+        val read = repetitionTool("read") { args ->
+            // 每个周期的同一个位置输出都不一样：真的读到了新内容，不能拦
+            val round = runs.incrementAndGet()
+            listOf(UIMessagePart.Text("data:" + args.jsonObject["path"]?.jsonPrimitive?.content + "#$round"))
+        }
+        repeat(MAX_IDENTICAL_REPEATS + 2) { cycle ->
+            stepCalling("a-$cycle" to """{"path":"a"}""")
+            stepCalling("b-$cycle" to """{"path":"b"}""")
+        }
+        provider.result(UIMessage.assistant("done"))
+
+        run(listOf(read))
+
+        assertEquals(2 * (MAX_IDENTICAL_REPEATS + 2), runs.get())
+    }
+
+    @Test
+    fun `an incomplete cycle is never treated as a loop`() = runTest {
+        val runs = AtomicInteger()
+        val read = repetitionTool("read") { args ->
+            runs.incrementAndGet()
+            listOf(UIMessagePart.Text("data:" + args.jsonObject["path"]?.jsonPrimitive?.content))
+        }
+        // 三个周期还差一个：没有走完就换路说明还在推进
+        repeat(MAX_IDENTICAL_REPEATS - 1) { cycle ->
+            stepCalling("a-$cycle" to """{"path":"a"}""")
+            stepCalling("b-$cycle" to """{"path":"b"}""")
+        }
+        stepCalling("a-last" to """{"path":"a"}""")
+        provider.result(UIMessage.assistant("done"))
+
+        run(listOf(read))
+
+        assertEquals(2 * (MAX_IDENTICAL_REPEATS - 1) + 1, runs.get())
+    }
+
+    @Test
+    fun `repeatable oscillation is never blocked`() = runTest {
+        val runs = AtomicInteger()
+        val poll = repetitionTool("read", repeatable = true) { args ->
+            runs.incrementAndGet()
+            listOf(UIMessagePart.Text("running:" + args.jsonObject["path"]?.jsonPrimitive?.content))
+        }
+        repeat(MAX_IDENTICAL_REPEATS + 1) { cycle ->
+            stepCalling("a-$cycle" to """{"path":"a"}""")
+            stepCalling("b-$cycle" to """{"path":"b"}""")
+        }
+        provider.result(UIMessage.assistant("done"))
+
+        run(listOf(poll))
+
+        assertEquals(2 * (MAX_IDENTICAL_REPEATS + 1), runs.get())
+    }
+
+    // ---------------------------------------------------------------- 每 run 的规范化缓存
+
+    @Test
+    fun `canonical argument cache reuses results including parse failures`() {
+        val cache = CanonicalArgumentsCache(maxEntries = 2)
+
+        // 键顺序不同不影响结果，缓存命中后必须和直接算出来的一致
+        assertEquals(canonicalToolArguments("""{"b":2,"a":1}"""), cache.canonical("""{"b":2,"a":1}"""))
+        assertEquals(canonicalToolArguments("""{"a":1,"b":2}"""), cache.canonical("""{"a":1,"b":2}"""))
+        assertEquals("""{"a":1,"b":2}""", cache.canonical("""{"b":2,"a":1}"""))
+        // 解析失败也要记住：不能每次都重新解析，更不能把失败当成空串
+        assertNull(cache.canonical("{bad"))
+        assertNull(cache.canonical("{bad"))
+        // 超过上限会清空，之后仍然给出正确结果
+        assertEquals(canonicalToolArguments("{}"), cache.canonical("{}"))
+        assertNull(cache.canonical("{bad"))
     }
 }
 

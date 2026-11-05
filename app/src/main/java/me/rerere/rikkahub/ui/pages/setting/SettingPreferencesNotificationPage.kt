@@ -1,8 +1,13 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import android.app.StatusBarManager
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -36,6 +41,7 @@ import me.rerere.hugeicons.stroke.ArrowRight01
 import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.DisplaySetting
+import me.rerere.rikkahub.service.CompanionQuickTileService
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.ConnectedChoiceButtons
@@ -51,6 +57,47 @@ import org.koin.androidx.compose.koinViewModel
 
 private val UPDATE_PAUSE_DAY_OPTIONS = listOf(7, 14, 21)
 private const val MILLIS_PER_DAY = 24 * 60 * 60 * 1_000L
+
+// StatusBarManager 的添加结果码（Android 13+）。这里用数值比较，不依赖系统类里可能不可见的常量。
+private const val TILE_ADD_RESULT_ALREADY_ADDED = 1
+private const val TILE_ADD_RESULT_ADDED = 2
+
+/**
+ * 把「小宠物」磁贴塞进下拉快捷面板。
+ *
+ * Android 13 起系统提供 requestAddTileService（弹出确认框由系统负责）；更低版本只能提示用户
+ * 自己去快捷面板编辑界面手动添加。添加失败/已存在都要给出明确结果，不能点了没反应。
+ */
+private fun requestAddCompanionTile(context: Context) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        addCompanionTile(context)
+        return
+    }
+    Toast.makeText(context, R.string.r21_companion_tile_add_unsupported, Toast.LENGTH_LONG).show()
+}
+
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
+private fun addCompanionTile(context: Context) {
+    val statusBarManager = context.getSystemService(StatusBarManager::class.java)
+    if (statusBarManager == null) {
+        Toast.makeText(context, R.string.r21_companion_tile_add_unsupported, Toast.LENGTH_LONG).show()
+        return
+    }
+    statusBarManager.requestAddTileService(
+        ComponentName(context, CompanionQuickTileService::class.java),
+        context.getString(R.string.r21_companion_tile_label),
+        // 用全名，避免和 Compose 的 Icon 组成 import 冲突
+        android.graphics.drawable.Icon.createWithResource(context, R.drawable.ic_stat_rikkahub),
+        context.mainExecutor,
+    ) { result ->
+        val message = when (result) {
+            TILE_ADD_RESULT_ADDED -> R.string.r21_companion_tile_add_added
+            TILE_ADD_RESULT_ALREADY_ADDED -> R.string.r21_companion_tile_add_already
+            else -> R.string.r21_companion_tile_add_failed
+        }
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+    }
+}
 
 @Composable
 fun SettingPreferencesNotificationPage(vm: SettingVM = koinViewModel()) {
@@ -193,6 +240,15 @@ fun SettingPreferencesNotificationPage(vm: SettingVM = koinViewModel()) {
                             },
                         )
                     }
+                    // 和上面的悬浮开关是同一个设置项，只是把入口放进下拉快捷面板
+                    item(
+                        onClick = { requestAddCompanionTile(context) },
+                        headlineContent = { Text(stringResource(R.string.r21_companion_tile_add_title)) },
+                        supportingContent = { Text(stringResource(R.string.r21_companion_tile_add_desc)) },
+                        trailingContent = {
+                            Icon(HugeIcons.ArrowRight01, contentDescription = null)
+                        },
+                    )
                 }
             }
             floatingCompanionSettingsItem(

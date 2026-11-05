@@ -183,6 +183,22 @@
         android:value="local web server for LLM chat UI" />
     </service>
 
+    <!-- 下拉快捷开关：一键开关后台悬浮小宠物。只读写已有设置，不起前台服务。
+         BIND_QUICK_SETTINGS_TILE 保证只有系统 UI 能绑到这个服务，所以必须 exported。 -->
+    <service
+      android:name=".service.CompanionQuickTileService"
+      android:exported="true"
+      android:icon="@drawable/ic_stat_rikkahub"
+      android:label="@string/r21_companion_tile_label"
+      android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+      <intent-filter>
+        <action android:name="android.service.quicksettings.action.QS_TILE" />
+      </intent-filter>
+      <meta-data
+        android:name="android.service.quicksettings.TOGGLEABLE_TILE"
+        android:value="true" />
+    </service>
+
     <!-- Required by Shizuku: lets the Shizuku server discover this app for bindUserService().
          The user service itself (WorkspaceShizukuService) is NOT an Android component and must
          not be declared as a <service>. -->

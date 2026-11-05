@@ -21,6 +21,28 @@ internal fun canonicalToolJson(value: JsonElement): JsonElement = when (value) {
     else -> value
 }
 
+/**
+ * 一次运行内复用的规范化参数结果。
+ *
+ * 模型的每一步都会把同一条历史里所有工具调用的参数重新规范化一遍，而参数越长（比如写入整个文件的内容）
+ * 这一步越贵；结果只取决于原始输入的字符串，同一次运行里重复算没有意义。
+ *
+ * 缓存按原始输入做键、有上限，超过上限时整体清空而不是逐条淘汰：参数种类数本来就不多，
+ * 长运行也不会让缓存无限涨（存的是已经存在于消息里的字符串引用，不重复保存内容）。
+ */
+internal class CanonicalArgumentsCache(private val maxEntries: Int = 256) {
+    // 解析失败时存 null：原始输入仍会每一步重复出现，不记住就会每次都重新 parse 一遍
+    private val entries = HashMap<String, String?>()
+
+    fun canonical(input: String): String? {
+        if (entries.containsKey(input)) return entries[input]
+        val canonical = canonicalToolArguments(input)
+        if (entries.size >= maxEntries) entries.clear()
+        entries[input] = canonical
+        return canonical
+    }
+}
+
 /** Only local, explicit metadata permits overlapping calls. Unknown tools remain barriers. */
 internal fun ToolExecutionMode.allowsParallelExecution() = this != ToolExecutionMode.SERIAL
 

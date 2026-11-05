@@ -10,10 +10,13 @@ import androidx.compose.ui.unit.dp
 import me.rerere.rikkahub.data.datastore.ChatUiStyle
 
 /**
- * 三种聊天界面风格的布局参数。
+ * 四种聊天界面风格的布局参数。
  *
  * 这里只描述"长什么样"：标题栏是不是浮岛、消息间距、气泡圆角、输入区形态、阅读区宽度上限。
  * 消息数据、网络、工具、审批、语音这些逻辑一律不在样式层出现，换风格也不会丢功能。
+ *
+ * 新增参数一律带默认值，老的三个 [ChatStyleSpec]（CLASSIC/STUDIO/FOCUS）不传就是原来的样子，
+ * 所以加风格不会顺手改掉存量观感。
  */
 @Immutable
 data class ChatStyleSpec(
@@ -48,6 +51,20 @@ data class ChatStyleSpec(
     val drawerSheetTone: Boolean,
     /** 抽屉顶部信息是否压缩（FOCUS）。 */
     val drawerHeaderCompact: Boolean,
+    /**
+     * r21 轨道：标题栏是贴着状态栏的紧凑任务栏（下缘收圆角 + 左侧轨道竖条），
+     * 下面跟一条常驻的运行态轨道，而不是浮岛卡片、也不会退回系统 TopAppBar。
+     *
+     * 只有 [ChatUiStyle.ORBIT] 为 true；默认 false，其它三种风格的标题栏形态一点不变。
+     */
+    val headerTaskRail: Boolean = false,
+    /**
+     * 轨道在宽度够时是否再加一个上下文小表盘。
+     *
+     * 真值不代表一定画：实际还要看宽度与字体缩放（见 `orbitContextGaugeVisible`），
+     * 窄屏或大字体时自动收起，保证模型名和 TPS 不会被挤掉。
+     */
+    val railContextGauge: Boolean = false,
 ) {
     companion object {
         /** CLASSIC：r5 原形态，左右气泡 + 贴底输入条 + 普通 app bar。 */
@@ -110,10 +127,41 @@ data class ChatStyleSpec(
             drawerHeaderCompact = true,
         )
 
+        /**
+         * ORBIT（r21 轨道）：紧凑任务栏 + 常驻运行态轨道。
+         *
+         * 和另外三种的真差异不在配色，在信息落点：
+         * - 标题栏是**贴着状态栏的任务栏**（不是浮岛、不是 TopAppBar），只有标题和四个入口；
+         * - 当前模型、速度、上下文、运行态圆点全在同一条轨道上，折叠也能看到，不用点开面板；
+         * - 阅读区铺满、气泡近乎方角（14dp，靠头像一侧只留 4dp 小尾巴），间距略紧，
+         *   给长对话留更多正文行数；输入区贴底、遮罩更实，配合轨道组成的"任务台"观感。
+         */
+        val Orbit = ChatStyleSpec(
+            style = ChatUiStyle.ORBIT,
+            headerFloating = false,
+            headerDenseMeta = true,
+            headerNewChatLabel = false,
+            headerShowStatusStrip = true,
+            contentMaxWidth = Dp.Infinity,
+            messageSpacing = 14.dp,
+            listSidePadding = 12.dp,
+            bubbleCorner = 14.dp,
+            bubbleTailCorner = 4.dp,
+            inputCorner = 18.dp,
+            inputSidePadding = 10.dp,
+            inputFloating = false,
+            inputScrimStrength = 0.9f,
+            drawerSheetTone = true,
+            drawerHeaderCompact = true,
+            headerTaskRail = true,
+            railContextGauge = true,
+        )
+
         fun of(style: ChatUiStyle): ChatStyleSpec = when (style) {
             ChatUiStyle.CLASSIC -> Classic
             ChatUiStyle.STUDIO -> Studio
             ChatUiStyle.FOCUS -> Focus
+            ChatUiStyle.ORBIT -> Orbit
         }
     }
 }

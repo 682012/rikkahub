@@ -19,6 +19,7 @@ import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessagePart
 import me.rerere.common.android.Logging
 import me.rerere.rikkahub.data.ai.prompts.MemoryConsolidationConversation
 import me.rerere.rikkahub.data.ai.prompts.buildMemoryConsolidationInput
@@ -356,8 +357,9 @@ private fun memoryTurnsOf(messages: List<UIMessage>): List<MemoryTurn> {
     }
 }
 
-// 只发了图片之类没有文字的轮次没有可提取的内容
-private val MemoryTurn.hasUserText: Boolean get() = userMessage.toText().isNotBlank()
+// 只发了图片之类没有文字的轮次没有可提取的内容。按片段看，不为了一次空白判断把整段消息拼成字符串
+private val MemoryTurn.hasUserText: Boolean
+    get() = userMessage.parts.any { it is UIMessagePart.Text && it.text.isNotBlank() }
 
 /**
  * 第一次跟踪一个对话时的整理进度：只回看最近 [MAX_TURNS_PER_CONVERSATION] 轮。
@@ -427,9 +429,47 @@ internal fun pendingMemoryTurns(
 internal fun List<IndexedValue<UIMessage>>.toMemoryTranscript(userLength: Int, assistantLength: Int): String =
     flatMap { (position, message) ->
         val maxLength = if (message.role == MessageRole.USER) userLength else assistantLength
-        val text = message.toText().trim().let { if (it.length > maxLength) it.take(maxLength) + "..." else it }
+        val text = message.textWithin(maxLength)
         val memoryWrites = message.getTools().mapNotNull { tool ->
             tool.memoryWritePath()?.let { "[assistant updated memory: ${tool.toolName} $it]" }
         }
         listOfNotNull("[${message.role.name} #$position]: $text".takeIf { text.isNotEmpty() }) + memoryWrites
     }.joinToString("\n\n")
+
+/**
+ * 消息里的文本，最多 [maxLength] 个字符，超出部分以 "..." 结尾。
+ *
+ * 只取 Text 片段：图片是 base64 或很长的 URL，拼进来只会白占长度。边拼边截，拼到上限就停，
+ * 不再为了取开头几千字把整条消息先拼一遍（一条粘贴几万字的消息也只读前面一段）。
+ */
+private fun UIMessage.textWithin(maxLength: Int): String {
+    val builder = StringBuilder(minOf(maxLength, 1024).coerceAtLeast(0))
+    var truncated = false
+    for (part in parts) {
+        if (part !is UIMessagePart.Text) continue
+        val text = part.text
+        // 整条消息开头的空白不要：原来先 trim 再截，去掉它才和旧行为一致
+        val start = if (builder.isEmpty()) {
+            text.indexOfFirst { !it.isWhitespace() }.let { if (it < 0) text.length else it }
+        } else {
+            0
+        }
+        if (start >= text.length) continue
+        if (builder.isNotEmpty()) {
+            if (builder.length >= maxLength) {
+                truncated = true
+                break
+            }
+            builder.append('\n')
+        }
+        val room = maxLength - builder.length
+        if (text.length - start > room) {
+            builder.append(text, start, start + room.coerceAtLeast(0))
+            truncated = true
+            break
+        }
+        builder.append(text, start, text.length)
+    }
+    val out = builder.toString().trimEnd()
+    return if (truncated) "$out..." else out
+}

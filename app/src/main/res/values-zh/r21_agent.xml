@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r21_assistant_missing">此对话的原助手已不存在，请先将对话迁移到一个助手后再继续。</string>
+    <string name="r21_assistant_busy">请先结束或停止此对话的任务，并处理待发消息后再迁移。</string>
+    <string name="r21_assistant_changed">此对话已属于另一个助手，请重新打开后再发送。</string>
+</resources>

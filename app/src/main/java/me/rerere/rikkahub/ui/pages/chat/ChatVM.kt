@@ -554,9 +554,13 @@ class ChatVM(
 
     fun moveConversationToAssistant(conversation: Conversation, targetAssistantId: Uuid) {
         viewModelScope.launch {
-            chatService.moveConversationToAssistant(conversation.id, targetAssistantId)
-            if (conversation.id == _conversationId) {
-                settingsStore.selectAssistant(targetAssistantId)
+            try {
+                chatService.moveConversationToAssistant(conversation.id, targetAssistantId)
+                if (conversation.id == _conversationId) settingsStore.selectAssistant(targetAssistantId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                chatService.addError(e, conversationId = _conversationId)
             }
         }
     }

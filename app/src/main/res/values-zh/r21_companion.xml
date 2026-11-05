@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r21_companion_tile_label">小宠物</string>
+    <string name="r21_companion_tile_subtitle_permission">需要悬浮窗权限</string>
+    <string name="r21_companion_tile_toggle_failed">开关没能保存，请再点一次。</string>
+    <string name="r21_companion_tile_add_title">添加小宠物快捷开关</string>
+    <string name="r21_companion_tile_add_desc">把悬浮小宠物的一键开关放进下拉快捷面板，和上面的开关是同一个。</string>
+    <string name="r21_companion_tile_add_added">已添加到快捷面板</string>
+    <string name="r21_companion_tile_add_already">快捷面板里已经有这个开关了</string>
+    <string name="r21_companion_tile_add_failed">没能自动添加，请到快捷面板的编辑界面手动拖入。</string>
+    <string name="r21_companion_tile_add_unsupported">当前系统不支持自动添加，请打开快捷面板的编辑界面，把「小宠物」拖进去。</string>
+</resources>

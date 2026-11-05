@@ -5,6 +5,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import androidx.core.net.toUri
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -33,17 +34,11 @@ import kotlin.uuid.Uuid
 // notify() 是 binder IPC 且系统本身会对高频更新限流，必须在应用侧节流
 private const val LIVE_UPDATE_NOTIFICATION_THROTTLE_MS = 1000L
 
-// 手动压缩用自己的一组通知身份，不和生成完成（id=1）、Live Update（2006）互相覆盖
-private const val CHAT_COMPRESSION_PROGRESS_NOTIFICATION_ID = 2007
-private const val CHAT_COMPRESSION_RESULT_NOTIFICATION_ID = 2008
-private const val CHAT_COMPRESSION_TAG_PREFIX = "chat-compression:"
+// 手动压缩用自己的一组通知身份，不和生成完成（id=1）、Live Update（2006）、自动恢复（2009/2010）
+// 互相覆盖；身份常量集中在 NotificationIdentity.kt，测试在那里核对互不相同。
 
 // 进程被杀时进度卡没人来撤，靠系统超时兜底（30 分钟），结果通知照常到时单独发
 private const val CHAT_COMPRESSION_PROGRESS_TIMEOUT_MS = 30 * 60 * 1000L
-
-/** Android 按 (tag, id) 认通知；同一段前缀便于把这组通知和其它通知区分开 */
-private fun chatCompressionNotificationTag(conversationId: Uuid): String =
-    "$CHAT_COMPRESSION_TAG_PREFIX$conversationId"
 
 /**
  * 订阅 [AppEventBus] 上的聊天生成事件，负责后台生成相关的系统通知
@@ -65,7 +60,11 @@ class ChatNotificationManager(
     init {
         // ProcessLifecycleOwner 要求在主线程注册观察者
         appScope.launch {
-            ProcessLifecycleOwner.get().lifecycle.addObserver(
+            val lifecycle = ProcessLifecycleOwner.get().lifecycle
+            // 进程可能是在界面已经可见之后才建出这个管理器（此时不会再有 ON_START）；
+            // 不先对齐一次，就会把后台才该发的进度/完成通知发到用户眼前的屏幕上。
+            isForeground.value = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+            lifecycle.addObserver(
                 LifecycleEventObserver { _, event ->
                     when (event) {
                         Lifecycle.Event.ON_START -> {
@@ -130,12 +129,14 @@ class ChatNotificationManager(
             channelId = CHAT_COMPLETED_NOTIFICATION_CHANNEL_ID,
             notificationId = 1
         ) {
+            // 每条完成通知带自己的会话 tag：不同对话的完成卡不再互相覆盖
+            tag = chatDoneTag(conversationId)
             title = senderName
             content = contentPreview
             autoCancel = true
             useDefaults = true
             category = NotificationCompat.CATEGORY_MESSAGE
-            contentIntent = getPendingIntent(context, conversationId)
+            contentIntent = getPendingIntent(context, conversationId, PENDING_INTENT_PURPOSE_CHAT_DONE)
         }
     }
 
@@ -158,7 +159,7 @@ class ChatNotificationManager(
             ongoing = true
             onlyAlertOnce = true
             category = NotificationCompat.CATEGORY_PROGRESS
-            contentIntent = getPendingIntent(context, event.conversationId)
+            contentIntent = getPendingIntent(context, event.conversationId, PENDING_INTENT_PURPOSE_COMPRESSION)
             // 进程被杀时这条通知没人来撤，到期由系统收走；结果通知另有身份
             timeoutAfterMs = CHAT_COMPRESSION_PROGRESS_TIMEOUT_MS
         }
@@ -202,7 +203,7 @@ class ChatNotificationManager(
             useDefaults = true
             useBigTextStyle = true
             category = NotificationCompat.CATEGORY_MESSAGE
-            contentIntent = getPendingIntent(context, event.conversationId)
+            contentIntent = getPendingIntent(context, event.conversationId, PENDING_INTENT_PURPOSE_COMPRESSION)
         }
     }
 
@@ -239,7 +240,7 @@ class ChatNotificationManager(
             onlyAlertOnce = true
             category = NotificationCompat.CATEGORY_PROGRESS
             useBigTextStyle = true
-            contentIntent = getPendingIntent(context, conversationId)
+            contentIntent = getPendingIntent(context, conversationId, PENDING_INTENT_PURPOSE_LIVE_UPDATE)
             requestPromotedOngoing = true
             shortCriticalText = chipText
             // A progress card is advisory. Five minutes without an update clears it;
@@ -286,11 +287,15 @@ class ChatNotificationManager(
         NotificationUtil.cancelWhere(context, ::isChatLiveUpdateNotification)
     }
 
-    private fun getPendingIntent(context: Context, conversationId: Uuid): PendingIntent {
+    private fun getPendingIntent(context: Context, conversationId: Uuid, purpose: String): PendingIntent {
+        // 显式 Intent + 唯一 data URI：hashCode 撞车的两个会话，或同一会话的不同用途，都不会被系统
+        // 当成同一个 PendingIntent 而互相覆盖
+        val intent = conversationIntent(context, conversationId.toString())
+            .setData(chatNotificationPendingIntentUri(purpose, conversationId).toUri())
         return PendingIntent.getActivity(
             context,
             conversationId.hashCode(),
-            conversationIntent(context, conversationId.toString()),
+            intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
     }

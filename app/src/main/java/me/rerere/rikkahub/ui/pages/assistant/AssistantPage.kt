@@ -221,8 +221,8 @@ fun AssistantPage(vm: AssistantVM = koinViewModel()) {
                                 navController.navigate(Screen.AssistantDetail(id = assistant.id.toString()))
                             },
                             onCopy = {
-                                // 全局记忆是共享的, 复制后的助手本来就能读到, 无需询问
-                                if (!assistant.useGlobalMemory && memories.isNotEmpty()) {
+                                // Memory only crosses assistant boundaries after the user opts in.
+                                if (memories.isNotEmpty()) {
                                     cloneWithMemories = false
                                     cloneTarget = assistant
                                 } else {

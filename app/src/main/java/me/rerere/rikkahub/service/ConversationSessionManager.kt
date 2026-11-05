@@ -47,6 +47,7 @@ class ConversationSessionManager(
         )
         // Publish the actual registry, so collectors never observe a version before insertion.
         sessions.value = sessions.value + (conversationId to session)
+        session.scheduleIdleCheck()
         session
     }
 

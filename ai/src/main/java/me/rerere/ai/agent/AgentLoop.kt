@@ -13,6 +13,7 @@ import kotlinx.datetime.toLocalDateTime
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import me.rerere.ai.core.MessageRole
+import me.rerere.ai.core.Tool
 import me.rerere.ai.core.ToolExecutionMode
 import me.rerere.ai.core.sum
 import me.rerere.ai.provider.TextGenerationParams
@@ -44,6 +45,20 @@ internal class AgentLoop(
     private var message: UIMessage?
     private val loopGuard = ToolLoopGuard()
 
+    // 工具声明在整次运行里不变：按名字索引一次，替代每个 part、每次调用都线性扫一遍
+    private val toolIndex: Map<String, Tool> by lazy(LazyThreadSafetyMode.NONE) {
+        HashMap<String, Tool>(request.tools.size * 2).apply {
+            request.tools.forEach { putIfAbsent(it.name, it) }
+        }
+    }
+
+    // 每一步都会重新规范化整段历史里的工具参数，结果只依赖参数本身，见 CanonicalArgumentsCache
+    private val canonicalArguments = CanonicalArgumentsCache()
+
+    // 审批或工具续跑时这条消息已经用掉的步数：同一条消息不能靠反复续跑换来无穷预算。
+    // 只是继续写回复（没有待执行的工具）仍然是一次全新的预算，和以前一样。
+    private val inheritedSteps: Int
+
     init {
         val last = request.messages.lastOrNull()
         if (last?.role == MessageRole.ASSISTANT) {
@@ -53,10 +68,16 @@ internal class AgentLoop(
             history = request.messages.map { it.withoutEmptyGeneratedImages() }
             message = null
         }
+        val resumed = message
+        inheritedSteps = if (resumed != null && resumed.getTools().any { !it.isExecuted }) {
+            resumed.stepCount ?: 0
+        } else {
+            0
+        }
     }
 
     suspend fun run() {
-        var steps = 0
+        var steps = inheritedSteps
         while (true) {
             val current = message
             if (current != null && current.getTools().any { !it.isExecuted }) {
@@ -66,7 +87,8 @@ internal class AgentLoop(
             } else if (current != null && steps > 0) {
                 return finish(AgentFinishReason.Completed)
             }
-            if (steps == request.maxSteps) return finish(AgentFinishReason.StepLimitReached)
+            // 继承了已用步数时这里可能已经超过上限（比如换了更小的 maxSteps），用 >= 兜住
+            if (steps >= request.maxSteps) return finish(AgentFinishReason.StepLimitReached)
             generateStep()
             steps++
         }
@@ -103,7 +125,9 @@ internal class AgentLoop(
             modelId = params.model.id,
         )
         // 发给模型的副本里折叠重复的工具结果，消息本身保留完整内容
-        val messages = dedupeRepeatedToolOutputs(step.messages) { findTool(it)?.repeatable == true }
+        val messages = dedupeRepeatedToolOutputs(step.messages, canonicalArguments) {
+            findTool(it)?.repeatable == true
+        }
         val generated = if (request.stream) {
             stream(messages, params, base)
         } else {
@@ -199,8 +223,10 @@ internal class AgentLoop(
     private suspend fun executeTools() {
         val tools = checkNotNull(message).getTools()
         val pending = tools.filter { !it.isExecuted }
-        // 连续多次结果相同的调用不再执行，见 ToolRepetition.kt
-        val blocked = blockedRepeatCalls(tools.filter { it.isExecuted }, pending) { findTool(it)?.repeatable == true }
+        // 连续多次结果相同的调用、以及按固定顺序来回振荡的调用不再执行，见 ToolRepetition.kt
+        val blocked = blockedRepeatCalls(tools.filter { it.isExecuted }, pending, canonicalArguments) {
+            findTool(it)?.repeatable == true
+        }
         var index = 0
         while (index < pending.size) {
             val first = pending[index]
@@ -265,7 +291,7 @@ internal class AgentLoop(
         val groups = LinkedHashMap<String, MutableList<UIMessagePart.Tool>>()
         calls.forEachIndexed { index, call ->
             val args = if (findTool(call.toolName)?.executionMode == ToolExecutionMode.PARALLEL_DEDUPLICATED) {
-                canonicalToolArguments(call.input)
+                canonicalArguments.canonical(call.input)
             } else null
             val key = if (args == null) "unique:$index" else "${call.toolName}\n$args"
             groups.getOrPut(key) { mutableListOf() }.add(call)
@@ -339,7 +365,8 @@ internal class AgentLoop(
         errorOutput("[${e.javaClass.name}] ${(e.message ?: "Tool execution failed").take(2_000)}")
     }
 
-    private fun findTool(name: String) = request.tools.find { it.name == name }
+    // 名字索引在整次运行里只建一次；同名声明取第一个，和原来的 find 一致
+    private fun findTool(name: String): Tool? = toolIndex[name]
 
     private suspend fun update(updated: UIMessage) {
         message = updated

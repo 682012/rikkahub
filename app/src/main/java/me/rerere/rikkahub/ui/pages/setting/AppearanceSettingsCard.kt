@@ -84,9 +84,10 @@ import me.rerere.rikkahub.ui.components.ui.CardGroupScope
 import me.rerere.rikkahub.ui.components.ui.CardGroupValue
 import me.rerere.rikkahub.ui.components.ui.ConnectedChoiceButtons
 import me.rerere.rikkahub.ui.components.ui.switchItem
+import me.rerere.rikkahub.ui.pages.chat.OrbitLayoutSketch
 
 /**
- * 外观设置卡片：聊天界面风格（经典/工作台/专注）+ 壁纸（选择、沉浸、亮度遮罩、模糊、适配、焦点）+ 面板强度。
+ * 外观设置卡片：聊天界面风格（经典/工作台/专注/轨道）+ 壁纸（选择、沉浸、亮度遮罩、模糊、适配、焦点）+ 面板强度。
  *
  * 只负责"长什么样"的选项，数据通过 [onChange] 交回调用方（SettingVM），自己不存任何设置。
  * 从相册选到的图片会先拷进应用私有目录再把路径写进设置：系统相册给的临时 URI 一过期就没了，
@@ -453,7 +454,7 @@ fun AppearanceSettingsCard(
 }
 
 // ---------------------------------------------------------------------------
-// 聊天界面风格选择：三个缩略图，点哪个用哪个
+// 聊天界面风格选择：四个缩略图，点哪个用哪个
 // ---------------------------------------------------------------------------
 
 @Composable
@@ -532,6 +533,8 @@ private fun ChatUiStyleOption(
                     ChatUiStyle.CLASSIC -> ClassicLayoutSketch()
                     ChatUiStyle.STUDIO -> StudioLayoutSketch()
                     ChatUiStyle.FOCUS -> FocusLayoutSketch()
+                    // r21：第四张缩略图，画在 chat 包里和标题栏共用一份"轨道"零件
+                    ChatUiStyle.ORBIT -> OrbitLayoutSketch()
                 }
             }
             Row(
@@ -934,12 +937,14 @@ private fun ChatUiStyle.labelRes(): Int = when (this) {
     ChatUiStyle.CLASSIC -> R.string.appearance_style_classic
     ChatUiStyle.STUDIO -> R.string.appearance_style_studio
     ChatUiStyle.FOCUS -> R.string.appearance_style_focus
+    ChatUiStyle.ORBIT -> R.string.r21_style_orbit
 }
 
 private fun ChatUiStyle.descRes(): Int = when (this) {
     ChatUiStyle.CLASSIC -> R.string.appearance_style_classic_desc
     ChatUiStyle.STUDIO -> R.string.appearance_style_studio_desc
     ChatUiStyle.FOCUS -> R.string.appearance_style_focus_desc
+    ChatUiStyle.ORBIT -> R.string.r21_style_orbit_desc
 }
 
 private fun WallpaperScale.labelRes(): Int = when (this) {

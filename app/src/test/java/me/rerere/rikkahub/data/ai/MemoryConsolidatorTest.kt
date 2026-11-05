@@ -9,6 +9,7 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.ai.tools.MemoryToolNames
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -178,5 +179,26 @@ class MemoryConsolidatorTest {
             """.trimIndent(),
             transcript,
         )
+    }
+
+    @Test
+    fun `the transcript only carries text and stops building at the length limit`() {
+        val huge = "长".repeat(50_000)
+        val image = UIMessagePart.Image(url = "data:image/png;base64," + "A".repeat(20_000))
+        val message = UIMessage(
+            role = MessageRole.USER,
+            parts = listOf(UIMessagePart.Text(huge), image, UIMessagePart.Text("尾部")),
+            createdAt = minute(1),
+        )
+
+        val transcript = listOf(IndexedValue(0, message)).toMemoryTranscript(userLength = 100, assistantLength = 10)
+
+        // 拼到上限就停：正文 100 个字，不再把 5 万字整条拼一遍；图片的 base64 不进文本
+        assertEquals("[USER #0]: " + "长".repeat(100) + "...", transcript)
+        assertEquals("[USER #0]: ".length + 100 + 3, transcript.length)
+        assertFalse(transcript.contains("base64"))
+        // 只有图片的消息没有可提取的文字，不占一行
+        val imageOnly = UIMessage(role = MessageRole.USER, parts = listOf(image), createdAt = minute(2))
+        assertEquals("", listOf(IndexedValue(0, imageOnly)).toMemoryTranscript(100, 100))
     }
 }

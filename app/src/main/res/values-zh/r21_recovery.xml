@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 通知上的小标题：进度（低声）与终态（需要人看） -->
+    <string name="r21_recovery_progress_subtext">正在自动重连</string>
+    <string name="r21_recovery_terminal_subtext">需要你处理</string>
+
+    <!-- ChatService 发送 AppEvent.ChatRecoveryStatus 时用的文案 -->
+    <string name="r21_recovery_waiting_network">连接已断开，网络恢复后会自动继续生成。</string>
+    <string name="r21_recovery_retrying">正在自动重连（%1$d/%2$d）。</string>
+    <string name="r21_recovery_resumed">正在重新连接，准备继续未完成的回复。</string>
+    <string name="r21_recovery_gave_up">自动恢复 %1$d 次仍未成功，请打开对话重试或停止。</string>
+    <string name="r21_recovery_blocked_auth">账号需要重新登录，这次没有自动重试。</string>
+    <string name="r21_recovery_blocked_quota">配额已用尽，重试也不会恢复。</string>
+    <string name="r21_recovery_blocked_request">请求被拒绝，重发也会是同样的结果。</string>
+    <string name="r21_recovery_blocked_side_effect">工具执行结果不明，或已生成内容无法安全重放，这次没有自动继续。</string>
+    <string name="r21_recovery_scheduled">连接中断，%1$d 秒后自动继续；没有网络时等待网络恢复。</string>
+    <string name="r21_recovery_timeout">自动恢复等待超时，请打开此对话继续。</string>
+    <string name="r21_recovery_stopped">此对话已中断，无法自动继续。点开查看错误原因。</string>
+</resources>

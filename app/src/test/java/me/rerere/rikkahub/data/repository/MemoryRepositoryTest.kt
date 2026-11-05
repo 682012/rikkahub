@@ -176,12 +176,12 @@ class MemoryRepositoryTest {
     }
 
     @Test
-    fun `each assistant keeps its own store unless memory is global`() {
+    fun `each assistant keeps its own store including legacy shared settings`() {
         val own = Assistant(name = "own")
         val global = Assistant(name = "global", useGlobalMemory = true)
 
         assertEquals(own.id.toString(), own.memoryId)
-        assertEquals(MemoryRepository.GLOBAL_MEMORY_ID, global.memoryId)
+        assertEquals(global.id.toString(), global.memoryId)
         // 两个助手各写各的库, 不会读到对方的记忆
         assertTrue(own.memoryId != global.memoryId)
     }

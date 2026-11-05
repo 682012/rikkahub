@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r21_startup_motion_title">启动动效</string>
+    <string name="r21_startup_motion_desc">只在冷启动时画一小段，底下的聊天页照常可用；分享、通知、链接进来不画。</string>
+    <string name="r21_startup_motion_ring">轨道环</string>
+    <string name="r21_startup_motion_dots">光点聚合</string>
+    <string name="r21_startup_motion_off">关闭</string>
+    <string name="r21_startup_motion_reduced">系统动画已关闭，不会绘制。</string>
+</resources>

@@ -7,10 +7,14 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
+import android.view.animation.DecelerateInterpolator
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.fadeIn
@@ -34,6 +38,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
@@ -60,6 +67,7 @@ import coil3.request.crossfade
 import coil3.svg.SvgDecoder
 import me.rerere.ui.toast.Toaster
 import me.rerere.ui.toast.rememberToasterState
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import me.rerere.rikkahub.data.datastore.SettingsStore
@@ -69,6 +77,12 @@ import me.rerere.rikkahub.data.event.AppEvent
 import me.rerere.rikkahub.data.event.AppEventBus
 import me.rerere.rikkahub.data.repository.MediaCreationRepository
 import me.rerere.rikkahub.service.MediaCreationForegroundService
+import me.rerere.rikkahub.startup.StartupIntroGate
+import me.rerere.rikkahub.startup.StartupIntroPlan
+import me.rerere.rikkahub.startup.StartupIntroPolicy
+import me.rerere.rikkahub.startup.StartupMotion
+import me.rerere.rikkahub.startup.StartupPreferences
+import me.rerere.rikkahub.startup.animatorDurationScale
 import me.rerere.rikkahub.ui.activity.SafeModeActivity
 import me.rerere.rikkahub.ui.components.ui.TTSController
 import me.rerere.rikkahub.ui.context.LocalASRState
@@ -142,6 +156,7 @@ import me.rerere.rikkahub.ui.pages.share.handler.SharedInput
 import me.rerere.rikkahub.ui.pages.stats.StatsPage
 import me.rerere.rikkahub.ui.pages.translator.TranslatorPage
 import me.rerere.rikkahub.ui.pages.webview.WebViewPage
+import me.rerere.rikkahub.ui.startup.StartupIntroOverlay
 import me.rerere.rikkahub.ui.theme.RikkahubTheme
 import me.rerere.rikkahub.utils.CrashHandler
 import me.rerere.rikkahub.utils.openUsageAccessSettings
@@ -160,6 +175,13 @@ private const val EXTRA_ARTIFACT_FRAGMENT = "artifactFragment"
 
 /** 最多保留的持久化 URI 读授权数量，超出的旧授权会被回收。 */
 private const val MAX_PERSISTED_GRANTS = 8
+
+/** 系统 Splash 图标退场：很短的一段，只做淡出和轻微放大。 */
+private const val SPLASH_EXIT_DURATION_MS = 180L
+
+/** 保险丝：无论如何都要在首帧之后把 Splash 摘掉，绝不能让启动图一直盖着应用。 */
+private const val SPLASH_EXIT_TIMEOUT_MS = 600L
+private const val SPLASH_EXIT_SCALE = 1.08f
 
 /** Explicit in-app navigation used by overlay windows, not an externally exported path handler. */
 fun workspaceArtifactIntent(context: Context, workspaceId: String, path: String, fragment: String? = null): Intent =
@@ -183,6 +205,11 @@ class RouteActivity : ComponentActivity() {
     private val mediaCreationRepository by inject<MediaCreationRepository>()
     private var navStack: MutableList<NavKey>? = null
     private val pendingIntents = ArrayDeque<Intent>()
+
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
+
+    /** Splash 退场的兜底回调；onDestroy 时撤掉，避免持有已经关闭的窗口。 */
+    private var splashWatchdog: Runnable? = null
 
     // Volume key listener registry — last registered handler wins
     internal val volumeKeyListeners = mutableListOf<(isVolumeUp: Boolean) -> Boolean>()
@@ -212,6 +239,12 @@ class RouteActivity : ComponentActivity() {
         if (savedInstanceState == null) {
             handleIntent(intent)
         }
+        // 开场只在冷启动、且是从桌面普通启动时演一次。
+        // 分享 / 通知 / 深链接 / 快捷方式进来时 introPlan.overlay 为 null，什么都不叠。
+        val introPlan = resolveStartupIntroPlan(savedInstanceState)
+        if (introPlan.splashExitAnimation) {
+            applySplashExitAnimation()
+        }
         setContent {
             RikkahubTheme {
                 setSingletonImageLoaderFactory { context ->
@@ -233,14 +266,108 @@ class RouteActivity : ComponentActivity() {
                         }
                         .build()
                 }
-                AppRoutes()
+                AppRoutes(startupIntro = introPlan.overlay)
             }
         }
+    }
+
+    override fun onDestroy() {
+        splashWatchdog?.let { mainHandler.removeCallbacks(it) }
+        splashWatchdog = null
+        super.onDestroy()
     }
 
     private fun disableNavigationBarContrast() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
+        }
+    }
+
+    /**
+     * 冷启动开场：先读用户选项和系统动画开关，再看这次启动是不是"从桌面点进来"。
+     *
+     * 三个硬性条件都在 [StartupIntroPolicy] 里（纯函数，有单测）：
+     * 冷启动（不是配置重建）、普通入口（不是分享/通知/深链接）、本进程还没演过。
+     * 前两个不满足就完全不挂前景，最后一个用 [StartupIntroGate] 保证只演一次。
+     */
+    private fun resolveStartupIntroPlan(savedInstanceState: Bundle?): StartupIntroPlan {
+        val motion = StartupPreferences.readMotion(this)
+        val reduceMotion = StartupIntroPolicy.isReducedMotion(this.animatorDurationScale())
+        val plan = StartupIntroPolicy.planStartupIntro(
+            motion = motion,
+            reduceMotion = reduceMotion,
+            coldStart = savedInstanceState == null,
+            plainLaunch = StartupIntroPolicy.isPlainLauncherLaunch(
+                action = intent?.action,
+                hasDeepLinkExtras = hasLaunchExtras(intent),
+            ),
+            alreadyShownInProcess = false,
+            splashExitSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
+        )
+        if (plan.isEmpty) return StartupIntroPlan.NONE
+        // 同一进程只演一次：多实例、Activity 重建都不重播。
+        return if (StartupIntroGate.claim()) plan else StartupIntroPlan.NONE
+    }
+
+    /** 会直接落进某个具体页面/内容的启动，都算"不该被开场挡住的"启动。 */
+    private fun hasLaunchExtras(intent: Intent?): Boolean {
+        if (intent == null) return false
+        return intent.getStringExtra(EXTRA_CONVERSATION_ID) != null ||
+            intent.getStringExtra(MediaCreationForegroundService.EXTRA_MEDIA_SESSION_ID) != null ||
+            intent.getStringExtra(EXTRA_ARTIFACT_WORKSPACE_ID) != null ||
+            intent.getStringExtra(EXTRA_ARTIFACT_PATH) != null
+    }
+
+    /**
+     * 让系统 Splash 自己退场（Android 12+），不额外叠一个 loading 页。
+     *
+     * 整段退场都走 API 31 的公开 SDK：Activity.getSplashScreen()（android.app.Activity）、
+     * android.window.SplashScreen.setOnExitAnimationListener、SplashScreenView.remove()，
+     * 都不是隐藏 API，也不需要 core-splashscreen 依赖。
+     *
+     * 整块 Splash 视图（背景 + 图标）淡出，底下的聊天页本来就已经画好了，看起来是交叉淡入，
+     * 不会有"白底突然切成应用"的硬切。
+     *
+     * 注册了退出动画之后系统就不再自己移除 Splash，所以这里必须保证最终一定会 remove()：
+     * 正常是动画结束回调，异常路径和超时用 [splashWatchdog] 兜底，onDestroy 时撤掉。
+     * Android 12 以下没有这个 API，方法直接返回，只剩前景那段短动效。
+     */
+    private fun applySplashExitAnimation() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        applySplashExitAnimationS()
+    }
+
+    @RequiresApi(Build.VERSION_CODES.S)
+    private fun applySplashExitAnimationS() {
+        val splashScreen = runCatching { this.splashScreen }.getOrNull() ?: return
+        splashScreen.setOnExitAnimationListener { provider ->
+            val released = AtomicBoolean(false)
+            val releaseOnce: () -> Unit = {
+                if (released.compareAndSet(false, true)) {
+                    runCatching { provider.remove() }
+                    splashWatchdog?.let { mainHandler.removeCallbacks(it) }
+                    splashWatchdog = null
+                }
+            }
+            val watchdog = Runnable { releaseOnce() }
+            splashWatchdog = watchdog
+            mainHandler.postDelayed(watchdog, SPLASH_EXIT_TIMEOUT_MS)
+
+            val splashView = runCatching { provider }.getOrNull()
+            if (splashView == null) {
+                releaseOnce()
+            } else {
+                runCatching {
+                    splashView.animate()
+                        .alpha(0f)
+                        .scaleX(SPLASH_EXIT_SCALE)
+                        .scaleY(SPLASH_EXIT_SCALE)
+                        .setDuration(SPLASH_EXIT_DURATION_MS)
+                        .setInterpolator(DecelerateInterpolator())
+                        .withEndAction { releaseOnce() }
+                        .start()
+                }.onFailure { releaseOnce() }
+            }
         }
     }
 
@@ -361,7 +488,7 @@ class RouteActivity : ComponentActivity() {
 
     @OptIn(ExperimentalComposeUiApi::class)
     @Composable
-    fun AppRoutes() {
+    fun AppRoutes(startupIntro: StartupMotion? = null) {
         val toastState = rememberToasterState()
         val settings by settingsStore.settingsFlow.collectAsStateWithLifecycle()
         val tts = rememberCustomTtsState()
@@ -375,21 +502,26 @@ class RouteActivity : ComponentActivity() {
                     is AppEvent.ChatGenerationUpdate -> Unit // 由 ChatNotificationManager 消费
                     is AppEvent.ChatGenerationEnded -> Unit // 由 ChatNotificationManager 消费
                     is AppEvent.ChatCompressionStarted, is AppEvent.ChatCompressionEnded -> Unit
+                    is AppEvent.ChatRecoveryStatus -> Unit // 由 ChatRecoveryNotificationManager 消费
                 }
             }
         }
         val migrationState by DatabaseMigrationTracker.state.collectAsStateWithLifecycle()
 
-        val startScreen = Screen.Chat(
-            id = if (readBooleanPreference("create_new_conversation_on_start", true)) {
-                Uuid.random().toString()
-            } else {
-                readStringPreference(
-                    "lastConversationId",
+        // 起始页只在这次组合里决定一次：否则每次重组都会重新取随机会话 id，
+        // 交给 rememberNavBackStack 的 key 也就跟着变，导航栈可能被重置、共享偏好被反复读。
+        val startScreen = remember {
+            Screen.Chat(
+                id = if (readBooleanPreference("create_new_conversation_on_start", true)) {
                     Uuid.random().toString()
-                ) ?: Uuid.random().toString()
-            }
-        )
+                } else {
+                    readStringPreference(
+                        "lastConversationId",
+                        Uuid.random().toString()
+                    ) ?: Uuid.random().toString()
+                }
+            )
+        }
 
         val backStack = rememberNavBackStack(startScreen)
         SideEffect {
@@ -712,6 +844,18 @@ class RouteActivity : ComponentActivity() {
                             }
                         }
                     )
+                    // 冷启动开场：画在已经组合好的内容之上，不接手势、不加载任何东西，
+                    // 一次有限动画播完就把自己移除。startupIntro 为 null 时这段完全不参与组合。
+                    if (startupIntro != null) {
+                        var introVisible by remember { mutableStateOf(true) }
+                        if (introVisible) {
+                            StartupIntroOverlay(
+                                motion = startupIntro,
+                                onFinished = { introVisible = false },
+                                modifier = Modifier.fillMaxSize(),
+                            )
+                        }
+                    }
                     if (BuildConfig.DEBUG) {
                         Text(
                             text = "[开发模式]",

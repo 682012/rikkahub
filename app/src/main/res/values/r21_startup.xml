@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r21_startup_motion_title">Startup motion</string>
+    <string name="r21_startup_motion_desc">A short drawing on a cold launch, over the chat screen you can already use. Skipped for shares, notifications and links.</string>
+    <string name="r21_startup_motion_ring">Ring</string>
+    <string name="r21_startup_motion_dots">Gather</string>
+    <string name="r21_startup_motion_off">Off</string>
+    <string name="r21_startup_motion_reduced">System animations are off, so nothing is drawn.</string>
+</resources>

@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r21_learning_tab_title">经验学习</string>
+    <string name="r21_learning_switch">从已完成的回答中学习</string>
+    <string name="r21_learning_switch_desc">只保存计数：跑了多少轮、多少次工具调用失败、请求重试了几次。不保存对话正文、工具参数和模型输出，这里的任何开关也改不了工具、权限或系统提示。</string>
+    <string name="r21_learning_switch_off_hint">已关闭：不再收集，也不再注入。已存下的条目会保留，直到你手动删除。</string>
+    <string name="r21_learning_loading">正在读取经验数据…</string>
+
+    <string name="r21_learning_metrics_title">实测指标</string>
+    <string name="r21_learning_metric_turns">轮次</string>
+    <string name="r21_learning_metric_completed">正常完成</string>
+    <string name="r21_learning_metric_tool_calls">工具调用</string>
+    <string name="r21_learning_metric_tool_errors">工具失败</string>
+    <string name="r21_learning_metric_retries">重试</string>
+    <string name="r21_learning_metric_step_limit">触到步数上限</string>
+    <string name="r21_learning_metric_regenerated">被重新生成</string>
+    <string name="r21_learning_metric_last">最近一次：%1$s</string>
+    <string name="r21_learning_metric_none">还没有记录到轮次。本助手完成一次回答后，这里才会出现数字。</string>
+    <string name="r21_learning_metric_window">只保留最近 %1$d 轮</string>
+    <string name="r21_learning_metric_tool_error_rate">工具调用失败占 %1$d%%</string>
+
+    <string name="r21_learning_auto_title">按这些轮次得出的经验</string>
+    <string name="r21_learning_auto_empty">重复证据还不够：同一种情况至少出现 %1$d 轮才会被记下来。</string>
+    <string name="r21_learning_auto_evidence">%1$d 轮</string>
+    <string name="r21_learning_auto_source">由计数算出，不来自对话正文</string>
+
+    <string name="r21_learning_user_title">人工指导</string>
+    <string name="r21_learning_user_count">%1$d / %2$d</string>
+    <string name="r21_learning_user_empty">用你自己的话写一条规则。只有你在这里添加的条目会被注入。</string>
+    <string name="r21_learning_user_source">由你确认</string>
+    <string name="r21_learning_user_disabled">已停用：保留内容，不再注入</string>
+    <string name="r21_learning_add">新增人工指导</string>
+    <string name="r21_learning_add_title">新增人工指导</string>
+    <string name="r21_learning_edit_title">编辑人工指导</string>
+    <string name="r21_learning_field_label">经验内容</string>
+    <string name="r21_learning_field_placeholder">例如：工具调用失败后先读报错信息，不要用同样的参数重试</string>
+    <string name="r21_learning_field_counter">%1$d / %2$d</string>
+    <string name="r21_learning_save">保存</string>
+    <string name="r21_learning_close">关闭</string>
+    <string name="r21_learning_delete_title">删除这条人工指导？</string>
+    <string name="r21_learning_clear">清空经验数据</string>
+    <string name="r21_learning_clear_desc">删除本助手已记录的轮次和全部经验条目；上面的开关状态保持不变。</string>
+    <string name="r21_learning_clear_confirm_title">确认清空经验数据？</string>
+    <string name="r21_learning_clear_confirm_text">本助手已记录的轮次和全部经验都会被删除，删除后无法恢复。</string>
+    <string name="r21_learning_inject_hint">每次最多注入 %1$d 条，合计不超过 %2$d 个字符。</string>
+
+    <string name="r21_learning_storage_title">存储</string>
+    <string name="r21_learning_storage">保存在 %1$s</string>
+    <string name="r21_learning_storage_absent">还没有写入磁盘</string>
+    <string name="r21_learning_storage_never">还没有时间记录</string>
+    <string name="r21_learning_corrupt">文件读不出来。原始内容已先备份到 %1$s，之后才按能认出的字段重建。</string>
+
+    <string name="r21_learning_load_error">经验数据读取失败</string>
+    <string name="r21_learning_action_error">上一个操作失败</string>
+    <string name="r21_learning_retry">重试</string>
+
+    <string name="r21_memory_isolated_title">独立记忆</string>
+    <string name="r21_memory_isolated_desc">这份记忆只有本助手能读写，其他助手和旧的共享记忆都不会出现在这里。</string>
+    <string name="r21_memory_copy_legacy">复制旧共享记忆</string>
+    <string name="r21_memory_copy_legacy_desc">把旧的共享记忆一次性复制到本助手。本助手已有的同名文件会保留，共享记忆本身不会被删除。</string>
+    <string name="r21_memory_copy_confirm_title">把共享记忆复制到本助手？</string>
+    <string name="r21_memory_copy_confirm_text">本助手里已有的文件不会被覆盖，旧的共享记忆仍留在原处。</string>
+    <string name="r21_memory_copy_running">正在复制…</string>
+    <string name="r21_memory_copy_done">已复制 %1$d 个文件</string>
+    <string name="r21_memory_copy_none">没有新的内容可复制：本助手已经有了这些文件。</string>
+    <string name="r21_memory_copy_failed">复制失败：%1$s</string>
+    <string name="r21_memory_copy_dismiss">知道了</string>
+</resources>

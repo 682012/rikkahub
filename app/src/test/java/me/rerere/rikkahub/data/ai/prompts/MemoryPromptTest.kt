@@ -112,4 +112,68 @@ class MemoryPromptTest {
         assertFalse(buildMemoryConsolidationPrompt(fullReview = false).contains("## Full review"))
         assertTrue(buildMemoryConsolidationPrompt(fullReview = true).contains("## Full review"))
     }
+
+    // 一条记忆一行的长正文，段落之间空行
+    private fun longProfile(lines: Int) = (1..lines)
+        .joinToString("\n\n") { "- [stated] 第 $it 条：住在杭州，每天早上七点起床，晚上十一点睡觉。" }
+
+    @Test
+    fun `a pinned file over the budget is injected as an excerpt that says how to read the rest`() {
+        val body = longProfile(400)
+        val huge = MemoryFile(MemoryFile.PROFILE_PATH, body, updatedAt = 0)
+
+        val prompt = buildMemoryPrompt(listOf(huge))
+        val block = prompt.block("profile")
+
+        // version 和 path 都保留，正文才不会和库里的内容对不上
+        assertTrue(prompt.contains("<profile version=\"${huge.version}\">"))
+        assertTrue(prompt.contains("</profile>"))
+        assertTrue(block.contains("truncated"))
+        assertTrue(block.contains("memory_read"))
+        assertTrue(block.contains(MemoryFile.PROFILE_PATH))
+        // 只注入摘要片段：远短于全文
+        assertTrue(block.length < body.length / 2)
+
+        // 按段/行裁：留下的每一行都是原文里完整的一行，不会把一条记忆切成半句
+        val sourceLines = body.lines()
+        val excerptLines = block.lines().filterNot { it.startsWith("[profile truncated:") }
+        assertTrue(excerptLines.size > 1)
+        excerptLines.forEach { line -> assertTrue("not a source line: $line", line in sourceLines) }
+        assertTrue(excerptLines.last().endsWith("睡觉。"))
+        // 持久记忆没有被改动
+        assertEquals(body, huge.content)
+    }
+
+    @Test
+    fun `the whole memory state stays inside the prompt budget however many files there are`() {
+        val profile = MemoryFile(MemoryFile.PROFILE_PATH, longProfile(200), updatedAt = 0)
+        val preferences = MemoryFile(
+            MemoryFile.PREFERENCES_PATH,
+            "- [stated] 回答简短一点\n".repeat(2_000),
+            updatedAt = 0,
+        )
+        val topics = (1..300).map { index ->
+            MemoryFile(
+                path = "/topics/topic-$index.md",
+                content = "---\nname: topic-$index\ndescription: 第 $index 个话题，描述写得长一些，好把清单撑出预算\n" +
+                    "aliases: [话题$index, topic$index]\n---\n\n- [stated] $index\n",
+                updatedAt = 0,
+            )
+        }
+
+        val prompt = buildMemoryPrompt(listOf(profile, preferences) + topics)
+
+        // 两个全文文件和清单加起来有上限，文件再多也不会跟着涨
+        val state = prompt.block("profile").length +
+            prompt.block("preferences").length +
+            prompt.block("memory_listing").length
+        assertTrue("memory state was $state characters", state <= MEMORY_STATE_BUDGET)
+        // 清单溢出时给出 memory_list 的读法，标签本身完整
+        assertTrue(prompt.block("memory_listing").contains("memory_list"))
+        assertEquals(1, prompt.split("</memory_listing>").size - 1)
+        assertEquals(1, prompt.split("</profile>").size - 1)
+        assertEquals(1, prompt.split("</preferences>").size - 1)
+        // 没被截断的文件还是照旧逐行列出
+        assertTrue(prompt.contains("/topics/topic-1.md |"))
+    }
 }

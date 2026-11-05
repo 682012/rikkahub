@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -26,7 +27,6 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.datastore.ConversationSortOrder
 import me.rerere.rikkahub.data.datastore.SettingsStore
-import me.rerere.rikkahub.data.datastore.getCurrentAssistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.Folder
 import me.rerere.rikkahub.data.repository.ConversationRepository
@@ -38,6 +38,16 @@ import java.time.LocalDate
 import java.time.ZoneId
 import kotlin.uuid.Uuid
 
+/**
+ * 抽屉 ViewModel 的 key：必须带上助手 id。
+ *
+ * ChatPage（跟随抽屉选中的文件夹）和 ChatDrawerContent（真正渲染抽屉）都要拿这个 VM，
+ * 两处必须用**同一把 key** 才会命中同一个 NavEntry ViewModelStore 里的同一个实例；
+ * 集中在这里定义，避免两处字符串各写一遍、以后改一边就分裂成两个实例
+ * （症状：抽屉里选的文件夹传不进输入框、滚动位置来回跳）。
+ */
+internal fun chatDrawerViewModelKey(assistantId: Uuid): String = "chat-drawer:$assistantId"
+
 class ChatDrawerVM(
     private val context: Application,
     private val settingsStore: SettingsStore,
@@ -48,9 +58,22 @@ class ChatDrawerVM(
     private val savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
-    private val assistantIdFlow = settingsStore.settingsFlow
-        .map { it.assistantId }
-        .distinctUntilChanged()
+    private val boundAssistantId = MutableStateFlow<Uuid?>(null)
+    private val assistantIdFlow = boundAssistantId.filterNotNull().distinctUntilChanged()
+
+    /**
+     * 绑定当前会话的助手。
+     *
+     * 只改绑定值、不重造 ViewModel：调用方（ChatPage / ChatDrawerContent）共用
+     * [chatDrawerViewModelKey] 作为 key，因此同一个助手拿到的是同一个实例，
+     * 选中文件夹和滚动位置在两个入口之间共享。
+     */
+    fun bindAssistant(assistantId: Uuid) {
+        if (boundAssistantId.value != assistantId) {
+            _selectedFolderId.value = null
+            boundAssistantId.value = assistantId
+        }
+    }
 
     private val sortOrderFlow = settingsStore.settingsFlow
         .map { it.displaySetting.conversationSortOrder }
@@ -66,8 +89,9 @@ class ChatDrawerVM(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // 当前助手的记忆库是否正在后台整理；没开记忆的助手即使共用的全局记忆库在整理也不显示
-    val memoryDreaming: StateFlow<Boolean> = settingsStore.settingsFlow
-        .map { settings -> settings.getCurrentAssistant().takeIf { it.enableMemory }?.memoryId }
+    val memoryDreaming: StateFlow<Boolean> = combine(settingsStore.settingsFlow, assistantIdFlow) { settings, id ->
+            settings.assistants.firstOrNull { it.id == id && it.enableMemory }?.memoryId
+        }
         .distinctUntilChanged()
         .flatMapLatest { memoryId ->
             if (memoryId == null) flowOf(false) else memoryConsolidationScheduler.statusOf(memoryId).map { it.running }
@@ -79,10 +103,11 @@ class ChatDrawerVM(
             Triple(assistantId, folderId, sortOrder)
         }
             .flatMapLatest { (assistantId, folderId, sortOrder) ->
-                val paging = if (folderId == null) {
+                val ownedFolder = folderId?.takeIf { folderRepo.getFolderById(it)?.assistantId == assistantId }
+                val paging = if (ownedFolder == null) {
                     conversationRepo.getUnfiledConversationsOfAssistantPaging(assistantId, sortOrder)
                 } else {
-                    conversationRepo.getConversationsOfFolderPaging(folderId, sortOrder)
+                    conversationRepo.getConversationsOfFolderPaging(ownedFolder, sortOrder)
                 }
                 paging.map { pagingData ->
                     pagingData

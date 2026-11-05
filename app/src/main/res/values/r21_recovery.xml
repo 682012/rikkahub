@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 通知上的小标题：进度（低声）与终态（需要人看） -->
+    <string name="r21_recovery_progress_subtext">Reconnecting automatically</string>
+    <string name="r21_recovery_terminal_subtext">Needs your attention</string>
+
+    <!-- ChatService 发送 AppEvent.ChatRecoveryStatus 时用的文案 -->
+    <string name="r21_recovery_waiting_network">Connection lost. Generation continues automatically when the network is back.</string>
+    <string name="r21_recovery_retrying">Reconnecting automatically (%1$d/%2$d).</string>
+    <string name="r21_recovery_resumed">Reconnecting to continue the unfinished reply.</string>
+    <string name="r21_recovery_gave_up">Automatic recovery failed after %1$d attempts. Open the conversation to retry or stop it.</string>
+    <string name="r21_recovery_blocked_auth">The account needs to sign in again, so it was not retried automatically.</string>
+    <string name="r21_recovery_blocked_quota">The quota is used up. It will not recover by retrying.</string>
+    <string name="r21_recovery_blocked_request">The request was rejected. Sending it again would fail the same way.</string>
+    <string name="r21_recovery_blocked_side_effect">A tool outcome or generated media cannot be safely replayed. Automatic recovery has stopped.</string>
+    <string name="r21_recovery_scheduled">Connection interrupted. Retrying in %1$d seconds; offline requests resume when the network returns.</string>
+    <string name="r21_recovery_timeout">Automatic recovery timed out. Open this conversation to continue.</string>
+    <string name="r21_recovery_stopped">This conversation stopped and cannot continue automatically. Open it to see the error.</string>
+</resources>

@@ -38,6 +38,15 @@ internal class BackgroundBarrierHeld : AbstractCoroutineContextElement(Backgroun
 }
 
 /**
+ * 后台执行被取消（`action=cancel`、显式停止、或进程前就被取消）。
+ *
+ * 这是**普通 Exception**，不是 [CancellationException]：取消的是这条后台任务，
+ * 正在等它的调用方（模型这一轮）并没有被取消，必须活着拿到一条结构化结果继续干活。
+ * 调用方自己被取消时扔的是真正的 [CancellationException]，不会被这个类吞掉。
+ */
+class BackgroundToolCancelledException(message: String) : Exception(message)
+
+/**
  * 通用工具转后台的执行器。
  *
  * 三件必须一起成立的事：
@@ -239,11 +248,66 @@ class BackgroundToolManager(
             }
             throw e
         }
-        if (waited != null) return waited.getOrThrow()
+        if (waited != null) return deliverOutcome(waited, run.task.id)
         // 恰好在这时跑完：直接给真结果，不要发一条「去后台读」的回执让模型再跑一趟
-        if (isFinished(run.task.id)) return run.completion.await().getOrThrow()
-        if (!enterBackground(run.task.id, owner.conversationId)) return run.completion.await().getOrThrow()
+        if (isFinished(run.task.id)) return deliverOutcome(awaitOutcome(run), run.task.id)
+        if (!enterBackground(run.task.id, owner.conversationId)) {
+            return deliverOutcome(awaitOutcome(run), run.task.id)
+        }
         return listOf(UIMessagePart.Text(backgroundReceipt(run.task.id)))
+    }
+
+    /**
+     * 等一次执行结果，并让「调用方自己被取消」继续作用在**还没转后台**的这条执行上。
+     *
+     * 超时之后还有两处 `await()`：它们同样是挂起点，调用方可能正好在这里被取消（用户停止生成）。
+     * 只把取消包在 `withTimeoutOrNull` 外面的话，这两处会留下一条没人等的工具体——它不算后台任务
+     * （没有回执、不在 list 之外的地方可见），也不算被取消，等于把「前台取消只作用于还没转后台的
+     * 调用」反过来破坏了。取消照原样上抛，不吞。
+     */
+    private suspend fun awaitOutcome(run: BackgroundRun): Result<List<UIMessagePart>> =
+        try {
+            run.completion.await()
+        } catch (e: CancellationException) {
+            if (run.task.id !in backgrounded) {
+                run.job.cancel(CancellationException("foreground tool caller cancelled"))
+            }
+            throw e
+        }
+
+    /**
+     * 把一次执行结果交给前台调用方。
+     *
+     * 唯一的翻译是「后台任务自己被取消」：这时候给一条结构化文本，让这一轮生成继续跑，
+     * 而不是把 [BackgroundToolCancelledException]（更不是 [CancellationException]）抛给调用方
+     * ——那会让共用同一个 job 的整轮对话被判成"用户停止了生成"。
+     * 真正的失败（工具报错）照旧上抛。
+     */
+    private fun deliverOutcome(
+        outcome: Result<List<UIMessagePart>>,
+        id: String,
+    ): List<UIMessagePart> {
+        val error = outcome.exceptionOrNull()
+        if (error !is BackgroundToolCancelledException) return outcome.getOrThrow()
+        return listOf(UIMessagePart.Text(cancelledResult(id, error)))
+    }
+
+    private fun cancelledResult(id: String, error: Throwable): String {
+        val task = tasks[id]
+        return buildJsonObject {
+            put("status", "cancelled")
+            put("task_id", id)
+            put("tool", task?.toolName.orEmpty())
+            put("error", (error.message ?: "cancelled").take(2_000))
+            put("cancelled", true)
+            put(
+                "note",
+                "This background call was cancelled (background_tool action=cancel, an explicit stop, or a " +
+                    "cancellation before it started). The calling turn is NOT cancelled: continue with other " +
+                    "work, or start it again if it is still needed. Any effects it already had are unknown " +
+                    "and it was NOT replayed.",
+            )
+        }.toString()
     }
 
     /** 显式后台启动：立刻返回任务记录，不等待。 */
@@ -299,7 +363,10 @@ class BackgroundToolManager(
             // Cancellation can happen before the coroutine body starts (no try/finally then).
             if (cause != null && !completion.isCompleted) {
                 finishTask(id, BackgroundToolStatus.CANCELLED, "", "cancelled before execution started")
-                completion.complete(Result.failure(cause))
+                // 取消的是这条任务，不是等它的调用方：交付普通 Exception，别把取消传染出去
+                completion.complete(
+                    Result.failure(BackgroundToolCancelledException("cancelled before execution started")),
+                )
                 jobs.remove(id)
                 releaseLease(id)
                 notifyFinished(id)
@@ -339,7 +406,9 @@ class BackgroundToolManager(
             completion.complete(Result.success(output))
         } catch (e: CancellationException) {
             finishTask(id, BackgroundToolStatus.CANCELLED, textOf(outputs[id].orEmpty()), "cancelled")
-            completion.complete(Result.failure(e))
+            // 普通 Exception：等这条任务的调用方要继续活着（见 BackgroundToolCancelledException）
+            completion.complete(Result.failure(BackgroundToolCancelledException("cancelled")))
+            // 自己仍然是取消状态：不要把取消吞掉，否则 cancel() 后任务会被当成正常结束
             throw e
         } catch (e: Throwable) {
             finishTask(id, BackgroundToolStatus.FAILED, textOf(outputs[id].orEmpty()), describe(e))

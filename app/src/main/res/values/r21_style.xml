@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r21 轨道：第四种聊天布局风格的名字、说明与轨道状态文案 -->
+    <string name="r21_style_orbit">Orbit</string>
+    <string name="r21_style_orbit_desc">Compact task bar with a live rail: current model, speed and context stay on one track.</string>
+    <string name="r21_orbit_state_idle">Idle</string>
+    <string name="r21_orbit_state_streaming">Generating</string>
+    <string name="r21_orbit_state_measured">Speed measured</string>
+    <string name="r21_orbit_state_unavailable">Speed not measured</string>
+    <string name="r21_orbit_context_gauge">Last context: %1$d%% of the window</string>
+    <string name="r21_orbit_state_error">Stopped — action needed</string>
+    <string name="r21_orbit_state_recovering">Reconnecting</string>
+</resources>

@@ -23,54 +23,71 @@ import kotlin.uuid.Uuid
 /**
  * Tools that let the assistant query the user's past conversations on demand, instead of
  * statically injecting recent chats into the system prompt (which would break prompt caching).
+ *
+ * 这一组工具只能看到 [assistantId] 这个助手自己的对话：助手之间的历史是隔离的，跨助手只由用户
+ * 主动迁移后重新绑定。用户显式跨助手的全局搜索框不走这里。
  */
 fun createConversationTools(
     conversationRepo: ConversationRepository,
     assistantId: Uuid,
 ): List<Tool> = listOf(
-    Tool(
-        name = "recent_chats",
-        description = """
-            List the user's recent conversations with you to understand their preferences and ongoing topics.
-            Returns conversation titles and the date of last activity, ordered by pinned first then most recently updated.
-            Use this when you need quick context about what the user has been discussing lately.
-            Only titles and dates are returned; use `conversation_search` to look up the actual content.
-        """.trimIndent(),
-        parameters = {
-            InputSchema.Obj(
-                properties = buildJsonObject {
-                    put("limit", buildJsonObject {
-                        put("type", "integer")
-                        put(
-                            "description",
-                            "Maximum number of recent conversations to return (default: 10, max: 30)"
-                        )
-                    })
-                }
-            )
-        },
-        execute = {
-            val limit = (it.jsonObject["limit"]?.jsonPrimitive?.intOrNull ?: 10).coerceIn(1, 30)
-            val recent = conversationRepo.getRecentConversations(
-                assistantId = assistantId,
-                limit = limit,
-            )
-            val payload = buildJsonArray {
-                recent.forEach { conversation ->
-                    add(buildJsonObject {
-                        put("id", conversation.id.toString())
-                        put("title", conversation.title.ifBlank { "Untitled" })
-                        put("last_chat", conversation.updateAt.toLocalDate())
-                    })
-                }
-            }
-            listOf(UIMessagePart.Text(JsonInstantPretty.encodeToString(payload)))
-        }
-    ),
-    conversationSearchTool { query -> conversationRepo.searchMessages(query, MessageSearchSort.RELEVANCE) },
+    recentChatsTool(conversationRepo, assistantId),
+    conversationSearchTool(assistantId) { query, scope ->
+        conversationRepo.searchMessages(query, MessageSearchSort.RELEVANCE, scope)
+    },
+    // 读取同样只在当前助手的范围内：先按 id 核一次归属再读
+    createConversationReadTool(conversationRepo, assistantId),
 )
 
-private fun conversationSearchTool(search: suspend (query: String) -> List<MessageSearchResult>) = Tool(
+/** 最近对话列表，只列 [assistantId] 自己的对话。 */
+private fun recentChatsTool(conversationRepo: ConversationRepository, assistantId: Uuid) = Tool(
+    name = "recent_chats",
+    description = """
+        List the user's recent conversations with you to understand their preferences and ongoing topics.
+        Returns conversation titles and the date of last activity, ordered by pinned first then most recently updated.
+        Use this when you need quick context about what the user has been discussing lately.
+        Only titles and dates are returned; use `conversation_search` to look up the actual content.
+    """.trimIndent(),
+    parameters = {
+        InputSchema.Obj(
+            properties = buildJsonObject {
+                put("limit", buildJsonObject {
+                    put("type", "integer")
+                    put(
+                        "description",
+                        "Maximum number of recent conversations to return (default: 10, max: 30)"
+                    )
+                })
+            }
+        )
+    },
+    execute = {
+        val limit = (it.jsonObject["limit"]?.jsonPrimitive?.intOrNull ?: 10).coerceIn(1, 30)
+        val recent = conversationRepo.getRecentConversations(
+            assistantId = assistantId,
+            limit = limit,
+        )
+        val payload = buildJsonArray {
+            recent.forEach { conversation ->
+                add(buildJsonObject {
+                    put("id", conversation.id.toString())
+                    put("title", conversation.title.ifBlank { "Untitled" })
+                    put("last_chat", conversation.updateAt.toLocalDate())
+                })
+            }
+        }
+        listOf(UIMessagePart.Text(JsonInstantPretty.encodeToString(payload)))
+    }
+)
+
+/**
+ * 全文检索。检索范围由 [assistantId] 决定，模型改不了：不传范围时会搜到别的助手的对话内容，
+ * 而助手之间的历史是隔离的。记忆整理那一路传 null，它自己另有一份助手范围。
+ */
+internal fun conversationSearchTool(
+    assistantId: Uuid?,
+    search: suspend (query: String, assistantId: Uuid?) -> List<MessageSearchResult>,
+) = Tool(
     name = "conversation_search",
     description = """
         Full-text search across the user's past conversations to recall specific information they mentioned before.
@@ -99,7 +116,7 @@ private fun conversationSearchTool(search: suspend (query: String) -> List<Messa
         val query = it.jsonObject["query"]?.jsonPrimitive?.contentOrNull
             ?: error("query is required")
         val limit = (it.jsonObject["limit"]?.jsonPrimitive?.intOrNull ?: 15).coerceIn(1, 50)
-        val results = search(query).take(limit)
+        val results = search(query, assistantId).take(limit)
         val payload = buildJsonArray {
             results.forEach { result ->
                 add(buildJsonObject {
@@ -126,7 +143,7 @@ fun createMemoryConversationTools(
     conversationRepo: ConversationRepository,
     assistantIds: Set<Uuid>,
 ): List<Tool> = listOf(
-    conversationSearchTool { query -> conversationRepo.searchMessagesOfAssistants(query, assistantIds) },
+    conversationSearchTool(null) { query, _ -> conversationRepo.searchMessagesOfAssistants(query, assistantIds) },
     Tool(
         name = "conversation_read",
         description = """
@@ -189,8 +206,24 @@ fun createMemoryConversationTools(
 internal fun Conversation.dialogueMessages(): List<UIMessage> =
     currentMessages.filter { it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT }
 
-/** 让子代理按会话 id 读取另一段聊天的尾部内容。 */
-fun createConversationReadTool(conversationRepo: ConversationRepository, assistantId: Uuid): Tool = Tool(
+/**
+ * 让子代理按会话 id 读取另一段聊天的尾部内容。
+ *
+ * 只能读 [assistantId] 自己的对话：检索出来的 id 也可能是别处给的，读之前必须再核一次归属。
+ */
+fun createConversationReadTool(conversationRepo: ConversationRepository, assistantId: Uuid): Tool =
+    conversationReadTool(
+        assistantId = assistantId,
+        ownerOf = { conversationId -> conversationRepo.getConversationAssistantId(conversationId) },
+        readTail = { conversationId, limit -> conversationRepo.readConversationTail(conversationId, limit) },
+    )
+
+/** 按会话 id 读取尾部消息；[ownerOf] 用来确认这段对话确实属于当前助手。 */
+internal fun conversationReadTool(
+    assistantId: Uuid,
+    ownerOf: suspend (conversationId: String) -> String?,
+    readTail: suspend (conversationId: String, limit: Int) -> List<Pair<String, String>>,
+): Tool = Tool(
     name = "conversation_read",
     description = """
         Read the most recent messages of another conversation by its id.
@@ -214,12 +247,15 @@ fun createConversationReadTool(conversationRepo: ConversationRepository, assista
     },
     execute = {
         val params = it.jsonObject
-        val id = params["conversation_id"]?.jsonPrimitive?.contentOrNull
-            ?: error("conversation_id is required")
+        val id = params["conversation_id"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+        require(id.isNotEmpty()) { "conversation_id is required" }
         val limit = (params["limit"]?.jsonPrimitive?.intOrNull ?: 20).coerceIn(1, 100)
-        val owner = conversationRepo.getConversationAssistantId(id)
-        require(owner == assistantId.toString()) { "Conversation is outside this assistant's scope" }
-        val messages = conversationRepo.readConversationTail(id, limit)
+        val owner = ownerOf(id)
+        // 不属于这个助手（或根本不存在）的会话一律当作找不到，不确认别的助手有没有这段对话
+        require(owner == assistantId.toString()) { "conversation not found" }
+        val messages = readTail(id, limit)
+        // Ownership may change while the database read is suspended. Do not return a stale scope.
+        require(ownerOf(id) == assistantId.toString()) { "conversation not found" }
         var budget = 24_000
         val payload = buildJsonArray {
             for ((role, text) in messages) {

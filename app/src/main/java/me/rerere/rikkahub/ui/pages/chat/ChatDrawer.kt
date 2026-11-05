@@ -1,6 +1,5 @@
 package me.rerere.rikkahub.ui.pages.chat
 
-import androidx.activity.ComponentActivity
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -115,8 +114,8 @@ fun ChatDrawerContent(
     val repo = koinInject<ConversationRepository>()
     val chatStyle = me.rerere.rikkahub.ui.theme.rememberChatStyleSpec()
 
-    val activity = context as ComponentActivity
-    val drawerVm: ChatDrawerVM = koinViewModel(viewModelStoreOwner = activity)
+    val drawerVm: ChatDrawerVM = koinViewModel(key = chatDrawerViewModelKey(current.assistantId))
+    androidx.compose.runtime.SideEffect { drawerVm.bindAssistant(current.assistantId) }
 
     val conversations = drawerVm.conversations.collectAsLazyPagingItems()
     val folders by drawerVm.folders.collectAsStateWithLifecycle()
@@ -354,13 +353,13 @@ fun ChatDrawerContent(
 
             if (memoryDreaming) {
                 MemoryDreamingEntry(
-                    onClick = { navController.navigate(Screen.AssistantMemory(settings.assistantId.toString())) },
+                    onClick = { navController.navigate(Screen.AssistantMemory(current.assistantId.toString())) },
                 )
             }
 
             // 助手选择器
             AssistantPicker(
-                settings = settings,
+                settings = settings.copy(assistantId = current.assistantId),
                 onSelectAssistant = { assistant ->
                     val updateJob = vm.updateSettings { it.copy(assistantId = assistant.id) }
                     scope.launch {
@@ -378,7 +377,7 @@ fun ChatDrawerContent(
                 },
                 modifier = Modifier.fillMaxWidth(),
                 onClickSetting = {
-                    val currentAssistantId = settings.assistantId
+                    val currentAssistantId = current.assistantId
                     navController.navigate(Screen.AssistantDetail(id = currentAssistantId.toString()))
                 }
             )

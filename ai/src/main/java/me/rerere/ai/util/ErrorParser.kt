@@ -7,9 +7,32 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 
+/**
+ * 服务端返回的错误。
+ *
+ * [statusCode] 只允许填**真实的 HTTP 响应码**（OkHttp `Response.code`）。从错误文本里正则猜出来的
+ * 数字一概不进这里：猜错一个码，重试层会把「余额不足」当成「服务端抖动」反复重发。
+ *
+ * 因此解析错误文本得到的 [HttpException]（[parseErrorDetail]）状态码是 null，表示「不知道码」，
+ * 自动重试层见到 null 一律按不可重试处理，不盲试。
+ */
 class HttpException(
-    message: String
-) : RuntimeException(message)
+    message: String,
+    val statusCode: Int? = null,
+    cause: Throwable? = null,
+) : RuntimeException(message, cause)
+
+/**
+ * 给已经解析好消息的错误补上真实响应码，消息与 cause 原样保留。
+ *
+ * 只用于「body 已经解析出人话，但响应码在另一处」的场合（SSE 的 `onFailure` 回调）：
+ * 那里消息来自 body，`Response.code` 来自回调参数，两边必须合成同一个异常，否则重试层只能看到一半事实。
+ */
+fun HttpException.withStatusCode(code: Int?, cause: Throwable? = null): HttpException {
+    if (code == null) return this
+    val keepCause = cause?.takeIf { it !== this } ?: this.cause
+    return HttpException(message.orEmpty(), statusCode = code, cause = keepCause)
+}
 
 fun JsonElement.parseErrorDetail(): HttpException {
     return when (this) {

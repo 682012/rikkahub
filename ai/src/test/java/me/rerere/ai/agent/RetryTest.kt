@@ -6,6 +6,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.currentTime
 import kotlinx.coroutines.test.runTest
+import me.rerere.ai.provider.WebProtocolException
+import me.rerere.ai.provider.stream.StreamTruncatedException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -80,6 +82,36 @@ class RetryTest {
 
         assertTrue(job.isCancelled)
         assertEquals(1, calls)
+    }
+
+    @Test
+    fun `protocol violations are io but not transient`() = runTest {
+        var calls = 0
+
+        val error = runCatching {
+            withRetry(RetryPolicy(maxRetries = 3, initialDelay = Duration.ZERO)) {
+                calls++
+                // 响应不是 JSON / 会话 id 对不上：重发同一份请求结果一样
+                throw WebProtocolException("response was not JSON")
+            }
+        }.exceptionOrNull()
+
+        assertTrue(error is WebProtocolException)
+        assertEquals(1, calls)
+    }
+
+    @Test
+    fun `half streamed responses are still retried`() = runTest {
+        var calls = 0
+
+        val result = withRetry(RetryPolicy(maxRetries = 2, initialDelay = Duration.ZERO)) {
+            calls++
+            if (calls < 2) throw StreamTruncatedException("stream closed before finish_reason")
+            "ok"
+        }
+
+        assertEquals("ok", result)
+        assertEquals(2, calls)
     }
 
     @Test

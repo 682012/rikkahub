@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -31,6 +30,14 @@ import kotlin.uuid.Uuid
 
 private const val TAG = "AssistantDetailVM"
 
+/** 手动把旧共享记忆迁移到本助手时的一次性状态，只用来给页面提示，不做任何自动同步。 */
+sealed interface LegacyMemoryCopyState {
+    data object Idle : LegacyMemoryCopyState
+    data object Running : LegacyMemoryCopyState
+    data class Finished(val copied: Int) : LegacyMemoryCopyState
+    data class Failed(val message: String) : LegacyMemoryCopyState
+}
+
 class AssistantDetailVM(
     private val id: String,
     private val settingsStore: SettingsStore,
@@ -41,6 +48,10 @@ class AssistantDetailVM(
     private val workspaceRepository: WorkspaceRepository,
 ) : ViewModel() {
     private val assistantId = Uuid.parse(id)
+
+    // 记忆库固定按页面拿到的 assistantId 定位：无论助手有没有加载出来、旧数据里 useGlobalMemory 是什么，
+    // 都只读写本助手自己的库，不会去碰旧的共享记忆库。
+    val memoryId: String get() = assistantId.toString()
 
     private val _skills = MutableStateFlow<List<SkillMetadata>>(emptyList())
     val skills = _skills.asStateFlow()
@@ -69,21 +80,24 @@ class AssistantDetailVM(
             scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = Assistant()
         )
 
-    val memories = assistant
-        .flatMapLatest { currentAssistant ->
-            memoryRepository.getFilesFlow(memoryIdOf(currentAssistant))
-        }
+    // 记忆库在页面生命周期里是固定的：永远只认本页面的 assistantId，
+    // 不再按 assistant.useGlobalMemory 切到共享库（旧字段只为反序列化兼容保留）。
+    val memories = memoryRepository
+        .getFilesFlow(memoryId)
         .stateIn(
             scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = emptyList()
         )
 
-    val memoryConsolidation: StateFlow<MemoryConsolidationStatus> = assistant
-        .flatMapLatest { currentAssistant ->
-            memoryConsolidationScheduler.statusOf(memoryIdOf(currentAssistant))
-        }
+    val memoryConsolidation: StateFlow<MemoryConsolidationStatus> = memoryConsolidationScheduler
+        .statusOf(memoryId)
         .stateIn(
             scope = viewModelScope, started = SharingStarted.Eagerly, initialValue = MemoryConsolidationStatus()
         )
+
+    private val _legacyMemoryCopy = MutableStateFlow<LegacyMemoryCopyState>(LegacyMemoryCopyState.Idle)
+
+    /** 手动把旧共享记忆复制到本助手的一次性结果；不会自动跑，也不会改动旧共享库。 */
+    val legacyMemoryCopy: StateFlow<LegacyMemoryCopyState> = _legacyMemoryCopy.asStateFlow()
 
     val providers = settingsStore
         .settingsFlow
@@ -184,25 +198,47 @@ class AssistantDetailVM(
         }
     }
 
-    // 助手还没加载出来时 assistant 是个占位对象，记忆库要按页面拿到的 assistantId 来定位
-    private fun memoryIdOf(assistant: Assistant) = if (assistant.useGlobalMemory) {
-        MemoryRepository.GLOBAL_MEMORY_ID
-    } else {
-        assistantId.toString()
+    /**
+     * 用户主动迁移：把旧共享记忆复制到本助手。
+     *
+     * 只是复制（[MemoryRepository.copyFiles] 会跳过本助手已有的同名文件，不覆盖任何现有内容），
+     * 不改 [Assistant.useGlobalMemory]，也不删除旧共享库；失败时把原因留在 [legacyMemoryCopy] 里给页面显示。
+     */
+    fun copyLegacySharedMemory() {
+        if (_legacyMemoryCopy.value is LegacyMemoryCopyState.Running) return
+        _legacyMemoryCopy.value = LegacyMemoryCopyState.Running
+        viewModelScope.launch {
+            val target = memoryId
+            try {
+                val before = memoryRepository.getFiles(target).mapTo(hashSetOf()) { it.path }
+                memoryRepository.copyFiles(MemoryRepository.GLOBAL_MEMORY_ID, target)
+                val copied = memoryRepository.getFiles(target).count { it.path !in before }
+                _legacyMemoryCopy.value = LegacyMemoryCopyState.Finished(copied)
+            } catch (e: Exception) {
+                Log.e(TAG, "copyLegacySharedMemory: 复制共享记忆失败", e)
+                _legacyMemoryCopy.value = LegacyMemoryCopyState.Failed(
+                    e.message ?: e::class.java.simpleName
+                )
+            }
+        }
     }
 
-    /** 当前助手读写的记忆库 */
-    val memoryId: String get() = memoryIdOf(assistant.value)
-
-    /** 整理所有待整理的对话，并把整个记忆库清理一遍 */
-    fun organizeMemory() {
-        memoryConsolidationScheduler.organize(memoryId)
+    /** 用户看完复制结果后收起提示，不影响已经复制过去的文件 */
+    fun dismissLegacyMemoryCopyResult() {
+        if (_legacyMemoryCopy.value !is LegacyMemoryCopyState.Running) {
+            _legacyMemoryCopy.value = LegacyMemoryCopyState.Idle
+        }
     }
 
     fun deleteMemory(memory: MemoryFile) {
         viewModelScope.launch {
-            memoryRepository.deleteFile(memoryIdOf(assistant.value), memory.path)
+            memoryRepository.deleteFile(memoryId, memory.path)
         }
+    }
+
+    /** 整理所有待整理的对话，并把整个记忆库清理一遍 */
+    fun organizeMemory() {
+        memoryConsolidationScheduler.organize(memoryId)
     }
 
     fun checkAvatarDelete(old: Assistant, new: Assistant) {

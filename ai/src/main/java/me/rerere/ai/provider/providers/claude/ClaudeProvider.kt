@@ -61,6 +61,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.handleTextGenerationResult
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
+import me.rerere.ai.util.HttpException
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.configureSessionHeaders
@@ -70,6 +71,7 @@ import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.mergeCustomHeaders
 import me.rerere.ai.util.parseErrorDetail
 import me.rerere.ai.util.stringSafe
+import me.rerere.ai.util.withStatusCode
 import me.rerere.common.http.await
 import me.rerere.common.http.jsonPrimitiveOrNull
 import me.rerere.common.http.sse.newEventSource
@@ -313,7 +315,10 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
 
         val response = client.newCall(request).await()
         if (!response.isSuccessful) {
-            throw Exception("Failed to get response: ${response.code} ${response.body?.string()}")
+            throw HttpException(
+                message = "Failed to get response: ${response.code} ${response.body?.string()}",
+                statusCode = response.code,
+            )
         }
 
         val bodyStr = response.body?.string() ?: ""
@@ -405,10 +410,16 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                         val bodyElement = Json.parseToJsonElement(bodyRaw)
                         Log.i(TAG, "Error response: $bodyElement")
                         exception = bodyElement.parseErrorDetail()
+                            .withStatusCode(response?.code, cause = t)
                     }
                 } catch (e: Throwable) {
                     Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
                     e.printStackTrace()
+                    // 同上：解析失败（HTML 错误页等）也要保住真实响应码，否则 503/429 会被当成未知失败
+                    val code = response?.code
+                    if (code != null) {
+                        exception = HttpException("Unknown error: $code", statusCode = code, cause = t ?: e)
+                    }
                 } finally {
                     close(exception)
                 }

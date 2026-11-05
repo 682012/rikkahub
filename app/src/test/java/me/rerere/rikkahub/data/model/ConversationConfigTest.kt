@@ -4,10 +4,13 @@ import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.BuiltInTools
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.data.ai.mcp.McpServerConfig
 import me.rerere.rikkahub.data.datastore.Settings
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -219,5 +222,212 @@ class ConversationConfigTest {
         // 会话自己绑定过的保留，没绑定过的继承助手
         assertEquals(setOf(conversationInjection), bound.modeInjectionIds)
         assertEquals(setOf(lorebook), bound.lorebookIds)
+    }
+
+    // ---- 助手被删除后的隔离 ----
+
+    private val otherAssistant = Assistant(
+        name = "Other",
+        systemPrompt = "other persona",
+        enableMemory = true,
+        enableRecentChatsReference = true,
+    )
+
+    private fun settingsWithout() = settings(otherAssistant)
+
+    @Test
+    fun `a deleted assistant is never replaced by the current assistant`() {
+        val bound = conversation().bindConfig(settings())
+
+        val resolved = settingsWithout().getAssistantOf(bound)
+
+        // 同一个 ID 的安全占位：不会变成当前助手的名字、人设或记忆
+        assertEquals(assistant.id, resolved.id)
+        assertEquals("", resolved.name)
+        assertEquals("", resolved.systemPrompt)
+        assertFalse(resolved.enableMemory)
+        assertFalse(resolved.autoConsolidateMemory)
+        assertFalse(resolved.enableRecentChatsReference)
+        assertTrue(resolved.localTools.isEmpty())
+        assertEquals(emptySet<Uuid>(), resolved.mcpServers)
+        assertNull(resolved.workspaceId)
+        assertEquals(emptySet<String>(), resolved.enabledSkills)
+        assertEquals(emptySet<Uuid>(), resolved.modeInjectionIds)
+        assertEquals(emptySet<Uuid>(), resolved.lorebookIds)
+        assertFalse(resolved.enableWebSearch)
+        assertNotEquals(otherAssistant.id, resolved.id)
+    }
+
+    @Test
+    fun `a deleted assistant does not resurrect the pinned conversation config`() {
+        val injection = Uuid.random()
+        val skill = "pinned-skill"
+        val started = conversation().bindConfig(settings())
+        val bound = started.copy(
+            config = started.config?.copy(enabledSkills = setOf(skill)),
+            modeInjectionIds = setOf(injection),
+        )
+
+        val resolved = settingsWithout().getAssistantOf(bound)
+
+        // 会话上固定的工具、工作区、技能、注入都属于已经不存在的助手
+        assertEquals(emptySet<Uuid>(), resolved.mcpServers)
+        assertNull(resolved.workspaceId)
+        assertEquals(emptySet<String>(), resolved.enabledSkills)
+        assertEquals(emptySet<Uuid>(), resolved.modeInjectionIds)
+        assertEquals(emptySet<Uuid>(), resolved.lorebookIds)
+        assertTrue(resolved.localTools.isEmpty())
+    }
+
+    @Test
+    fun `a deleted assistant yields no chat model`() {
+        val bound = conversation().bindConfig(settings())
+
+        assertNull(settingsWithout().getChatModelOf(bound))
+        assertNull(settingsWithout().getChatModelOf(conversation()))
+    }
+
+    @Test
+    fun `the stored assistant of a deleted assistant keeps the original id`() {
+        val stored = settingsWithout().getStoredAssistantOf(conversation())
+
+        assertEquals(assistant.id, stored.id)
+        assertFalse(stored.enableMemory)
+        assertFalse(stored.autoConsolidateMemory)
+        assertTrue(stored.regexes.isEmpty())
+        assertTrue(stored.presetMessages.isEmpty())
+        assertEquals(emptySet<Uuid>(), stored.quickMessageIds)
+    }
+
+    @Test
+    fun `a deleted assistant does not get a placeholder config pinned`() {
+        val conversation = conversation()
+
+        // 不把空占位快照固定到会话上，等用户显式迁移
+        assertSame(conversation, conversation.bindConfig(settingsWithout()))
+    }
+
+    // ---- 用户主动迁移 ----
+
+    private val target = Assistant(
+        id = Uuid.random(),
+        name = "Target",
+        chatModelId = modelB.id,
+        reasoningLevel = ReasoningLevel.LOW,
+        enableWebSearch = true,
+    )
+
+    private fun targetSettings(target: Assistant = this.target) =
+        settings(assistant).copy(assistants = listOf(assistant, target))
+
+    private val userMessage = UIMessage.user("hello")
+    private val replyMessage = UIMessage.assistant("hi")
+
+    @Test
+    fun `migration keeps the messages and title and rebinds everything else`() {
+        val messages = listOf(userMessage.toMessageNode(), replyMessage.toMessageNode())
+        val conversation = conversation().bindConfig(settings()).copy(
+            title = "Old title",
+            messageNodes = messages,
+            chatSuggestions = listOf("suggest"),
+            customSystemPrompt = "old rules",
+            workspaceCwd = "/workspace/old",
+            folderId = Uuid.random(),
+        )
+
+        val migrated = conversation.migrateToAssistant(target, targetSettings())
+
+        assertEquals(conversation.id, migrated.id)
+        assertEquals("Old title", migrated.title)
+        assertEquals(messages, migrated.messageNodes)
+        assertEquals(target.id, migrated.assistantId)
+        assertEquals(
+            ConversationConfig(
+                chatModelId = modelB.id,
+                reasoningLevel = ReasoningLevel.LOW,
+                enableWebSearch = true,
+                builtInSearch = false,
+            ),
+            migrated.config,
+        )
+        assertEquals(target.modeInjectionIds, migrated.modeInjectionIds)
+        assertEquals(target.lorebookIds, migrated.lorebookIds)
+        // 旧助手留下的东西不跟过来
+        assertNull(migrated.workspaceCwd)
+        assertNull(migrated.folderId)
+        assertNull(migrated.customSystemPrompt)
+        assertEquals(emptyList<String>(), migrated.chatSuggestions)
+    }
+
+    @Test
+    fun `migration does not modify the source conversation`() {
+        val conversation = conversation().bindConfig(settings()).copy(workspaceCwd = "/workspace/old")
+
+        val migrated = conversation.migrateToAssistant(target, targetSettings())
+
+        assertEquals(assistant.id, conversation.assistantId)
+        assertEquals("/workspace/old", conversation.workspaceCwd)
+        assertNotSame(conversation, migrated)
+    }
+
+    @Test
+    fun `migrated conversation resolves to the target assistant and model`() {
+        val migrated = conversation().bindConfig(settings()).migrateToAssistant(target, targetSettings())
+
+        assertEquals(target, targetSettings().getAssistantOf(migrated))
+        assertEquals(modelB, targetSettings().getChatModelOf(migrated))
+        // 迁移后已经按目标助手固定过，普通绑定不再改动它
+        assertSame(migrated, migrated.bindConfig(targetSettings()))
+    }
+
+    @Test
+    fun `migration follows the target model's built-in search`() {
+        val target = target.copy(chatModelId = modelA.id)
+
+        val migrated = conversation().bindConfig(settings()).migrateToAssistant(target, targetSettings(target))
+
+        assertEquals(modelA.id, migrated.config?.chatModelId)
+        assertEquals(true, migrated.config?.builtInSearch)
+        assertTrue(BuiltInTools.Search in targetSettings(target).getChatModelOf(migrated)!!.tools)
+    }
+
+    @Test
+    fun `migration without an explicit model pins the global default`() {
+        val target = target.copy(chatModelId = null)
+
+        val migrated = conversation().bindConfig(settings()).migrateToAssistant(target, targetSettings(target))
+
+        assertEquals(modelB.id, migrated.config?.chatModelId)
+        assertEquals(false, migrated.config?.builtInSearch)
+        assertEquals(modelB, targetSettings(target).getChatModelOf(migrated))
+    }
+
+    @Test
+    fun `migration drops the old assistant's compacted summaries only`() {
+        val summary = UIMessage.user("summary written under the old rules").copy(isContextCheckpoint = true)
+        val firstNode = userMessage.toMessageNode()
+        val onlySummary = summary.toMessageNode()
+        val summarySelected = MessageNode(messages = listOf(summary, replyMessage), selectIndex = 0)
+        val replySelected = MessageNode(messages = listOf(summary, replyMessage), selectIndex = 1)
+        val conversation = conversation().copy(
+            messageNodes = listOf(firstNode, onlySummary, summarySelected, replySelected),
+        )
+
+        val migrated = conversation.migrateToAssistant(target, targetSettings())
+
+        // 只带摘要的节点整条去掉；混合节点只去摘要，节点 id 和另一条消息都留着
+        assertEquals(3, migrated.messageNodes.size)
+        assertEquals(firstNode, migrated.messageNodes[0])
+        val summarySelectedAfter = migrated.messageNodes[1]
+        assertEquals(summarySelected.id, summarySelectedAfter.id)
+        assertEquals(listOf(replyMessage), summarySelectedAfter.messages)
+        assertEquals(0, summarySelectedAfter.selectIndex)
+        val replySelectedAfter = migrated.messageNodes[2]
+        assertEquals(replySelected.id, replySelectedAfter.id)
+        assertEquals(listOf(replyMessage), replySelectedAfter.messages)
+        assertEquals(0, replySelectedAfter.selectIndex)
+        // 迁移不改原会话
+        assertEquals(4, conversation.messageNodes.size)
+        assertTrue(conversation.messageNodes[1].messages.single().isContextCheckpoint)
     }
 }

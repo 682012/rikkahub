@@ -49,6 +49,7 @@ import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
+import me.rerere.ai.util.HttpException
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.configureSessionHeaders
@@ -58,6 +59,7 @@ import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.mergeCustomHeaders
 import me.rerere.ai.util.parseErrorDetail
 import me.rerere.ai.util.stringSafe
+import me.rerere.ai.util.withStatusCode
 import me.rerere.common.http.await
 import me.rerere.common.http.jsonArrayOrNull
 import me.rerere.common.http.jsonObjectOrNull
@@ -104,7 +106,10 @@ class ChatCompletionsAPI(
 
         val response = client.newCall(request).await()
         if (!response.isSuccessful) {
-            throw Exception("Failed to get response: ${response.code} ${response.body?.string()}")
+            throw HttpException(
+                message = "Failed to get response: ${response.code} ${response.body?.string()}",
+                statusCode = response.code,
+            )
         }
 
         val bodyStr = response.body?.string() ?: ""
@@ -197,12 +202,20 @@ class ChatCompletionsAPI(
                         val bodyElement = Json.parseToJsonElement(bodyRaw)
                         println(bodyElement)
                         exception = bodyElement.parseErrorDetail()
+                            .withStatusCode(response?.code, cause = t)
                         Log.i(TAG, "onFailure: $exception")
                     }
                 } catch (e: Throwable) {
                     Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
                     e.printStackTrace()
-                    exception = e
+                    // body 不是合法 JSON（CDN/代理的 HTML 错误页）时不能拿解析异常顶掉真实失败：
+                    // 有响应码就造一个带码的 HttpException，没有码才退回原始 t / 解析异常。
+                    val code = response?.code
+                    exception = when {
+                        code != null -> HttpException("Unknown error: $code", statusCode = code, cause = t ?: e)
+                        exception != null -> exception
+                        else -> e
+                    }
                 } finally {
                     close(exception)
                 }

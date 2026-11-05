@@ -7,6 +7,7 @@ import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.Brain02
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Settings03
+import me.rerere.hugeicons.stroke.Sparkles
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeFlexibleTopAppBar
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -58,6 +60,7 @@ import kotlinx.coroutines.launch
 import me.rerere.rikkahub.ui.components.ai.ExtensionEmptyState
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
+import me.rerere.rikkahub.ui.components.ui.CardGroupIcon
 import me.rerere.rikkahub.ui.components.ui.ItemAction
 import me.rerere.rikkahub.ui.components.ui.ItemActionMenu
 import me.rerere.rikkahub.ui.components.ui.PagerTab
@@ -78,6 +81,7 @@ private enum class MemoryTab(
     @param:StringRes private val labelRes: Int,
 ) : PagerTab {
     FILES(HugeIcons.Brain02, R.string.assistant_page_manage_memory_title),
+    LEARNING(HugeIcons.Sparkles, R.string.r21_learning_tab_title),
     SETTINGS(HugeIcons.Settings03, R.string.settings);
 
     override val label: String
@@ -94,6 +98,7 @@ fun AssistantMemoryPage(id: String) {
     val assistant by vm.assistant.collectAsStateWithLifecycle()
     val memories by vm.memories.collectAsStateWithLifecycle()
     val consolidation by vm.memoryConsolidation.collectAsStateWithLifecycle()
+    val legacyCopy by vm.legacyMemoryCopy.collectAsStateWithLifecycle()
     val navController = LocalNavController.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val pagerState = rememberPagerState { MemoryTab.entries.size }
@@ -154,7 +159,15 @@ fun AssistantMemoryPage(id: String) {
 
                     MemoryTab.SETTINGS -> MemorySettingsTab(
                         assistant = assistant,
+                        legacyCopy = legacyCopy,
                         onUpdateAssistant = { vm.update(it) },
+                        onCopyLegacyMemory = { vm.copyLegacySharedMemory() },
+                        onDismissLegacyCopyResult = { vm.dismissLegacyMemoryCopyResult() },
+                    )
+
+                    MemoryTab.LEARNING -> AssistantLearningTab(
+                        assistantId = id,
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
             }
@@ -165,10 +178,29 @@ fun AssistantMemoryPage(id: String) {
 @Composable
 private fun MemorySettingsTab(
     assistant: Assistant,
+    legacyCopy: LegacyMemoryCopyState,
     onUpdateAssistant: (Assistant) -> Unit,
+    onCopyLegacyMemory: () -> Unit,
+    onDismissLegacyCopyResult: () -> Unit,
 ) {
     var showTimeReminderIntervalDialog by remember(assistant.id) { mutableStateOf(false) }
     var timeReminderIntervalInput by remember(assistant.id) { mutableStateOf("") }
+    var showCopyLegacyConfirm by remember(assistant.id) { mutableStateOf(false) }
+
+    if (showCopyLegacyConfirm) {
+        RikkaConfirmDialog(
+            show = true,
+            title = stringResource(R.string.r21_memory_copy_confirm_title),
+            confirmText = stringResource(R.string.confirm),
+            dismissText = stringResource(R.string.cancel),
+            onConfirm = {
+                showCopyLegacyConfirm = false
+                onCopyLegacyMemory()
+            },
+            onDismiss = { showCopyLegacyConfirm = false },
+            text = { Text(stringResource(R.string.r21_memory_copy_confirm_text)) },
+        )
+    }
 
     if (showTimeReminderIntervalDialog) {
         val interval = timeReminderIntervalInput.toIntOrNull()?.takeIf { it > 0 }
@@ -207,6 +239,10 @@ private fun MemorySettingsTab(
         )
     }
 
+    val legacyCopyErrorColors = ListItemDefaults.colors(
+        containerColor = MaterialTheme.colorScheme.errorContainer,
+        headlineColor = MaterialTheme.colorScheme.onErrorContainer,
+    )
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -227,19 +263,64 @@ private fun MemorySettingsTab(
                 supportingContent = { Text(stringResource(R.string.assistant_page_memory_desc)) },
                 headlineContent = { Text(stringResource(R.string.assistant_page_memory)) },
             )
-            switchItem(
-                checked = assistant.useGlobalMemory,
-                onCheckedChange = {
-                    onUpdateAssistant(
-                        assistant.copy(
-                            useGlobalMemory = it
-                        )
-                    )
-                },
-                enabled = assistant.enableMemory,
-                supportingContent = { Text(stringResource(R.string.assistant_page_global_memory_desc)) },
-                headlineContent = { Text(stringResource(R.string.assistant_page_global_memory)) },
+            // 记忆固定按助手隔离；旧的“共享全局记忆”开关已经去掉，旧共享库只能由用户显式复制过来
+            item(
+                leadingContent = { CardGroupIcon(HugeIcons.Brain02) },
+                headlineContent = { Text(stringResource(R.string.r21_memory_isolated_title)) },
+                supportingContent = { Text(stringResource(R.string.r21_memory_isolated_desc)) },
             )
+            item(
+                onClick = { if (legacyCopy !is LegacyMemoryCopyState.Running) showCopyLegacyConfirm = true },
+                headlineContent = { Text(stringResource(R.string.r21_memory_copy_legacy)) },
+                supportingContent = { Text(stringResource(R.string.r21_memory_copy_legacy_desc)) },
+                trailingContent = {
+                    if (legacyCopy is LegacyMemoryCopyState.Running) {
+                        ContainedLoadingIndicator(modifier = Modifier.size(32.dp))
+                    } else {
+                        FilledTonalButton(
+                            onClick = { showCopyLegacyConfirm = true },
+                        ) {
+                            Text(stringResource(R.string.copy))
+                        }
+                    }
+                },
+            )
+            when (legacyCopy) {
+                LegacyMemoryCopyState.Idle -> Unit
+                LegacyMemoryCopyState.Running -> item(
+                    headlineContent = { Text(stringResource(R.string.r21_memory_copy_running)) },
+                )
+
+                is LegacyMemoryCopyState.Finished -> item(
+                    headlineContent = {
+                        Text(
+                            if (legacyCopy.copied > 0) {
+                                stringResource(R.string.r21_memory_copy_done, legacyCopy.copied)
+                            } else {
+                                stringResource(R.string.r21_memory_copy_none)
+                            }
+                        )
+                    },
+                    trailingContent = {
+                        TextButton(onClick = onDismissLegacyCopyResult) {
+                            Text(stringResource(R.string.r21_memory_copy_dismiss))
+                        }
+                    },
+                )
+
+                // 复制失败必须显示出来，不能只让按钮弹回去
+                is LegacyMemoryCopyState.Failed -> item(
+                    headlineContent = {
+                        Text(stringResource(R.string.r21_memory_copy_failed, legacyCopy.message))
+                    },
+                    trailingContent = {
+                        TextButton(onClick = onDismissLegacyCopyResult) {
+                            Text(stringResource(R.string.r21_memory_copy_dismiss))
+                        }
+                    },
+                    colors = legacyCopyErrorColors,
+                )
+            }
             switchItem(
                 checked = assistant.autoConsolidateMemory,
                 onCheckedChange = {

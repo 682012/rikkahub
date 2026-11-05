@@ -62,6 +62,15 @@ class RecoveryPolicyTest {
     }
 
     @Test
+    fun `quota exhausted 429 is terminal even though it carries a retryable status`() {
+        val quota = RecoveryPolicy.classify(
+            FailureFacts(httpStatus = 429, quotaExhausted = true, transport = false)
+        )
+        assertEquals(FailureKind.TERMINAL, quota)
+        assertFalse(RecoveryPolicy.isRetryable(quota))
+    }
+
+    @Test
     fun `transport failure is retryable and does not wait for a network event`() {
         val kind = RecoveryPolicy.classify(FailureFacts(transport = true))
         assertEquals(FailureKind.TRANSPORT, kind)

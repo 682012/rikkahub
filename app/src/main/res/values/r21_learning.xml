@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r21_learning_tab_title">Learning</string>
+    <string name="r21_learning_switch">Learn from finished runs</string>
+    <string name="r21_learning_switch_desc">Only counts are stored: how many turns ran, how many tool calls failed, how often a request was retried. No message text, tool arguments or model output is kept, and nothing here can change tools, permissions or the system prompt.</string>
+    <string name="r21_learning_switch_off_hint">Off: nothing new is collected and no guidance is injected. Entries already stored stay until you delete them.</string>
+    <string name="r21_learning_loading">Loading learning data…</string>
+
+    <string name="r21_learning_metrics_title">Measured runs</string>
+    <string name="r21_learning_metric_turns">Turns</string>
+    <string name="r21_learning_metric_completed">Completed</string>
+    <string name="r21_learning_metric_tool_calls">Tool calls</string>
+    <string name="r21_learning_metric_tool_errors">Tool errors</string>
+    <string name="r21_learning_metric_retries">Retries</string>
+    <string name="r21_learning_metric_step_limit">Hit step limit</string>
+    <string name="r21_learning_metric_regenerated">Regenerated</string>
+    <string name="r21_learning_metric_last">Last run: %1$s</string>
+    <string name="r21_learning_metric_none">No runs recorded yet. Numbers appear here after this assistant finishes a reply.</string>
+    <string name="r21_learning_metric_window">Only the latest %1$d runs are kept</string>
+    <string name="r21_learning_metric_tool_error_rate">%1$d%% of tool calls failed</string>
+
+    <string name="r21_learning_auto_title">Derived from these runs</string>
+    <string name="r21_learning_auto_empty">Not enough repeated evidence yet. One pattern has to repeat in at least %1$d runs before it gets written down.</string>
+    <string name="r21_learning_auto_evidence">%1$d runs</string>
+    <string name="r21_learning_auto_source">Computed from counts, not from message text</string>
+
+    <string name="r21_learning_user_title">Your guidance</string>
+    <string name="r21_learning_user_count">%1$d / %2$d</string>
+    <string name="r21_learning_user_empty">Add a rule in your own words. Only entries you add here are injected.</string>
+    <string name="r21_learning_user_source">Confirmed by you</string>
+    <string name="r21_learning_user_disabled">Disabled — kept, not injected</string>
+    <string name="r21_learning_add">Add guidance</string>
+    <string name="r21_learning_add_title">New guidance</string>
+    <string name="r21_learning_edit_title">Edit guidance</string>
+    <string name="r21_learning_field_label">Guidance</string>
+    <string name="r21_learning_field_placeholder">Read the error message before retrying a tool call</string>
+    <string name="r21_learning_field_counter">%1$d / %2$d</string>
+    <string name="r21_learning_save">Save</string>
+    <string name="r21_learning_close">Close</string>
+    <string name="r21_learning_delete_title">Delete this guidance?</string>
+    <string name="r21_learning_clear">Clear learning data</string>
+    <string name="r21_learning_clear_desc">Deletes recorded runs and every guidance entry of this assistant. The switch above stays as it is.</string>
+    <string name="r21_learning_clear_confirm_title">Clear learning data?</string>
+    <string name="r21_learning_clear_confirm_text">Recorded runs and all guidance of this assistant are deleted. This cannot be undone.</string>
+    <string name="r21_learning_inject_hint">At most %1$d entries are injected, within %2$d characters.</string>
+
+    <string name="r21_learning_storage_title">Storage</string>
+    <string name="r21_learning_storage">Stored at %1$s</string>
+    <string name="r21_learning_storage_absent">Nothing written to disk yet</string>
+    <string name="r21_learning_storage_never">No timestamp yet</string>
+    <string name="r21_learning_corrupt">The file could not be read. The original was copied to %1$s before anything was rebuilt.</string>
+
+    <string name="r21_learning_load_error">Learning data could not be read</string>
+    <string name="r21_learning_action_error">The last change failed</string>
+    <string name="r21_learning_retry">Retry</string>
+
+    <string name="r21_memory_isolated_title">Isolated memory</string>
+    <string name="r21_memory_isolated_desc">Only this assistant can read and write this memory. Other assistants and the old shared memory are not visible here.</string>
+    <string name="r21_memory_copy_legacy">Copy old shared memory</string>
+    <string name="r21_memory_copy_legacy_desc">One-time copy of the old shared memory into this assistant. Files that already exist here are kept, and the shared memory itself is not deleted.</string>
+    <string name="r21_memory_copy_confirm_title">Copy shared memory here?</string>
+    <string name="r21_memory_copy_confirm_text">Existing files in this assistant are not overwritten. The old shared memory stays where it is.</string>
+    <string name="r21_memory_copy_running">Copying…</string>
+    <string name="r21_memory_copy_done">Copied %1$d files</string>
+    <string name="r21_memory_copy_none">Nothing new to copy — this assistant already has those files.</string>
+    <string name="r21_memory_copy_failed">Copy failed: %1$s</string>
+    <string name="r21_memory_copy_dismiss">OK</string>
+</resources>

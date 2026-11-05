@@ -45,6 +45,7 @@ import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
+import me.rerere.ai.util.HttpException
 import me.rerere.ai.util.KeyRoulette
 import me.rerere.ai.util.configureReferHeaders
 import me.rerere.ai.util.configureSessionHeaders
@@ -54,6 +55,7 @@ import me.rerere.ai.util.mergeCustomBody
 import me.rerere.ai.util.mergeCustomHeaders
 import me.rerere.ai.util.parseErrorDetail
 import me.rerere.ai.util.stringSafe
+import me.rerere.ai.util.withStatusCode
 import me.rerere.common.http.await
 import me.rerere.common.http.jsonArrayOrNull
 import me.rerere.common.http.jsonObjectOrNull
@@ -92,7 +94,10 @@ internal class InteractionsAPI(
         // await() waits for the response headers; reading the body can still block.
         client.newCall(request).await().use { response ->
             if (!response.isSuccessful) {
-                throw Exception("Failed to get response: ${response.code} ${response.body.string()}")
+                throw HttpException(
+                    message = "Failed to get response: ${response.code} ${response.body.string()}",
+                    statusCode = response.code,
+                )
             }
             val bodyJson = json.parseToJsonElement(response.body.string()).jsonObject
             parseInteraction(bodyJson, fallbackModel = params.model.modelId)
@@ -144,11 +149,20 @@ internal class InteractionsAPI(
                 try {
                     if (!bodyRaw.isNullOrBlank()) {
                         exception = json.parseToJsonElement(bodyRaw).parseErrorDetail()
+                            .withStatusCode(response?.code, cause = t)
                     } else if (t == null && response != null) {
-                        exception = Exception("Unknown error: ${response.code}")
+                        exception = HttpException(
+                            message = "Unknown error: ${response.code}",
+                            statusCode = response.code,
+                        )
                     }
                 } catch (e: Throwable) {
                     Log.w(TAG, "onFailure: failed to parse from $bodyRaw")
+                    // 解析失败（HTML 错误页等）时保住真实响应码：503/429 不能退化成无码的通用异常
+                    val code = response?.code
+                    if (code != null) {
+                        exception = HttpException("Unknown error: $code", statusCode = code, cause = t ?: e)
+                    }
                 } finally {
                     close(exception ?: Exception("Stream failed"))
                 }

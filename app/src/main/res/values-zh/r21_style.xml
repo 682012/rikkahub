@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r21 轨道：第四种聊天布局风格的名字、说明与轨道状态文案 -->
+    <string name="r21_style_orbit">轨道</string>
+    <string name="r21_style_orbit_desc">紧凑任务栏加一条常驻轨道：当前模型、速度和上下文都在同一条轨上。</string>
+    <string name="r21_orbit_state_idle">待机</string>
+    <string name="r21_orbit_state_streaming">生成中</string>
+    <string name="r21_orbit_state_measured">速度已测</string>
+    <string name="r21_orbit_state_unavailable">速度未测到</string>
+    <string name="r21_orbit_context_gauge">上次上下文占窗口 %1$d%%</string>
+    <string name="r21_orbit_state_error">已中断，需处理</string>
+    <string name="r21_orbit_state_recovering">正在自动恢复</string>
+</resources>

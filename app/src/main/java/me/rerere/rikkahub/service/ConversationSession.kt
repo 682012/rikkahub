@@ -69,6 +69,10 @@ class ConversationSession(
     var existsInDatabase = false
         private set
 
+    @Volatile
+    var isChangingOwner: Boolean = false
+        internal set
+
     // 每次 [replace] 加一：跨挂起点的操作据此发现会话已经被删除或整条换掉，不再把结果写进去
     @Volatile
     var incarnation = 0
@@ -116,6 +120,7 @@ class ConversationSession(
     @Synchronized
     fun tryUpdate(transform: (Conversation) -> Conversation?): Conversation? {
         check(isInitialized) { "Conversation $id is not loaded yet" }
+        if (isChangingOwner) return null
         val before = _state.value
         val proposed = transform(before) ?: return null
         val titleState = before.automaticTitleState
@@ -143,7 +148,7 @@ class ConversationSession(
             if (!existsInDatabase && latest.title.isBlank() && latest.messageNodes.isEmpty()) {
                 return@withLock latest
             }
-            val current = update(store.prepareWrite())
+            val current = tryUpdate(store.prepareWrite()) ?: return@withLock latest
             store.write(previous = lastWritten.takeIf { existsInDatabase }, current = current)
             lastWritten = current
             existsInDatabase = true
@@ -191,6 +196,24 @@ class ConversationSession(
             if (existsInDatabase && lastWritten === before) lastWritten = updated
             true
         }
+    }
+
+    /** Persists an explicit transfer before publishing it; stale auxiliary jobs lose their incarnation. */
+    internal suspend fun changeOwnership(
+        transform: (Conversation) -> Conversation,
+        persist: suspend (Conversation) -> Unit,
+    ) = writeMutex.withLock {
+        check(isChangingOwner)
+        check(existsInDatabase) { "Only a saved conversation can be moved" }
+        val before = state.value
+        val updated = transform(before)
+        require(updated.id == id)
+        persist(updated)
+        synchronized(this) {
+            _state.value = updated
+            incarnation++
+        }
+        lastWritten = updated
     }
 
     // 这个会话正在做的一次标题请求。同一时刻只放过一个：早标题和一轮结束后的标题不并发。
@@ -290,7 +313,8 @@ class ConversationSession(
     val isGenerating: Boolean get() = _generationJob.value?.isActive == true
     val isInUse: Boolean
         get() = refCount.get() > 0 || _generationJob.value != null ||
-            inbox.state.value.items.isNotEmpty() || inbox.state.value.inFlight != null || awaitingNetworkRecovery
+            inbox.state.value.items.any { it is QueuedMessage || (it is QueuedNotice && it.wakeOnArrival) } ||
+                inbox.state.value.inFlight != null || awaitingNetworkRecovery || isChangingOwner
 
     // 空闲检查任务
     private var idleCheckJob: Job? = null
@@ -333,11 +357,11 @@ class ConversationSession(
         jobs.asReversed().forEach { it.cancel() }
     }
 
-    private fun scheduleIdleCheck() {
+    internal fun scheduleIdleCheck() {
         idleCheckJob?.cancel()
         idleCheckJob = scope.launch {
             delay(IDLE_TIMEOUT_MS)
-            if (refCount.get() <= 0 && !isGenerating) {
+            if (!isInUse) {
                 // 回收前把只改了内存的内容落库；落库失败就留在内存里，等下次释放引用或生成结束时再检查。
                 // 还没落过库的会话不在这里新建：只打开过、没发过消息的新会话不该留下记录
                 try {

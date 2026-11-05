@@ -4,10 +4,15 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * 聊天界面布局风格。三种风格共用同一份消息数据，只是呈现方式不同：
+ * 聊天界面布局风格。所有风格共用同一份消息数据，只是呈现方式不同：
  * - [CLASSIC]：原来的左右气泡，老用户习惯的样子；
  * - [STUDIO]：工作台，上下文状态、会话仪表板，信息更密；
- * - [FOCUS]：专注，弱化装饰、少噪声，适合长时间阅读。
+ * - [FOCUS]：专注，弱化装饰、少噪声，适合长时间阅读；
+ * - [ORBIT]（r21 轨道）：贴着状态栏的紧凑任务栏 + 常驻运行态轨道，当前模型、速度、
+ *   上下文排在同一条轨上，窄屏和大字体下也不挤掉按钮。
+ *
+ * 新增值只追加在末尾，[SerialName] 一经发布不再改：老配置里的 "classic"/"studio"/"focus"
+ * 永远能读回来，新配置在老版本里读不到会走默认值而不是崩（见 `R10SettingsCompatibilityTest`）。
  */
 @Serializable
 enum class ChatUiStyle {
@@ -19,6 +24,9 @@ enum class ChatUiStyle {
 
     @SerialName("focus")
     FOCUS,
+
+    @SerialName("orbit")
+    ORBIT,
 }
 
 /** 壁纸填充方式：[CROP] 铺满裁切，[FIT] 完整显示（可能留边）。 */

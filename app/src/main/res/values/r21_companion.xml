@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r21_companion_tile_label">Pet</string>
+    <string name="r21_companion_tile_subtitle_permission">Overlay permission needed</string>
+    <string name="r21_companion_tile_toggle_failed">Couldn\'t save the switch. Try again.</string>
+    <string name="r21_companion_tile_add_title">Add pet quick settings tile</string>
+    <string name="r21_companion_tile_add_desc">Puts a one-tap switch for the floating pet in the notification shade. Same switch as the one above.</string>
+    <string name="r21_companion_tile_add_added">Tile added to quick settings</string>
+    <string name="r21_companion_tile_add_already">Tile is already in quick settings</string>
+    <string name="r21_companion_tile_add_failed">Couldn\'t add the tile. Add it manually from the quick settings edit screen.</string>
+    <string name="r21_companion_tile_add_unsupported">This Android version can\'t add tiles automatically. Open the quick settings edit screen and drag in \"Pet\".</string>
+</resources>

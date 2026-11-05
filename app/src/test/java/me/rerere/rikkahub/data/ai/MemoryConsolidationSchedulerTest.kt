@@ -508,4 +508,71 @@ class MemoryConsolidationSchedulerTest {
         assertEquals(1, worker.calls.size)
         assertEquals("model unavailable", scheduler.statusOf(memoryId).first().lastRun?.error)
     }
+
+    @Test
+    fun `organize tapped during an automatic run is run once after it instead of being dropped`() = runTest {
+        val scheduler = scheduler()
+        worker.gate = CompletableDeferred()
+
+        scheduler.finishTurn(chat, pendingTurns = 3)
+        runCurrent()
+        assertTrue(scheduler.statusOf(memoryId).first().running)
+
+        // 自动整理还在跑模型，用户这时点了「立即整理」
+        scheduler.organize(memoryId)
+        runCurrent()
+        assertEquals(1, worker.calls.size)
+
+        worker.gate!!.complete(Unit)
+        runCurrent()
+
+        // 自动整理先做完，紧接着补做一次用户要求的全文清理
+        assertEquals(listOf(false, true), worker.calls.map { it.fullReview })
+        assertFalse(scheduler.statusOf(memoryId).first().running)
+    }
+
+    @Test
+    fun `tapping organize during a manual run queues one extra pass, not one per tap`() = runTest {
+        val scheduler = scheduler()
+        worker.gate = CompletableDeferred()
+        worker.pending[chat.id] = 1
+        worker.manual += chat.id
+
+        scheduler.organize(memoryId)
+        runCurrent()
+        assertTrue(scheduler.statusOf(memoryId).first().running)
+
+        repeat(3) { scheduler.organize(memoryId) }
+        worker.gate!!.complete(Unit)
+        runCurrent()
+
+        assertEquals(2, worker.calls.size)
+        assertTrue(worker.calls.all { it.fullReview })
+        assertFalse(scheduler.statusOf(memoryId).first().running)
+    }
+
+    @Test
+    fun `a cancelled run does not leave the queued organize behind`() = runTest {
+        val scheduler = scheduler()
+        worker.gate = CompletableDeferred()
+
+        scheduler.finishTurn(chat, pendingTurns = 3)
+        runCurrent()
+        scheduler.organize(memoryId)
+        runCurrent()
+
+        // 这次整理被取消（用户关掉记忆、应用退出）
+        worker.gate!!.cancel()
+        runCurrent()
+        assertEquals(1, worker.calls.size)
+        assertFalse(scheduler.statusOf(memoryId).first().running)
+
+        // 待办没有留下：下一次整理只做它自己那一批，不会再补一次全文清理
+        worker.gate = null
+        scheduler.finishTurn(otherChat, pendingTurns = 3)
+        runCurrent()
+
+        assertEquals(2, worker.calls.size)
+        assertFalse(worker.calls.last().fullReview)
+    }
 }
