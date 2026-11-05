@@ -85,6 +85,99 @@ class ConversationRepository(
         else conversationDAO.observeAssistantSummaries(assistantId.toString()))
             .map { rows -> rows.map { conversationSummaryToConversation(it) } }
 
+    fun getConversationLineagePaging(
+        assistantId: Uuid,
+        lineageId: Uuid,
+        folderId: Uuid?,
+        sortOrder: ConversationSortOrder = ConversationSortOrder.UPDATE_TIME,
+    ): Flow<PagingData<Conversation>> = Pager(
+        config = PagingConfig(pageSize = PAGE_SIZE, initialLoadSize = INITIAL_LOAD_SIZE, enablePlaceholders = false),
+        pagingSourceFactory = {
+            conversationDAO.getLineagePaging(assistantId.toString(), lineageId.toString(),
+                folderId?.toString().orEmpty(), sortOrder == ConversationSortOrder.CREATE_TIME)
+        },
+    ).flow.map { page -> page.map(::conversationSummaryToConversation) }
+
+    /** Bounded legacy lineage probe: skip oversized/corrupt nodes instead of guessing from a partial prefix. */
+    suspend fun getConversationOpening(id: Uuid, limit: Int = 12): Conversation? = database.withTransaction {
+        val entity = conversationDAO.getConversationById(id.toString()) ?: return@withTransaction null
+        val meta = messageNodeDAO.getNodeMeta(id.toString()).take(limit.coerceIn(1, 24))
+        val nodes = ArrayList<MessageNode>(meta.size)
+        for (node in meta) {
+            if (node.messagesLength !in 1..131_072) return@withTransaction null
+            val raw = messageNodeDAO.getMessagesSlice(node.id, 1, node.messagesLength) ?: return@withTransaction null
+            val messages = runCatching { JsonInstant.decodeFromString<List<UIMessage>>(raw) }
+                .getOrNull() ?: return@withTransaction null
+            if (messages.isEmpty() || node.selectIndex !in messages.indices) return@withTransaction null
+            nodes += MessageNode(id = Uuid.parse(node.id), selectIndex = node.selectIndex,
+                messages = messages.map { message -> message.copy(parts = message.parts.mapNotNull { part ->
+                    (part as? UIMessagePart.Text)?.let { UIMessagePart.Text(it.text.take(1_024)) }
+                }) })
+        }
+        conversationEntityToConversation(entity, nodes)
+    }
+
+    suspend fun getConversationSummary(id: Uuid): Conversation? = database.withTransaction {
+        conversationDAO.getConversationById(id.toString())?.let { conversationEntityToConversation(it, emptyList()) }
+    }
+
+    /** Reads only bounded first/last node slices. Never builds a transcript of the whole conversation. */
+    suspend fun getAutoFileExcerpt(id: Uuid, assistantId: Uuid?, headChars: Int, tailChars: Int): String = database.withTransaction {
+        val row = conversationDAO.getConversationById(id.toString()) ?: return@withTransaction ""
+        if (assistantId != null && row.assistantId != assistantId.toString()) return@withTransaction ""
+        val nodes = messageNodeDAO.getNodeMeta(id.toString())
+        suspend fun textOf(meta: MessageNodeMeta): Pair<me.rerere.ai.core.MessageRole, String>? {
+            if (meta.messagesLength !in 1..131_072) return null
+            val raw = messageNodeDAO.getMessagesSlice(meta.id, 1, meta.messagesLength) ?: return null
+            val messages = runCatching { JsonInstant.decodeFromString<List<UIMessage>>(raw) }.getOrNull() ?: return null
+            val message = messages.getOrNull(meta.selectIndex) ?: return null
+            if (message.role != me.rerere.ai.core.MessageRole.USER && message.role != me.rerere.ai.core.MessageRole.ASSISTANT) return null
+            val text = buildString {
+                for (part in message.parts) if (part is UIMessagePart.Text) {
+                    append(part.text.take(8_192 - length))
+                    if (length >= 8_192) break
+                }
+            }
+            return message.role to text
+        }
+        var head = ""
+        for (meta in nodes.take(12)) {
+            val (role, text) = textOf(meta) ?: continue
+            if (role == me.rerere.ai.core.MessageRole.USER && text.isNotBlank()) { head = text.take(headChars.coerceIn(0, 2_000)); break }
+        }
+        var tail = ""
+        for (meta in nodes.takeLast(4).asReversed()) {
+            val (_, text) = textOf(meta) ?: continue
+            if (text.isNotBlank()) { tail = text.takeLast(tailChars.coerceIn(0, 2_000)); break }
+        }
+        if (head == tail || tail.isBlank()) head else "$head\n…\n$tail"
+    }
+
+    /** Last check is transactional, including target folder ownership. Never writes message nodes. */
+    suspend fun applyFolderAssignment(
+        id: Uuid, assistantId: Uuid, expectedUpdateAt: Long, expectedFolderId: Uuid?,
+        folderId: Uuid?, locked: Boolean = false,
+    ): Boolean = database.withTransaction {
+        val row = conversationDAO.getConversationById(id.toString()) ?: return@withTransaction false
+        if (row.assistantId != assistantId.toString() || row.updateAt != expectedUpdateAt ||
+            row.folderId != expectedFolderId?.toString().orEmpty() || row.isPinned || row.folderAssignmentLocked) {
+            return@withTransaction false
+        }
+        if (folderId != null && database.folderDao().getFolderById(folderId.toString())?.assistantId != row.assistantId) {
+            return@withTransaction false
+        }
+        conversationDAO.updateFolderAssignment(id.toString(), folderId?.toString().orEmpty(), locked)
+        true
+    }
+
+    suspend fun setLineageIfUnchanged(before: Conversation, lineageId: Uuid): Boolean = database.withTransaction {
+        val row = conversationDAO.getConversationById(before.id.toString()) ?: return@withTransaction false
+        if (row.assistantId != before.assistantId.toString() || row.updateAt != before.updateAt.toEpochMilli() ||
+            row.lineageId != before.lineageId?.toString().orEmpty()) return@withTransaction false
+        conversationDAO.updateLineageId(row.id, row.assistantId, lineageId.toString())
+        true
+    }
+
     suspend fun getTitlesOfAssistant(assistantId: Uuid): Set<String> =
         conversationDAO.getTitlesOfAssistant(assistantId.toString()).toSet()
 
@@ -104,6 +197,7 @@ class ConversationRepository(
     fun getUnfiledConversationsOfAssistantPaging(
         assistantId: Uuid,
         sortOrder: ConversationSortOrder = ConversationSortOrder.UPDATE_TIME,
+        collapseFamilies: Boolean = false,
     ): Flow<PagingData<Conversation>> = Pager(
         config = PagingConfig(
             pageSize = PAGE_SIZE,
@@ -111,7 +205,9 @@ class ConversationRepository(
             enablePlaceholders = false
         ),
         pagingSourceFactory = {
-            conversationDAO.getUnfiledConversationsOfAssistantPaging(
+            if (collapseFamilies) conversationDAO.getCollapsedUnfiledPaging(
+                assistantId.toString(), sortOrder == ConversationSortOrder.CREATE_TIME,
+            ) else conversationDAO.getUnfiledConversationsOfAssistantPaging(
                 assistantId = assistantId.toString(),
                 sortByCreateTime = sortOrder == ConversationSortOrder.CREATE_TIME,
             )
@@ -125,6 +221,8 @@ class ConversationRepository(
     fun getConversationsOfFolderPaging(
         folderId: Uuid,
         sortOrder: ConversationSortOrder = ConversationSortOrder.UPDATE_TIME,
+        collapseFamilies: Boolean = false,
+        assistantId: Uuid? = null,
     ): Flow<PagingData<Conversation>> = Pager(
         config = PagingConfig(
             pageSize = PAGE_SIZE,
@@ -132,7 +230,9 @@ class ConversationRepository(
             enablePlaceholders = false
         ),
         pagingSourceFactory = {
-            conversationDAO.getConversationsOfFolderPaging(
+            if (collapseFamilies && assistantId != null) conversationDAO.getCollapsedFolderPaging(
+                assistantId.toString(), folderId.toString(), sortOrder == ConversationSortOrder.CREATE_TIME,
+            ) else conversationDAO.getConversationsOfFolderPaging(
                 folderId = folderId.toString(),
                 sortByCreateTime = sortOrder == ConversationSortOrder.CREATE_TIME,
             )
@@ -439,6 +539,8 @@ class ConversationRepository(
             lorebookIds = JsonInstant.encodeToString(conversation.lorebookIds),
             workspaceCwd = conversation.workspaceCwd ?: "",
             folderId = conversation.folderId?.toString() ?: "",
+            lineageId = conversation.lineageId?.toString().orEmpty(),
+            folderAssignmentLocked = conversation.folderAssignmentLocked,
             config = conversation.config?.let { JsonInstant.encodeToString(it) } ?: "",
         )
     }
@@ -461,6 +563,8 @@ class ConversationRepository(
             lorebookIds = JsonInstant.decodeFromString(conversationEntity.lorebookIds),
             workspaceCwd = conversationEntity.workspaceCwd.ifEmpty { null },
             folderId = conversationEntity.folderId.ifEmpty { null }?.let { Uuid.parse(it) },
+            lineageId = conversationEntity.lineageId.ifEmpty { null }?.let { Uuid.parse(it) },
+            folderAssignmentLocked = conversationEntity.folderAssignmentLocked,
             config = conversationEntity.config.ifEmpty { null }?.let { JsonInstant.decodeFromString(it) },
         )
     }
@@ -517,11 +621,13 @@ class ConversationRepository(
     /**
      * 单列更新会话的文件夹归属，folderId 为 null 表示移出文件夹（未归类）。
      */
-    suspend fun updateConversationFolderId(conversationId: Uuid, folderId: Uuid?) {
-        conversationDAO.updateFolderId(
-            id = conversationId.toString(),
-            folderId = folderId?.toString() ?: ""
-        )
+    suspend fun updateConversationFolderId(conversationId: Uuid, folderId: Uuid?) = database.withTransaction {
+        val row = checkNotNull(conversationDAO.getConversationById(conversationId.toString())) { "Conversation not found" }
+        if (folderId != null) require(database.folderDao().getFolderById(folderId.toString())?.assistantId == row.assistantId) {
+            "Folder belongs to another assistant or no longer exists"
+        }
+        // A deliberate move OUT of a folder is also a permanent opt-out from automatic filing.
+        conversationDAO.updateFolderAssignment(row.id, folderId?.toString().orEmpty(), locked = true)
     }
 
     private fun conversationSummaryToConversation(entity: LightConversationEntity): Conversation {
@@ -534,6 +640,9 @@ class ConversationRepository(
             updateAt = Instant.ofEpochMilli(entity.updateAt),
             messageNodes = emptyList(),
             folderId = entity.folderId.ifEmpty { null }?.let { Uuid.parse(it) },
+            lineageId = entity.lineageId.ifEmpty { null }?.let { Uuid.parse(it) },
+            folderAssignmentLocked = entity.folderAssignmentLocked,
+            familySize = entity.familySize.coerceAtLeast(1),
         )
     }
 
@@ -646,6 +755,9 @@ data class LightConversationEntity(
     val createAt: Long,
     val updateAt: Long,
     val folderId: String = "",
+    val lineageId: String = "",
+    val folderAssignmentLocked: Boolean = false,
+    val familySize: Int = 1,
 )
 
 data class ConversationPageResult(

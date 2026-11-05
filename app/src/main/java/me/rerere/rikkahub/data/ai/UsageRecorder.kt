@@ -31,6 +31,8 @@ enum class UsageSource {
     SUBAGENT,
     /** 悬浮窗小助手自己的台词请求；和主聊天分开计费。 */
     COMPANION,
+    /** 用户启用的话题归库分类，单列辅助用量。 */
+    AUTOFILE,
 }
 
 /** 记录用量时附带的归属信息 */

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 流式工具入参草稿（workspace_write_file / workspace_edit_file 参数还在生成时） -->
+    <string name="r21_stream_draft_title_write">Draft: %s</string>
+    <string name="r21_stream_draft_title_edit">Draft (edit): %s</string>
+    <string name="r21_stream_draft_title_unknown">Drafting tool arguments</string>
+    <string name="r21_stream_draft_badge">Unsubmitted draft</string>
+    <string name="r21_stream_draft_streaming">Generating arguments…</string>
+    <string name="r21_stream_draft_stopped">Generation stopped</string>
+    <string name="r21_stream_draft_chars">%1$d chars received</string>
+    <string name="r21_stream_draft_body_chars">%1$d chars drafted</string>
+    <string name="r21_stream_draft_previous">Replacing</string>
+    <string name="r21_stream_draft_body">Draft content</string>
+    <string name="r21_stream_draft_raw">Raw arguments</string>
+    <string name="r21_stream_draft_result">Result</string>
+    <string name="r21_stream_draft_note">Preview only · nothing written to the workspace yet</string>
+    <string name="r21_stream_draft_expand">View all</string>
+    <string name="r21_stream_draft_copy">Copy draft</string>
+    <string name="r21_stream_draft_export">Export draft</string>
+    <string name="r21_stream_draft_truncated">Preview truncated · copy or export still gives the whole draft</string>
+    <string name="r21_stream_draft_raw_fallback">Body preview limit reached. Copy and export keep the complete received raw arguments.</string>
+    <string name="r21_stream_draft_export_failed">Could not export this draft. It remains in the conversation.</string>
+</resources>

@@ -59,7 +59,9 @@ import me.rerere.rikkahub.data.ai.tools.local.ASK_USER_TOOL_NAME
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.ui.components.message.tools.DefaultToolPreview
 import me.rerere.rikkahub.ui.components.message.tools.effectiveTarget
+import me.rerere.rikkahub.ui.components.message.tools.StreamingToolDraftStep
 import me.rerere.rikkahub.ui.components.message.tools.ToolApprovalPreview
+import me.rerere.rikkahub.ui.components.message.tools.ToolInputDraftTracker
 import me.rerere.rikkahub.ui.components.message.tools.ToolUIContext
 import me.rerere.rikkahub.ui.components.message.tools.ToolUIRegistry
 import me.rerere.rikkahub.ui.components.richtext.ZoomableAsyncImage
@@ -143,6 +145,23 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
     // ask_user 是交互式问答流程, 不走注册式渲染框架
     if (tool.toolName == ASK_USER_TOOL_NAME) {
         AskUserToolStep(tool = tool, loading = loading, onToolAnswer = onToolAnswer)
+        return
+    }
+
+    // 长入参（写文件 / 改文件）的 JSON 要等整段生成完才闭合。在此之前 input 只是一段未闭合的
+    // 增量 JSON，这里把它解成草稿直接显示：随流实时看代码，断流/取消也有草稿可看、可复制、可导出。
+    // 草稿只用于展示，绝不当执行参数；JSON 闭合后这里返回的就不再是草稿，流程照旧走下面的渲染器。
+    // 解析器自带增量缓存（入参是同一个实例时直接命中上一次结果），所以每帧调用不会重复扫全量。
+    //
+    // 参数没收完（`hasIncompleteInput`：还在流式、被截断、断流取消）时一律走草稿卡片，
+    // 这样即使 agent 循环补写了"未执行"结果，用户仍然看得到已经生成的那段代码。
+    val draftTracker = remember(tool.toolCallId) { ToolInputDraftTracker() }
+    val streamingDraft = draftTracker.draft(tool.toolName, tool.input)
+    if (streamingDraft != null &&
+        !tool.isPending &&
+        (streamingDraft.isDraft || tool.hasIncompleteInput)
+    ) {
+        StreamingToolDraftStep(tool = tool, draft = streamingDraft, loading = loading)
         return
     }
 

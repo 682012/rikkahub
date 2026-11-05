@@ -34,4 +34,10 @@ data class ConversationEntity(
     val folderId: String = "",
     @ColumnInfo("config", defaultValue = "")
     val config: String = "",
+    // fork 谱系的家族根；空串表示自己是根（读的时候用 COALESCE(NULLIF(lineage_id,''), id) 兜底）
+    @ColumnInfo("lineage_id", defaultValue = "")
+    val lineageId: String = "",
+    // 用户手动归过档，自动整理不再动它
+    @ColumnInfo("folder_assignment_locked", defaultValue = "0")
+    val folderAssignmentLocked: Boolean = false,
 )

@@ -3,6 +3,7 @@ package me.rerere.rikkahub.ui.pages.chat
 import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Folder01
 import me.rerere.hugeicons.stroke.Forward02
+import me.rerere.hugeicons.stroke.Layers01
 import me.rerere.hugeicons.stroke.Pin
 import me.rerere.hugeicons.stroke.PinOff
 import me.rerere.hugeicons.stroke.Refresh01
@@ -88,7 +89,9 @@ fun ColumnScope.ConversationList(
     onRegenerateTitle: (Conversation) -> Unit = {},
     onPin: (Conversation) -> Unit = {},
     onMoveToAssistant: (Conversation) -> Unit = {},
-    onMoveToFolder: (Conversation) -> Unit = {}
+    onMoveToFolder: (Conversation) -> Unit = {},
+    // 折叠后同族还有别的会话时，行尾的数字角标点进来；null 表示这个场景不折叠（比如搜索结果）
+    onOpenFamily: ((Conversation) -> Unit)? = null,
 ) {
     var hasScrolledToCurrent by remember(current.id) { mutableStateOf(false) }
     // 列表顶部若放了 header，会话项在 LazyColumn 中的位置要往后挪一位
@@ -175,6 +178,7 @@ fun ColumnScope.ConversationList(
                         onPin = onPin,
                         onMoveToAssistant = onMoveToAssistant,
                         onMoveToFolder = onMoveToFolder,
+                        onOpenFamily = onOpenFamily?.takeIf { familyBadgeVisible(item.conversation.familySize) },
                         modifier = Modifier.animateItem()
                     )
                 }
@@ -235,6 +239,39 @@ private fun PinnedHeader(
     }
 }
 
+// 同族折叠后的数量角标：叠卡图标 + 条数，只当入口，不加文字标签
+@Composable
+private fun FamilyBadge(
+    count: Int,
+    onClick: () -> Unit
+) {
+    val description = stringResource(R.string.r21_autofile_family_badge, count)
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        modifier = Modifier.semantics { contentDescription = description },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Icon(
+                imageVector = HugeIcons.Layers01,
+                contentDescription = null,
+                modifier = Modifier.size(10.dp),
+            )
+            Text(
+                text = count.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+            )
+        }
+    }
+}
+
 @Composable
 private fun ConversationItem(
     conversation: Conversation,
@@ -246,6 +283,7 @@ private fun ConversationItem(
     onPin: (Conversation) -> Unit = {},
     onMoveToAssistant: (Conversation) -> Unit = {},
     onMoveToFolder: (Conversation) -> Unit = {},
+    onOpenFamily: ((Conversation) -> Unit)? = null,
     onClick: (Conversation) -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -285,6 +323,15 @@ private fun ConversationItem(
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(Modifier.weight(1f))
+
+            // 折叠后同族还有别的会话：行尾数字角标点开这一族
+            if (onOpenFamily != null) {
+                FamilyBadge(
+                    count = conversation.familySize,
+                    onClick = { onOpenFamily(conversation) },
+                )
+                Spacer(Modifier.size(6.dp))
+            }
 
             // 置顶图标
             AnimatedVisibility(conversation.isPinned) {

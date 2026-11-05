@@ -8,6 +8,8 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.insertSeparators
 import androidx.paging.map
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -28,6 +30,7 @@ import me.rerere.rikkahub.data.ai.MemoryConsolidationScheduler
 import me.rerere.rikkahub.data.datastore.ConversationSortOrder
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.organization.autofile.ConversationAutoFileController
 import me.rerere.rikkahub.data.model.Folder
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
@@ -56,6 +59,7 @@ class ChatDrawerVM(
     private val chatService: ChatService,
     private val memoryConsolidationScheduler: MemoryConsolidationScheduler,
     private val savedStateHandle: SavedStateHandle,
+    private val autoFileController: ConversationAutoFileController,
 ) : ViewModel() {
 
     private val boundAssistantId = MutableStateFlow<Uuid?>(null)
@@ -71,7 +75,13 @@ class ChatDrawerVM(
     fun bindAssistant(assistantId: Uuid) {
         if (boundAssistantId.value != assistantId) {
             _selectedFolderId.value = null
+            _selectedLineageId.value = null
             boundAssistantId.value = assistantId
+            viewModelScope.launch(Dispatchers.IO) {
+                try { chatService.recoverConversationLineages(assistantId) }
+                catch (e: CancellationException) { throw e }
+                catch (e: Exception) { chatService.addError(e) }
+            }
         }
     }
 
@@ -82,6 +92,14 @@ class ChatDrawerVM(
     // 当前选中的文件夹筛选，null 表示「未归类」视图
     private val _selectedFolderId = MutableStateFlow<Uuid?>(null)
     val selectedFolderId: StateFlow<Uuid?> = _selectedFolderId.asStateFlow()
+    private val _selectedLineageId = MutableStateFlow<Uuid?>(null)
+    val selectedLineageId = _selectedLineageId.asStateFlow()
+    private val collapseFamilies = assistantIdFlow.flatMapLatest { id ->
+        autoFileController.observe(id).map { it.settings.collapseFamilies }
+    }.distinctUntilChanged()
+    private data class DrawerQuery(val assistantId: Uuid, val folderId: Uuid?, val sortOrder: ConversationSortOrder,
+                                   val collapse: Boolean, val lineageId: Uuid?)
+    fun selectLineage(id: Uuid?) { _selectedLineageId.value = id }
 
     // 当前助手的文件夹列表（Room Flow，增删改自动刷新）
     val folders: StateFlow<List<Folder>> = assistantIdFlow
@@ -99,15 +117,18 @@ class ChatDrawerVM(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     val conversations: Flow<PagingData<ConversationListItem>> =
-        combine(assistantIdFlow, _selectedFolderId, sortOrderFlow) { assistantId, folderId, sortOrder ->
-            Triple(assistantId, folderId, sortOrder)
+        combine(assistantIdFlow, _selectedFolderId, sortOrderFlow, collapseFamilies, _selectedLineageId) {
+                assistantId, folderId, sortOrder, collapse, lineageId ->
+            DrawerQuery(assistantId, folderId, sortOrder, collapse, lineageId)
         }
-            .flatMapLatest { (assistantId, folderId, sortOrder) ->
+            .flatMapLatest { (assistantId, folderId, sortOrder, collapse, lineageId) ->
                 val ownedFolder = folderId?.takeIf { folderRepo.getFolderById(it)?.assistantId == assistantId }
-                val paging = if (ownedFolder == null) {
-                    conversationRepo.getUnfiledConversationsOfAssistantPaging(assistantId, sortOrder)
+                val paging = if (lineageId != null) {
+                    conversationRepo.getConversationLineagePaging(assistantId, lineageId, ownedFolder, sortOrder)
+                } else if (ownedFolder == null) {
+                    conversationRepo.getUnfiledConversationsOfAssistantPaging(assistantId, sortOrder, collapse)
                 } else {
-                    conversationRepo.getConversationsOfFolderPaging(ownedFolder, sortOrder)
+                    conversationRepo.getConversationsOfFolderPaging(ownedFolder, sortOrder, collapse, assistantId)
                 }
                 paging.map { pagingData ->
                     pagingData
@@ -160,6 +181,7 @@ class ChatDrawerVM(
     }
 
     fun selectFolder(folderId: Uuid?) {
+        _selectedLineageId.value = null
         _selectedFolderId.value = folderId
     }
 

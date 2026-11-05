@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r21_autofile_title">Auto-file idle chats</string>
+    <string name="r21_autofile_desc">Idle conversations get sorted into folders by a quick model, so the drawer stays tidy.</string>
+    <string name="r21_autofile_entry">Auto-file</string>
+    <string name="r21_autofile_section">Filing</string>
+    <string name="r21_autofile_privacy_title">Before you turn this on</string>
+    <string name="r21_autofile_privacy">Sends the title plus the first and last excerpts of idle conversations to your configured quick model.</string>
+    <string name="r21_autofile_privacy_quota">Every run spends API quota.</string>
+    <string name="r21_autofile_privacy_default_off">Off by default, you turn it on yourself.</string>
+    <string name="r21_autofile_privacy_reversible">Each batch can be undone and never rewrites your chats.</string>
+    <string name="r21_autofile_enable">Turn on auto-file</string>
+    <string name="r21_autofile_enable_desc">Runs in the background for this assistant</string>
+    <string name="r21_autofile_collapse">Collapse families in drawer</string>
+    <string name="r21_autofile_collapse_desc">Display only, does not change filing</string>
+    <string name="r21_autofile_idle_title">Idle before filing</string>
+    <string name="r21_autofile_hours">%1$d h</string>
+    <string name="r21_autofile_run">File now</string>
+    <string name="r21_autofile_undo">Undo last run</string>
+    <string name="r21_autofile_running">Filing…</string>
+    <string name="r21_autofile_running_hint">You can still turn auto-file off while it runs.</string>
+    <string name="r21_autofile_done">Moved %1$d conversations</string>
+    <string name="r21_autofile_close">Close</string>
+    <string name="r21_autofile_family_title">Conversation family</string>
+    <string name="r21_autofile_family_back">Back to previous list</string>
+    <string name="r21_autofile_family_badge">Open this family, %1$d chats</string>
+    <string name="r21_autofile_confirm_title">Send summaries and file now?</string>
+    <string name="r21_autofile_confirm_text">Auto-file is off. Filing once still sends a length-limited summary of idle conversations to your configured quick model, which uses API quota.</string>
+    <string name="r21_autofile_confirm_ok">Send and file</string>
+    <string name="r21_autofile_cancel">Cancel</string>
+</resources>

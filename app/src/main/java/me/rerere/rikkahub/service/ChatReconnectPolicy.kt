@@ -12,19 +12,25 @@ class ChatReconnectCheckpoint(initial: UIMessage? = null) {
 
     fun observe(updated: UIMessage) {
         val previous = message
-        val lifecycleChanged = updated.getTools().map { Triple(it.toolCallId, it.startedAt, it.isExecuted) } !=
+        val hasPartialInput = updated.getTools().any { it.hasIncompleteInput }
+        // A new ToolCallStart is not an executable checkpoint. Keep the raw stream in the
+        // conversation, but only completed input may become the automatic retry boundary.
+        val candidate = if (hasPartialInput) updated.copy(parts = updated.parts.takeWhile {
+            it !is UIMessagePart.Tool || it.isInputComplete
+        }) else updated
+        val lifecycleChanged = candidate.getTools().map { Triple(it.toolCallId, it.startedAt, it.isExecuted) } !=
             previous?.getTools().orEmpty().map { Triple(it.toolCallId, it.startedAt, it.isExecuted) }
-        val stepFinished = updated.finishedAt != null && updated.finishedAt != previous?.finishedAt
+        val stepFinished = !hasPartialInput && updated.finishedAt != null && updated.finishedAt != previous?.finishedAt
         if (stepFinished) {
             uncheckpointedMedia = false
         } else if (updated.parts.any { it.isProducedMedia() && it !in previous?.parts.orEmpty() }) {
             // Reissuing a half-finished media response may generate/bill the same file again.
             uncheckpointedMedia = true
         }
-        val noticeBoundary = updated.parts.lastOrNull() is UIMessagePart.Notice &&
-            updated.parts.size != previous?.parts?.size
-        if (stepFinished || lifecycleChanged || noticeBoundary) {
-            message = updated
+        val noticeBoundary = candidate.parts.lastOrNull() is UIMessagePart.Notice &&
+            candidate.parts.size != previous?.parts?.size
+        if ((stepFinished || lifecycleChanged || noticeBoundary) && candidate.parts.isNotEmpty()) {
+            message = candidate
         }
     }
 
@@ -53,6 +59,20 @@ data class ChatReconnectTicket(
 
     fun restoreReplyVariants(messages: List<UIMessage>): List<UIMessage> = messages.mapNotNull { message ->
         if (message.id == interruptedMessageId) checkpoint else message
+    }
+
+    /** Keep the interrupted stream as a separate, inspectable branch, never as execution input. */
+    fun restoreReplyVariantsPreservingDrafts(messages: List<UIMessage>): List<UIMessage> {
+        val interrupted = messages.firstOrNull { it.id == interruptedMessageId }
+        val restored = restoreReplyVariants(messages)
+        val hasDraft = interrupted != null && interrupted != checkpoint && interrupted.parts.any { part ->
+            when (part) {
+                is UIMessagePart.Tool -> part.input.isNotBlank()
+                is UIMessagePart.Text -> part.text.isNotBlank()
+                else -> false
+            }
+        }
+        return if (hasDraft) restored + checkNotNull(interrupted).copy(id = Uuid.random()) else restored
     }
 
     fun canResume(routeEpoch: Long, available: Boolean, currentIncarnation: Int, currentUser: UIMessage?): Boolean =

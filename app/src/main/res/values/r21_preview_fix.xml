@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r21: 网页/SVG 预览的失败状态。只放最短的一句说明 + 重试，不铺开面板。 -->
+    <string name="r21_preview_failure_load">This page failed to load</string>
+    <string name="r21_preview_failure_empty">The page loaded but rendered nothing</string>
+    <string name="r21_preview_failure_renderer">The preview engine stopped</string>
+    <string name="r21_preview_failure_retry">Retry</string>
+    <string name="r21_preview_compat_renderer">Compatibility</string>
+    <string name="r21_preview_standard_renderer">Standard</string>
+</resources>

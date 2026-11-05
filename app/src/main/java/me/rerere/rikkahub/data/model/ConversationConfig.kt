@@ -195,6 +195,9 @@ fun Conversation.migrateToAssistant(target: Assistant, settings: Settings): Conv
     val model = settings.findModelById(target.chatModelId ?: settings.chatModelId)
     return copy(
         assistantId = target.id,
+        lineageId = id,
+        folderAssignmentLocked = true,
+        familySize = 1,
         config = target.toConversationConfig().copy(
             chatModelId = model?.id ?: target.chatModelId,
             builtInSearch = model != null && BuiltInTools.Search in model.tools,

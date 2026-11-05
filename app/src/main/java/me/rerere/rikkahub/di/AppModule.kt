@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.di
 
 import android.content.Context
+import kotlinx.coroutines.launch
 import java.io.File
 import me.rerere.rikkahub.data.ai.learning.AssistantLearningRepository
 import com.google.firebase.Firebase
@@ -34,6 +35,16 @@ val appModule = module {
             context = get(), appScope = get(), eventBus = get(), settingsStore = get())
     }
     single { AssistantLearningRepository(File(get<Context>().filesDir, "assistant-learning")) }
+    single(createdAtStart = true) {
+        me.rerere.rikkahub.data.organization.autofile.ConversationAutoFileController(
+            storeDir = File(get<Context>().filesDir, "conversation_autofile"),
+            gateway = me.rerere.rikkahub.data.organization.autofile.RoomConversationAutoFileGateway(get(), get(), get()),
+            classifier = me.rerere.rikkahub.data.organization.autofile.FastModelAutoFileClassifier(get(), get(), get()),
+            scheduler = me.rerere.rikkahub.data.organization.autofile.WorkManagerConversationAutoFileScheduler(get()),
+        ).also { controller ->
+            get<me.rerere.rikkahub.AppScope>().launch(kotlinx.coroutines.Dispatchers.IO) { controller.initialize() }
+        }
+    }
     single { me.rerere.rikkahub.data.organization.ImageOrganizerController(
         context = get(), appScope = get(), filesManager = get(), genMediaRepository = get(),
         providerManager = get(), settingsStore = get(), mediaCreationRepository = get()) }

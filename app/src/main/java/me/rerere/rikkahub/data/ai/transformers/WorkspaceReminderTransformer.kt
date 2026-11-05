@@ -506,6 +506,7 @@ internal fun StringBuilder.appendToolUseGuidance(guidance: ToolUseGuidance) {
     appendLine(
         "- If the workspace already has a script, README or skill for the task, use that entry point instead of rebuilding it."
     )
+    appendLine("- For large code writes, prefer small complete edits (about 100 lines per call) and retain each successful chunk instead of one giant JSON/heredoc. Streaming previews are drafts, not a successful write; never execute or automatically replay a truncated command.")
     appendLine("- Never read a file again when its content is already in this conversation and you have not changed it.")
     appendLine("- When a call fails, read the error and change the approach; never repeat an identical call.")
 }

@@ -1,0 +1,13 @@
+<resources>
+    <string name="r21_message_started_short">Started %1$s</string>
+    <string name="r21_message_ended_short">Ended %1$s</string>
+    <string name="r21_message_started">Started: %1$s</string>
+    <string name="r21_message_ended">Ended: %1$s</string>
+    <string name="r21_message_sent">Sent: %1$s</string>
+    <string name="r21_message_end_unknown">End time not recorded</string>
+    <string name="r21_message_body_chars">Body: %1$d characters</string>
+    <string name="r21_message_body_chars_label">Body characters</string>
+    <string name="r21_message_body_chars_hint">Counts Unicode code points in body source, including punctuation but not whitespace. Excludes reasoning and tools; not a token count.</string>
+    <string name="r21_message_request_duration">Model request time</string>
+    <string name="r21_message_wall_duration">Total elapsed (including tools and waiting)</string>
+</resources>

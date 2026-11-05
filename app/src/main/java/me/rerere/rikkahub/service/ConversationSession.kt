@@ -18,6 +18,7 @@ import me.rerere.ai.ui.withoutEmptyGeneratedImages
 import me.rerere.ai.ui.finishReasoning
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.ConversationTitleState
+import me.rerere.rikkahub.data.model.isAwaitingToolApproval
 import me.rerere.rikkahub.data.model.titleSnapshot
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicInteger
@@ -73,6 +74,10 @@ class ConversationSession(
     var isChangingOwner: Boolean = false
         internal set
 
+    @Volatile
+    internal var isAutoFiling: Boolean = false
+        private set
+
     // 每次 [replace] 加一：跨挂起点的操作据此发现会话已经被删除或整条换掉，不再把结果写进去
     @Volatile
     var incarnation = 0
@@ -120,7 +125,7 @@ class ConversationSession(
     @Synchronized
     fun tryUpdate(transform: (Conversation) -> Conversation?): Conversation? {
         check(isInitialized) { "Conversation $id is not loaded yet" }
-        if (isChangingOwner) return null
+        if (isChangingOwner || isAutoFiling) return null
         val before = _state.value
         val proposed = transform(before) ?: return null
         val titleState = before.automaticTitleState
@@ -195,6 +200,49 @@ class ConversationSession(
             // 之后如果又有别的修改，内存已经不是 updated 这个实例，仍然算作没落库
             if (existsInDatabase && lastWritten === before) lastWritten = updated
             true
+        }
+    }
+
+    /** An organizer owns its one reference; a page or another task holds at least one more. */
+    internal suspend fun updateOrganizationMetadata(
+        transform: (Conversation) -> Conversation,
+        persist: suspend (Conversation) -> Boolean,
+        predicate: (Conversation) -> Boolean,
+        unloadedPersist: (suspend () -> Boolean)? = null,
+    ): Boolean = initializationMutex.withLock {
+        writeMutex.withLock {
+            val updated = synchronized(this) {
+                val before = state.value
+                val queued = inbox.state.value
+                if (refCount.get() > 1 || _generationJob.value != null || isChangingOwner || isAutoFiling ||
+                    awaitingNetworkRecovery || queued.messages.isNotEmpty() || queued.inFlight != null ||
+                    (isInitialized && (!existsInDatabase || before.isAwaitingToolApproval || !predicate(before)))) {
+                    return@withLock false
+                }
+                if (!isInitialized && unloadedPersist == null) return@withLock false
+                val proposed = if (isInitialized) transform(before) else null
+                isAutoFiling = true
+                proposed
+            }
+            try {
+                withContext(NonCancellable) {
+                    if (updated == null) {
+                        // Keep it UNINITIALIZED: a page must load full history, never a metadata-only shell.
+                        unloadedPersist?.invoke() == true
+                    } else if (!persist(updated)) {
+                        false
+                    } else {
+                        synchronized(this@ConversationSession) {
+                            val before = _state.value
+                            _state.value = updated
+                            if (lastWritten === before) lastWritten = updated
+                        }
+                        true
+                    }
+                }
+            } finally {
+                isAutoFiling = false
+            }
         }
     }
 
@@ -314,7 +362,7 @@ class ConversationSession(
     val isInUse: Boolean
         get() = refCount.get() > 0 || _generationJob.value != null ||
             inbox.state.value.items.any { it is QueuedMessage || (it is QueuedNotice && it.wakeOnArrival) } ||
-                inbox.state.value.inFlight != null || awaitingNetworkRecovery || isChangingOwner
+                inbox.state.value.inFlight != null || awaitingNetworkRecovery || isChangingOwner || isAutoFiling
 
     // 空闲检查任务
     private var idleCheckJob: Job? = null

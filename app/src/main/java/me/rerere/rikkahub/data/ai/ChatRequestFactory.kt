@@ -96,7 +96,6 @@ class ChatRequestFactory(
     okHttpClient: okhttp3.OkHttpClient,
 ) {
     private val inputTransformers: List<InputMessageTransformer> = listOf(
-        TimeReminderTransformer,
         PromptInjectionTransformer,
         PlaceholderTransformer,
         me.rerere.rikkahub.data.ai.transformers.LinkReadingTransformer(okHttpClient),
@@ -104,6 +103,8 @@ class ChatRequestFactory(
         OcrTransformer,
         templateTransformer,
         WorkspaceReminderTransformer(workspaceRepository),
+        // Refresh after potentially slow OCR/link reads, without shifting prompt injection depths.
+        TimeReminderTransformer,
     )
 
     /**

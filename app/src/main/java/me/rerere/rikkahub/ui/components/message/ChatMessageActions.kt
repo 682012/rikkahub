@@ -174,8 +174,14 @@ fun ColumnScope.ChatMessageActionButtons(
         )
 
         if (settings.displaySetting.showDateTimeInMessage) {
+            val timeline = message.timeline()
+            val timeText = timeline.displayAt.toJavaLocalDateTime().toMessageTimeString()
             Text(
-                text = message.createdAt.toJavaLocalDateTime().toMessageTimeString(),
+                text = when {
+                    message.role != MessageRole.ASSISTANT -> timeText
+                    timeline.endedAt != null -> stringResource(R.string.r21_message_ended_short, timeText)
+                    else -> stringResource(R.string.r21_message_started_short, timeText)
+                },
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 maxLines = 1,
@@ -339,7 +345,17 @@ fun ChatMessageActionsSheet(
             // Message Info
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 ProvideTextStyle(MaterialTheme.typography.labelSmall) {
-                    Text(message.createdAt.toJavaLocalDateTime().toLocalString())
+                    val timeline = message.timeline()
+                    Text(stringResource(
+                        if (message.role == MessageRole.ASSISTANT) R.string.r21_message_started else R.string.r21_message_sent,
+                        timeline.startedAt.toJavaLocalDateTime().toLocalString(),
+                    ))
+                    if (message.role == MessageRole.ASSISTANT) {
+                        Text(timeline.endedAt?.let { end ->
+                            stringResource(R.string.r21_message_ended, end.toJavaLocalDateTime().toLocalString())
+                        } ?: stringResource(R.string.r21_message_end_unknown))
+                    }
+                    Text(stringResource(R.string.r21_message_body_chars, message.bodyCharacterCount()))
                     if (model != null) {
                         Text(model.displayName)
                     }

@@ -24,11 +24,23 @@ import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.withoutEmptyGeneratedImages
 import me.rerere.ai.ui.finishReasoning
+import me.rerere.ai.ui.resolveStreamToolInputs
 import me.rerere.ai.util.json
 import kotlin.time.Clock
 
 // 输出为空的工具会被当成没执行过，之后每一步都会再执行一次，所以换成占位文本
 private const val EMPTY_TOOL_OUTPUT = "(no output)"
+
+/**
+ * 参数没收到完整（流式中断、EOF、max_tokens 截断、取消）的工具**没有执行**，写回给模型的说明。
+ *
+ * 这里必须是一条结果而不是"什么都不写"：一条没有结果的 tool_call 会让下一次请求的 wire 协议
+ * 不合法；同时这句话也要明确告诉模型"没有发生过副作用，需要的话请重新调用"，避免它以为调用成功。
+ */
+private const val INCOMPLETE_TOOL_INPUT_OUTPUT =
+    "Tool not executed: its arguments are incomplete or invalid " +
+        "(stream interrupted, truncated, cancelled or malformed). " +
+        "Check any previously recorded execution before issuing a new complete call."
 
 private class StreamChunkHandlingException(override val cause: Throwable) : RuntimeException(cause)
 
@@ -98,15 +110,16 @@ internal class AgentLoop(
     private suspend fun requestApprovals(current: UIMessage): Set<String> {
         val updated = current.copy(
             parts = current.parts.map { part ->
-                if (part is UIMessagePart.Tool && !part.isExecuted &&
-                    part.approvalState == ToolApprovalState.Auto &&
-                    (request.providerSetting is me.rerere.ai.provider.ProviderSetting.WebAccount ||
-                        findTool(part.toolName)?.needsApproval?.invoke(part.inputAsJson()) == true)
-                ) {
-                    part.copy(approvalState = ToolApprovalState.Pending)
-                } else {
-                    part
-                }
+                if (part !is UIMessagePart.Tool || part.isExecuted) return@map part
+                // 参数没收到完整（流式中/被中断/半截 JSON）的调用不进入审批：
+                // 既不能拿它去问"要不要执行"，也就不会在批准后被拿去执行
+                if (!part.isInputRunnable) return@map part
+                if (part.approvalState != ToolApprovalState.Auto) return@map part
+                // 审批判定用解析成功的参数；解析不出来时根本没有可判定的入参，不放行
+                val args = part.parseInputOrNull() ?: return@map part
+                val needsApproval = request.providerSetting is me.rerere.ai.provider.ProviderSetting.WebAccount ||
+                    findTool(part.toolName)?.needsApproval?.invoke(args) == true
+                if (needsApproval) part.copy(approvalState = ToolApprovalState.Pending) else part
             }
         )
         if (updated != current) update(updated)
@@ -156,12 +169,15 @@ internal class AgentLoop(
         val stepStart = base.copy(usage = null, lastUsage = null, generationTimeMs = null, generationTiming = null)
         // 重试时已经展示出去的半截回复不能先缩水再重画，是否放行这次预览由它判断
         val previews = StreamPreviewGuard(base.parts.size)
+        // 最后一次尝试的合并结果留在外面：流异常结束/取消时要靠它把半截工具参数标成 INTERRUPTED
+        var attempt = stepStart
+        var handler = StreamChunkHandler(params.model)
         return try {
             withRetry(request.retry, onRetry = { events.emit(AgentEvent.Retrying(it)) }) {
                 // 每次重试都从本步开始时的消息重新合并，不会把重试的响应接在已经展示的半截回复后面；
                 // 各次尝试共用同一个消息 id，调用方直接覆盖即可。
-                val handler = StreamChunkHandler(params.model)
-                var attempt = stepStart
+                handler = StreamChunkHandler(params.model)
+                attempt = stepStart
                 // 计时器必须每次尝试重建：上一次失败的半截内容不能算进这一次的生成窗口，
                 // 否则窗口里会混进重试的网络等待，速度被算低。
                 val timer = GenerationTimer(nanoTime)
@@ -184,11 +200,38 @@ internal class AgentLoop(
                         throw StreamChunkHandlingException(e)
                     }
                 }
-                attempt.withoutEmptyGeneratedImages().withStepStats(base, timer.finish(attempt.usage?.completionTokens))
+                // 流正常读到终点（有些 Provider 只到 EOF、不发 Finish）：本步参数按"正常结束"收尾，
+                // 完整参数转 COMPLETE，半截的留在 INTERRUPTED，等会儿也不会被执行
+                attempt.withoutEmptyGeneratedImages()
+                    .withStepStats(base, timer.finish(attempt.usage?.completionTokens))
+                    .resolveStreamToolInputs(base.parts.size)
             }
         } catch (e: StreamChunkHandlingException) {
+            publishInterruptedStream(handler, attempt, base)
             throw e.cause
+        } catch (e: Throwable) {
+            // 断线 / 对端 EOF / 取消 / 读取异常：先把本步还在流式中的工具参数标成 INTERRUPTED 再抛出，
+            // 已经生成的那半截参数一个字都不删，上层可以照常保存这条消息
+            publishInterruptedStream(handler, attempt, base)
+            throw e
         }
+    }
+
+    /**
+     * 流没正常结束时的收尾：把本步还在流式中的工具调用标成 `INTERRUPTED`（参数原文保留），
+     * 并把这条半截消息发给上层，调用方（ChatService）能拿到它去持久化。
+     *
+     * 取消路径上 `emit` 本身可能失败（协程已经被取消），这里只尽力而为：失败不影响原始异常继续
+     * 向上抛，参数原文也仍然留在已经发过的那条 [AgentEvent.MessageUpdated] 里。
+     */
+    private suspend fun publishInterruptedStream(
+        handler: StreamChunkHandler,
+        attempt: UIMessage,
+        base: UIMessage,
+    ) {
+        val interrupted = handler.interrupted(listOf(attempt)).single()
+        if (interrupted == attempt) return
+        runCatching { preview(interrupted, newPartsFrom = base.parts.size) }
     }
 
     private suspend fun generate(
@@ -222,7 +265,11 @@ internal class AgentLoop(
     // Only the collector coroutine updates the message/emits events; workers report through a channel.
     private suspend fun executeTools() {
         val tools = checkNotNull(message).getTools()
-        val pending = tools.filter { !it.isExecuted }
+        // 参数没收到完整（流被截断/断线/取消，或旧记录里就是半截 JSON）的调用**绝不执行**：
+        // 拿半截参数去猜着跑，等于用默认值替用户改东西。这里只给它写一条"未执行"的结果，
+        // 让循环能继续、模型知道要重新发一次完整调用；参数原文原样留着。
+        val (incomplete, pending) = tools.filter { !it.isExecuted }.partition { !it.isInputRunnable }
+        incomplete.forEach { reportIncompleteInput(it) }
         // 连续多次结果相同的调用、以及按固定顺序来回振荡的调用不再执行，见 ToolRepetition.kt
         val blocked = blockedRepeatCalls(tools.filter { it.isExecuted }, pending, canonicalArguments) {
             findTool(it)?.repeatable == true
@@ -331,6 +378,17 @@ internal class AgentLoop(
         progress.close()
     }
 
+    private suspend fun reportIncompleteInput(tool: UIMessagePart.Tool) {
+        val invalidJson = if (tool.parseInputOrNull() == null)
+            "Invalid tool arguments JSON for ${tool.toolName}. " else ""
+        updateTool(tool.toolCallId) {
+            it.copy(
+                output = errorOutput(invalidJson + INCOMPLETE_TOOL_INPUT_OUTPUT),
+                finishedAt = Clock.System.now(),
+            )
+        }
+    }
+
     private suspend fun updateTool(toolCallId: String, transform: (UIMessagePart.Tool) -> UIMessagePart.Tool) {
         val current = checkNotNull(message)
         update(
@@ -354,10 +412,16 @@ internal class AgentLoop(
         }
 
     private suspend fun runTool(tool: UIMessagePart.Tool): List<UIMessagePart> = try {
-        val definition = findTool(tool.toolName) ?: error("Tool ${tool.toolName} not found")
-        val args = runCatching { json.parseToJsonElement(tool.input.ifBlank { "{}" }) }
-            .getOrElse { error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}") }
-        definition.execute(args).ifEmpty { listOf(UIMessagePart.Text(EMPTY_TOOL_OUTPUT)) }
+        // 兜底闸门：即使调用方没走 executeTools 的过滤，半截参数也绝不能落到工具执行上。
+        // 注意不能用 inputAsJson() 的空对象回退来兜底——那会把"解析失败"变成"没有参数"直接跑起来。
+        if (!tool.isInputRunnable) {
+            errorOutput(INCOMPLETE_TOOL_INPUT_OUTPUT)
+        } else {
+            val definition = findTool(tool.toolName) ?: error("Tool ${tool.toolName} not found")
+            val args = runCatching { json.parseToJsonElement(tool.input.ifBlank { "{}" }) }
+                .getOrElse { error("Invalid tool arguments JSON for ${tool.toolName}: ${it.message}") }
+            definition.execute(args).ifEmpty { listOf(UIMessagePart.Text(EMPTY_TOOL_OUTPUT)) }
+        }
     } catch (e: CancellationException) {
         // 取消必须向上传播，否则停止生成会被误报为工具执行错误
         throw e

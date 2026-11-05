@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 流式工具入参草稿（workspace_write_file / workspace_edit_file 参数还在生成时） -->
+    <string name="r21_stream_draft_title_write">草稿：%s</string>
+    <string name="r21_stream_draft_title_edit">草稿（编辑）：%s</string>
+    <string name="r21_stream_draft_title_unknown">正在生成工具参数</string>
+    <string name="r21_stream_draft_badge">未提交草稿</string>
+    <string name="r21_stream_draft_streaming">正在生成参数…</string>
+    <string name="r21_stream_draft_stopped">生成已中断</string>
+    <string name="r21_stream_draft_chars">已收到 %1$d 字符</string>
+    <string name="r21_stream_draft_body_chars">已解出 %1$d 字符</string>
+    <string name="r21_stream_draft_previous">将被替换</string>
+    <string name="r21_stream_draft_body">草稿内容</string>
+    <string name="r21_stream_draft_raw">原始参数</string>
+    <string name="r21_stream_draft_result">结果</string>
+    <string name="r21_stream_draft_note">仅草稿预览 · 还没有写入工作区</string>
+    <string name="r21_stream_draft_expand">查看全部</string>
+    <string name="r21_stream_draft_copy">复制草稿</string>
+    <string name="r21_stream_draft_export">导出草稿</string>
+    <string name="r21_stream_draft_truncated">预览已截断 · 复制或导出仍是完整草稿</string>
+    <string name="r21_stream_draft_raw_fallback">正文达到预览上限；复制和导出保留已收到的完整原始参数。</string>
+    <string name="r21_stream_draft_export_failed">草稿导出失败，内容仍保留在本对话中。</string>
+</resources>

@@ -1,0 +1,13 @@
+<resources>
+    <string name="r21_message_started_short">开始 %1$s</string>
+    <string name="r21_message_ended_short">结束 %1$s</string>
+    <string name="r21_message_started">开始时间：%1$s</string>
+    <string name="r21_message_ended">结束时间：%1$s</string>
+    <string name="r21_message_sent">发送时间：%1$s</string>
+    <string name="r21_message_end_unknown">未记录结束时间</string>
+    <string name="r21_message_body_chars">正文：%1$d 字符</string>
+    <string name="r21_message_body_chars_label">正文字符</string>
+    <string name="r21_message_body_chars_hint">按正文源码的 Unicode 码点统计，含标点、不含空白；不含思考和工具结果，与模型 token 数分开。</string>
+    <string name="r21_message_request_duration">模型请求耗时</string>
+    <string name="r21_message_wall_duration">全程耗时（含工具与等待）</string>
+</resources>

@@ -606,8 +606,8 @@ private fun String.withoutLineNumbers(): String {
     return lines.joinToString("\n") { NUMBERED_LINE_PREFIX.replace(it, "") }
 }
 
-/** 由文件扩展名推断语法高亮语言 */
-private fun languageOf(path: String?): String = when (
+/** 由文件扩展名推断语法高亮语言（草稿预览也用同一套映射） */
+internal fun languageOf(path: String?): String = when (
     path?.substringAfterLast('.', "")?.lowercase().orEmpty()
 ) {
     "kt", "kts" -> "kotlin"

@@ -56,6 +56,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import me.rerere.hugeicons.HugeIcons
+import me.rerere.hugeicons.stroke.AiMagic
+import me.rerere.hugeicons.stroke.ArrowLeft01
 import me.rerere.hugeicons.stroke.ChartColumn
 import me.rerere.hugeicons.stroke.Delete01
 import me.rerere.hugeicons.stroke.Folder01
@@ -120,6 +122,7 @@ fun ChatDrawerContent(
     val conversations = drawerVm.conversations.collectAsLazyPagingItems()
     val folders by drawerVm.folders.collectAsStateWithLifecycle()
     val selectedFolderId by drawerVm.selectedFolderId.collectAsStateWithLifecycle()
+    val selectedLineageId by drawerVm.selectedLineageId.collectAsStateWithLifecycle()
     val memoryDreaming by drawerVm.memoryDreaming.collectAsStateWithLifecycle()
     val conversationListState = rememberLazyListState(
         initialFirstVisibleItemIndex = drawerVm.scrollIndex,
@@ -135,6 +138,15 @@ fun ChatDrawerContent(
             .collectLatest { (index, offset) ->
                 drawerVm.saveScrollPosition(index, offset)
             }
+    }
+
+    // 进出家族列表时整个列表换了内容，回到顶部；首次进入抽屉时不动，保留原来的滚动还原
+    var lastLineageScope by remember { mutableStateOf(selectedLineageId) }
+    LaunchedEffect(selectedLineageId) {
+        if (lastLineageScope != selectedLineageId) {
+            lastLineageScope = selectedLineageId
+            conversationListState.scrollToItem(0)
+        }
     }
 
     val conversationJobs by vm.conversationJobs.collectAsStateWithLifecycle(
@@ -167,6 +179,9 @@ fun ChatDrawerContent(
 
     // Menu popup 状态
     var showMenuPopup by remember { mutableStateOf(false) }
+
+    // 自动归库设置面板
+    var showAutoFilePanel by remember { mutableStateOf(false) }
 
     val updateCheckDisabledUntil = settings.displaySetting.updateCheckDisabledUntilEpochMillis
     var updateChecksEnabled by remember(updateCheckDisabledUntil) {
@@ -279,6 +294,8 @@ fun ChatDrawerContent(
                     modifier = Modifier.weight(1f),
                 )
 
+                AutoFileEntry(onClick = { showAutoFilePanel = true })
+
                 ConversationSortButton(
                     sortOrder = settings.displaySetting.conversationSortOrder,
                     onSortOrderChange = { sortOrder ->
@@ -314,6 +331,11 @@ fun ChatDrawerContent(
                 drawerHeader()
             }
 
+            // 家族列表是从某一条会话钻进去的临时 scope，给一条能回原文件夹的返回条
+            if (selectedLineageId != null) {
+                LineageScopeBar(onBack = { drawerVm.selectLineage(null) })
+            }
+
             ConversationList(
                 current = current,
                 conversations = conversations,
@@ -323,6 +345,12 @@ fun ChatDrawerContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
+                onOpenFamily = { conversation ->
+                    // 只从当前抽屉助手的行取根，别的助手的同 root 会话不往这里带
+                    familyScopeTarget(conversation, current.assistantId)?.let { root ->
+                        drawerVm.selectLineage(root)
+                    }
+                },
                 onClick = {
                     navigateToChatPage(navController, it.id)
                 },
@@ -740,6 +768,18 @@ fun ChatDrawerContent(
             }
         }
     }
+
+    // 自动归库设置面板：开关/闲置时长/立即整理/撤销都在这里，抽屉本身不再多堆入口
+    if (showAutoFilePanel) {
+        ConversationAutoFilePanel(
+            assistantId = current.assistantId,
+            onDismiss = {
+                showAutoFilePanel = false
+                // 面板里可能搬过、撤销过会话，关掉时刷一次，别让列表停在旧归属
+                conversations.refresh()
+            },
+        )
+    }
 }
 
 @Composable
@@ -1011,6 +1051,59 @@ private fun ConversationSortButton(
     }
 }
 
+// 「自动归库」入口：和排序按钮同一种挂法，圆形小按钮，不额外占一行
+@Composable
+private fun AutoFileEntry(onClick: () -> Unit) {
+    val label = stringResource(R.string.r21_autofile_entry)
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Tooltip(tooltip = { Text(label) }) {
+            Icon(
+                imageVector = HugeIcons.AiMagic,
+                contentDescription = label,
+                modifier = Modifier
+                    .padding(8.dp)
+                    .size(16.dp),
+            )
+        }
+    }
+}
+
+// 家族列表的返回条：只清家族选中，原来的文件夹 scope 保持不动
+@Composable
+private fun LineageScopeBar(onBack: () -> Unit) {
+    val description = stringResource(R.string.r21_autofile_family_back)
+    Surface(
+        onClick = onBack,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = HugeIcons.ArrowLeft01,
+                contentDescription = description,
+                modifier = Modifier.size(16.dp),
+            )
+            Text(
+                text = stringResource(R.string.r21_autofile_family_title),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
 @Composable
 private fun FolderChip(
     label: String,
@@ -1101,3 +1194,17 @@ private fun AssistantItem(
         }
     }
 }
+
+/**
+ * 折叠后同族超过一条才显示数量角标；单条会话不留空位，保持原来的行观感。
+ */
+internal fun familyBadgeVisible(familySize: Int): Boolean = familySize > 1
+
+/**
+ * 点家族角标要打开的根（[Conversation.lineageRootId]，没有 lineageId 时就是自己）。
+ *
+ * 只认当前抽屉助手自己的行：切换助手时可能还留着上一份分页数据，
+ * 跨助手取同 root 会把别的助手的会话拼进同一个家族列表，所以对不上就当没有入口。
+ */
+internal fun familyScopeTarget(conversation: Conversation, drawerAssistantId: Uuid): Uuid? =
+    if (conversation.assistantId == drawerAssistantId) conversation.lineageRootId else null

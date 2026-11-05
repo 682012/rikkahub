@@ -19,6 +19,10 @@ internal fun forkConversationTitle(sourceTitle: String, existingTitles: Set<Stri
  *
  * 继承助手、系统提示词、提示词注入、会话配置、工作目录和文件夹，标题在 [existingTitles] 中顺延编号。
  * 节点换新 id；本地附件经 [copyFile] 复制一份，两个会话之后各删各的文件，互不影响。
+ *
+ * 谱系：新会话挂到源的家族根上（源自身没有根时，源就是根）。源会话正好是旧数据、还没记根的话，
+ * 这里只在新会话上写 lineageId，不去回写源，免得为了一条分叉改旧会话的元信息。
+ * 归库锁 [Conversation.folderAssignmentLocked] 不随分叉继承：分叉后是新的一条会话，归到哪儿由它自己重新决定。
  */
 internal fun Conversation.fork(
     messageId: Uuid,
@@ -45,5 +49,6 @@ internal fun Conversation.fork(
         config = config,
         workspaceCwd = workspaceCwd,
         folderId = folderId,
+        lineageId = lineageId ?: id,
     )
 }

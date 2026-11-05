@@ -41,7 +41,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import kotlinx.datetime.toJavaLocalDateTime
 import me.rerere.ai.core.TokenUsage
 import me.rerere.ai.ui.UIMessage
 import me.rerere.hugeicons.HugeIcons
@@ -60,7 +59,6 @@ import me.rerere.rikkahub.ui.pages.chat.chatSpeedUi
 import me.rerere.rikkahub.utils.formatNumber
 import me.rerere.rikkahub.utils.toFixed
 import java.text.NumberFormat
-import java.time.Duration
 
 /**
  * 显示消息的技术统计信息（如 token 使用量），点击查看详情
@@ -125,6 +123,7 @@ fun ChatMessageNerdLine(
                             }
                         }
                     )
+                    Text(text = stringResource(R.string.r21_message_body_chars, stats.bodyChars))
                     StatsItem(
                         icon = { StatsIcon(HugeIcons.Layers01, stringResource(R.string.chat_message_usage_context)) },
                         content = {
@@ -178,7 +177,10 @@ private fun UsageDetails(stats: NerdStats, contextLength: Int?) {
         chatSpeedReasonText(stats.speed)?.let {
             Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        if (stats.durationMillis != null) UsageDetailRow(if (stats.legacy) "全程耗时（旧记录）" else "已记录请求耗时", "${(stats.durationMillis / 1000f).toFixed(1)}s")
+        UsageDetailRow(stringResource(R.string.r21_message_body_chars_label), stats.bodyChars.exact())
+        Text(stringResource(R.string.r21_message_body_chars_hint), style = MaterialTheme.typography.bodySmall)
+        if (stats.durationMillis != null) UsageDetailRow(stringResource(R.string.r21_message_request_duration), "${(stats.durationMillis / 1000f).toFixed(1)}s")
+        if (stats.wallDurationMillis != null) UsageDetailRow(stringResource(R.string.r21_message_wall_duration), "${(stats.wallDurationMillis / 1000f).toFixed(1)}s")
     }
 }
 
@@ -327,31 +329,29 @@ private data class NerdStats(
     val steps: Int,
     val contextTokens: Int?,
     val durationMillis: Long?,
+    val wallDurationMillis: Long?,
+    val bodyChars: Int,
     /** 与顶部标题栏同一份速度口径：数值、覆盖步数、缺测原因都在这里。 */
     val speed: ChatSpeedUi,
     val firstContentMs: Long?,
-    val legacy: Boolean,
 )
 
 private fun UIMessage.nerdStats(usage: TokenUsage): NerdStats {
     val last = lastRequestUsage() ?: usage
-    // 旧消息没有记录生成耗时，退回用创建到完成的总时长估算
-    val durationMillis = finishedAt?.let { finishedAt ->
-        generationTiming?.requestMs ?: Duration.between(
-            createdAt.toJavaLocalDateTime(),
-            finishedAt.toJavaLocalDateTime()
-        ).toMillis()
-    }?.takeIf { it > 0 }
+    // Model requests exclude local tools/approvals. Wall time is reported separately.
+    val timeline = timeline()
+    val durationMillis = timeline.endedAt?.let { generationTiming?.requestMs }?.takeIf { it > 0 }
     return NerdStats(
         total = usage,
         lastUsage = last,
         steps = stepCount ?: 1,
         contextTokens = contextTokens(),
         durationMillis = durationMillis,
+        wallDurationMillis = timeline.wallDurationMillis,
+        bodyChars = bodyCharacterCount(),
         // 还没生成完就先不报数：这时候的窗口没结束，报出来只会跳变
         speed = generationTiming.chatSpeedUi(finished = finishedAt != null),
         firstContentMs = generationTiming?.firstContentMs,
-        legacy = generationTiming == null,
     )
 }
 

@@ -36,6 +36,24 @@ data class Conversation(
     val workspaceCwd: String? = null,
     // 所属文件夹（助手内分组），null 表示未归入任何文件夹
     val folderId: Uuid? = null,
+    /**
+     * 家族根会话 id（fork 谱系）。null 表示这条会话自己是根，等价于 [id]。
+     *
+     * fork 出来的会话沿用源会话的根，所以同一条源会话的所有分叉（以及分叉的分叉）共享一个根；
+     * 折叠列表按「同助手 + 同文件夹 + 同根」合成一张卡，见 ConversationDAO 的 collapsed 查询。
+     * 移动到别的助手时家族根要重置，避免跨助手关联。
+     */
+    val lineageId: Uuid? = null,
+    /**
+     * 用户手动归过档，自动整理不再移动这条会话（手动移到别的文件夹、手动移出文件夹都算）。
+     */
+    val folderAssignmentLocked: Boolean = false,
+    /**
+     * 同一家族（同助手、同文件夹、同根）里未置顶的会话数，只用于列表卡片上的数量角标。
+     * 只活在内存里，由查询算出，不落库；单条会话时为 1。
+     */
+    @Transient
+    val familySize: Int = 1,
     @Transient
     val newConversation: Boolean = false,
     /**
@@ -60,6 +78,15 @@ data class Conversation(
         get(): List<UIMessage> {
             return messageNodes.map { node -> node.messages[node.selectIndex] }
         }
+
+    /**
+     * 家族根：显式 [lineageId] 优先，为空时以自身 [id] 为根。
+     *
+     * 旧数据没有 lineage 列（空串），读出来是 null，这里就地当成「自己是根」，不必为了记根
+     * 去回写源会话。
+     */
+    val lineageRootId: Uuid
+        get() = lineageId ?: id
 
     fun getMessageNodeByMessageId(messageId: Uuid): MessageNode? {
         return messageNodes.firstOrNull { node -> node.messages.any { it.id == messageId } }

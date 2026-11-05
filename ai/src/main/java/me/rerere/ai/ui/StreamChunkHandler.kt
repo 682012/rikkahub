@@ -70,6 +70,24 @@ import kotlin.time.Clock
  * 收到 `ReasoningEnd` 的推理 part 也不会由本类自动结束。调用方应在 Flow 的完成或异常处理中执行
  * 必要的 UI 收尾，并丢弃当前 handler；不要将它复用于下一条响应流。
  *
+ * ## 工具参数的完整度
+ *
+ * 工具调用 part 的 `input` 是一段**流式拼出来的 JSON 原文**，本类从不丢弃已经收到的片段，也不
+ * 猜测它是否完整：
+ *
+ * - 新建的调用是 [ToolInputState.STREAMING]，期间任何 delta 都保持这个状态；
+ * - 收到 [StreamChunk.ToolCallEnd]（Provider 说这个调用发完了）时，参数能解析成 JSON 才转
+ *   [ToolInputState.COMPLETE]，否则转 [ToolInputState.INTERRUPTED]；
+ * - 收到 [StreamChunk.Finish] 时，本实例还在流式中、没有被显式结束的调用按 finish reason 收尾：
+ *   `length` / `max_tokens` / `MAX_TOKENS` 这类截断一律算 [ToolInputState.INTERRUPTED]（哪怕半截
+ *   恰好能解析），正常结束且参数能解析才算 [ToolInputState.COMPLETE]。合法无参调用（`{}` 或空串）
+ *   在这一步也会正常变成完整，不会因为"没见到 End 事件"就永远不执行；
+ * - 流异常结束/被取消时调用 [interrupted]，把本实例还在流式中的调用标成
+ *   [ToolInputState.INTERRUPTED]。
+ *
+ * 只有 [ToolInputState.COMPLETE] 且原文可解析的调用才会进入审批与执行；这保证半截 JSON 既不会
+ * 被当成"没有参数"去跑，也不会在恢复时被自动重放。
+ *
  * 该类保存着一次响应流的合并状态，不是无状态转换器。每条并发响应流都必须使用独立实例，且
  * 事件应按 Provider 产生的顺序交给同一实例处理。
  */
@@ -105,6 +123,37 @@ class StreamChunkHandler(private val model: Model? = null) {
         }
         val updatedMessage = append(targetMessages.last(), chunk)
         return targetMessages.dropLast(1) + updatedMessage
+    }
+
+    /**
+     * 流**没有正常结束**（断线、对端直接 EOF、读取/解析异常、上层取消）时收尾已经合并的内容。
+     *
+     * [handle] 没机会收到 [StreamChunk.Finish]，本步还在流式接收的工具调用会停在
+     * [ToolInputState.STREAMING]。调用方在异常/取消路径上调用本方法，把这些调用的参数状态记成
+     * [ToolInputState.INTERRUPTED]（"确定不完整，永不执行"），参数原文原样保留——模型究竟发到哪
+     * 一个字都不删，用户能看到、记录也能落盘。
+     *
+     * 只动本实例创建的调用：消息里之前步骤留下的 part（包括上一次中断留下的）不会被改写。
+     * 本方法不执行任何工具，也不清空已拼好的输入。
+     */
+    fun interrupted(messages: List<UIMessage>): List<UIMessage> {
+        if (messages.isEmpty()) return messages
+        val target = messages.last()
+        if (target.role != MessageRole.ASSISTANT) return messages
+        val slotIds = toolCallSlots.values.mapTo(HashSet()) { it.toolCallId }
+        if (slotIds.isEmpty()) return messages
+        val updated = target.copy(parts = target.parts.map { part ->
+            if (part is UIMessagePart.Tool &&
+                part.toolCallId in slotIds &&
+                part.inputState == ToolInputState.STREAMING
+            ) {
+                part.copy(inputState = ToolInputState.INTERRUPTED)
+            } else {
+                part
+            }
+        })
+        if (updated == target) return messages
+        return messages.dropLast(1) + updated
     }
 
     private fun append(message: UIMessage, chunk: StreamChunk): UIMessage = with(message) {
@@ -214,6 +263,8 @@ class StreamChunkHandler(private val model: Model? = null) {
                         toolName = chunk.toolName,
                         input = "",
                         metadata = chunk.metadata,
+                        // 参数还没开始发：在收到 ToolCallEnd 之前都算"流式中"，不能执行
+                        inputState = ToolInputState.STREAMING,
                     )).also { toolCallSlots[chunk.id] = ToolCallSlot(toolCallId) }
                 }
             }
@@ -228,6 +279,9 @@ class StreamChunkHandler(private val model: Model? = null) {
                                 toolName = part.toolName + chunk.toolNameDelta,
                                 input = part.input + chunk.inputDelta,
                                 metadata = chunk.metadata ?: part.metadata,
+                                // 参数又变了：在 Provider 明确结束这个调用之前，它都回到"流式中"，
+                                // 否则先到的 End 之后的补充 delta 会让一条不完整参数被当成完整
+                                inputState = ToolInputState.STREAMING,
                             )
                         } else {
                             part
@@ -244,12 +298,28 @@ class StreamChunkHandler(private val model: Model? = null) {
                             toolName = chunk.toolNameDelta,
                             input = chunk.inputDelta,
                             metadata = chunk.metadata,
+                            inputState = ToolInputState.STREAMING,
                         )).also { toolCallSlots[chunk.id] = ToolCallSlot(toolCallId) }
                     }
                 }
             }
 
-            is StreamChunk.ToolCallEnd -> this
+            is StreamChunk.ToolCallEnd -> {
+                // Provider 明确说这个调用的参数发完了：原文保持不动（它就是模型真正发出来的东西），
+                // 只把完整度收成终态。没有 slot 说明本实例没见过这个调用，不属于本步，不能碰。
+                val slot = toolCallSlots[chunk.id]
+                if (slot == null) {
+                    this
+                } else {
+                    copy(parts = parts.map { part ->
+                        if (part is UIMessagePart.Tool && part.toolCallId == slot.toolCallId) {
+                            part.resolveInputAfterToolCallEnd()
+                        } else {
+                            part
+                        }
+                    })
+                }
+            }
             is StreamChunk.ToolCallOutput -> {
                 // 只写本实例分配到的那个 part。没有 slot 说明本实例没见过这个调用的 Start/Delta，
                 // 这个输出不属于本步：直接丢弃。绝不能回退到 `chunk.id`——那样会覆盖之前步骤里
@@ -399,18 +469,34 @@ class StreamChunkHandler(private val model: Model? = null) {
                 usage = if (chunk.completeSnapshot) chunk.usage else usage.merge(chunk.usage),
                 lastUsage = chunk.lastRequestUsage,
             )
-            is StreamChunk.Finish -> copy(
-                finishedAt = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()),
-                // An annotation may precede its text delta; completed artifacts belong after the text.
-                parts = parts.filterNot { it is UIMessagePart.Document && it.requiresAuthenticatedFetch } +
-                    parts.filter { it is UIMessagePart.Document && it.requiresAuthenticatedFetch },
-            ).finishReasoning().removeEmptyImageParts(imagePartIndexes.values.toSet()).also {
-                // Finish 同时结束尚未显式结束的 reasoning，并释放本次响应流的索引状态。
-                textPartIndexes.clear()
-                reasoningPartIndexes.clear()
-                imagePartIndexes.clear()
-                serverToolInputBuffers.clear()
-                toolCallSlots.clear()
+            is StreamChunk.Finish -> {
+                // 流到了终点，但"流结束了"不等于"参数收完了"：max_tokens 截断时流也会正常收尾。
+                // 只收尾本实例创建的、还在流式中的调用（消息里之前步骤留下的 part 一律不碰）：
+                // 正常结束且参数能解析才转成 COMPLETE，被截断或拼不成 JSON 的转成 INTERRUPTED。
+                val slotIds = toolCallSlots.values.mapTo(HashSet()) { it.toolCallId }
+                copy(
+                    finishedAt = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()),
+                    // An annotation may precede its text delta; completed artifacts belong after the text.
+                    parts = (parts.filterNot { it is UIMessagePart.Document && it.requiresAuthenticatedFetch } +
+                        parts.filter { it is UIMessagePart.Document && it.requiresAuthenticatedFetch })
+                        .map { part ->
+                            if (part is UIMessagePart.Tool &&
+                                part.toolCallId in slotIds &&
+                                part.inputState == ToolInputState.STREAMING
+                            ) {
+                                part.resolveInputAfterStreamEnd(chunk.finishReason)
+                            } else {
+                                part
+                            }
+                        },
+                ).finishReasoning().removeEmptyImageParts(imagePartIndexes.values.toSet()).also {
+                    // Finish 同时结束尚未显式结束的 reasoning，并释放本次响应流的索引状态。
+                    textPartIndexes.clear()
+                    reasoningPartIndexes.clear()
+                    imagePartIndexes.clear()
+                    serverToolInputBuffers.clear()
+                    toolCallSlots.clear()
+                }
             }
         }
     }

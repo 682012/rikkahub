@@ -58,7 +58,10 @@ import me.rerere.rikkahub.utils.JsonInstant
     // fork.15 already used schema 31 with a different usage_record shape.
     // Keep 3.1 compatibility in a new fork schema instead of lying to Room about identity.
     // 34: official 3.1.1 adds workspaces.type / workspaces.ssh_config (SSH remote workspace).
-    version = 34,
+    // 35: fork r21 adds conversationentity.lineage_id / folder_assignment_locked (family collapse + autofile lock).
+    // Explicit 34 -> 35 migration only, no AutoMigration: the two columns are read through
+    // COALESCE(NULLIF(lineage_id, ''), id), so old rows need no backfill.
+    version = 35,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),

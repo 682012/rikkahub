@@ -67,6 +67,7 @@ import me.rerere.rikkahub.data.event.CompressionOutcome
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.organization.ConversationLineageResolver
 import me.rerere.rikkahub.data.model.TitleBranchAnchor
 import me.rerere.rikkahub.data.model.TitleTrigger
 import me.rerere.rikkahub.data.model.TitleWriteGuard
@@ -120,6 +121,7 @@ private const val TAG = "ChatService"
 
 /** 流式生成落库间隔：进程被强杀时最多丢这么久的内容 */
 private const val STREAM_PERSIST_INTERVAL_MS = 1_500L
+private const val STREAM_TOOL_DRAFT_PERSIST_INTERVAL_MS = 500L
 
 /** 手动压缩的终态状态在内存里保留多久，够 UI 显示一次结果 */
 private const val COMPRESSION_STATE_RETENTION_MS = 10 * 60 * 1000L
@@ -258,6 +260,7 @@ class ChatService(
         onGenerationFinished = ::onSessionGenerationFinished,
         onSessionRemoved = { id ->
             clearRecovery(id)
+            pendingStreamPersists.remove(id)?.cancel()
             lastStreamPersistAt.remove(id)
             memoryConsolidationScheduler.onConversationLeft(id)
         },
@@ -271,6 +274,7 @@ class ChatService(
 
     // 流式生成期间定期落库，进程被强杀时最多丢最近一次落库之后的内容
     private val lastStreamPersistAt = ConcurrentHashMap<Uuid, Long>()
+    private val pendingStreamPersists = ConcurrentHashMap<Uuid, Job>()
 
     // 错误状态
     private val _errors = MutableStateFlow<List<ChatError>>(emptyList())
@@ -414,6 +418,7 @@ class ChatService(
             try {
                 block()
             } finally {
+                pendingStreamPersists.remove(conversationId)?.cancel()
                 lastStreamPersistAt.remove(conversationId)
             }
         }
@@ -428,6 +433,7 @@ class ChatService(
             try {
                 block()
             } finally {
+                pendingStreamPersists.remove(conversationId)?.cancel()
                 lastStreamPersistAt.remove(conversationId)
                 if (foregroundStarted) {
                     ChatGenerationForegroundService.release(context, generationId)
@@ -609,7 +615,7 @@ class ChatService(
                     }
                     ensureInitialized(session)
                     synchronized(session) {
-                        check(!session.isChangingOwner) { context.getString(R.string.r21_assistant_busy) }
+                        check(!session.isChangingOwner && !session.isAutoFiling) { context.getString(R.string.r21_assistant_busy) }
                         check(assistantId == null || assistantId == session.state.value.assistantId) {
                             context.getString(R.string.r21_assistant_changed)
                         }
@@ -639,7 +645,7 @@ class ChatService(
         val session = sessionManager.getOrCreate(conversationId)
         val reply = CompletableDeferred<String?>()
         synchronized(session) {
-            check(!session.isChangingOwner) { context.getString(R.string.r21_assistant_busy) }
+            check(!session.isChangingOwner && !session.isAutoFiling) { context.getString(R.string.r21_assistant_busy) }
             check(text.isNotBlank()) { context.getString(R.string.chat_page_voice_empty) }
             check(!session.inbox.state.value.paused || session.inbox.state.value.messages.isEmpty()) {
                 context.getString(R.string.chat_page_voice_resume_queue)
@@ -661,10 +667,15 @@ class ChatService(
      * 放入一条运行时通知，例如后台命令结束。
      * 在已有轮次的下一步或用户下次发送时取走；后台完成不能自行触发计费轮次。
      */
-    fun postNotice(conversationId: Uuid, key: String, notice: UIMessagePart.Notice) {
+    fun postNotice(conversationId: Uuid, key: String, notice: UIMessagePart.Notice, expectedAssistantId: Uuid? = null) {
         val session = sessionManager.getOrCreate(conversationId)
         synchronized(session) {
-            if (!session.isChangingOwner) session.inbox.post(key, notice, wakeOnArrival = false)
+            if (session.isChangingOwner) return
+            if (expectedAssistantId != null) {
+                if (session.isInitialized && session.state.value.assistantId != expectedAssistantId) return
+                session.inbox.bindOwner(expectedAssistantId)
+            }
+            session.inbox.post(key, notice, wakeOnArrival = false)
         }
     }
 
@@ -674,7 +685,7 @@ class ChatService(
         synchronized(session) {
             // A pending tool approval is still part of the current turn.
             if (session.getJob() != null || session.state.value.isAwaitingToolApproval) return null
-            if (session.awaitingNetworkRecovery || session.isChangingOwner) return null
+            if (session.awaitingNetworkRecovery || session.isChangingOwner || session.isAutoFiling) return null
             if (!networkHandover.state.value.available && settingsStore.settingsFlow.value.retryPolicy().maxRetries > 0) {
                 session.inbox.pause(InboxPauseReason.NETWORK)
                 session.processingStatus.value = context.getString(R.string.r18_waiting_network)
@@ -829,7 +840,7 @@ class ChatService(
     fun regenerateAtMessage(conversationId: Uuid, messageId: Uuid) {
         val session = sessionManager.getOrCreate(conversationId)
         synchronized(session) {
-            if (session.isChangingOwner) {
+            if (session.isChangingOwner || session.isAutoFiling) {
                 addError(IllegalStateException(context.getString(R.string.r21_assistant_busy)), conversationId)
                 return
             }
@@ -881,7 +892,7 @@ class ChatService(
     ) {
         val session = sessionManager.getOrCreate(conversationId)
         synchronized(session) {
-            if (session.isChangingOwner) {
+            if (session.isChangingOwner || session.isAutoFiling) {
                 addError(IllegalStateException(context.getString(R.string.r21_assistant_busy)), conversationId)
                 return
             }
@@ -1040,7 +1051,11 @@ class ChatService(
                                     persistedToolStates[tool.toolCallId] = tool.startedAt to tool.isExecuted
                                 }
                             } else {
-                                persistStreamingThrottled(session)
+                                val receivingToolInput = tools.any {
+                                    it.startedAt == null && !it.isExecuted && it.input.isNotEmpty()
+                                }
+                                persistStreamingThrottled(session, if (receivingToolInput)
+                                    STREAM_TOOL_DRAFT_PERSIST_INTERVAL_MS else STREAM_PERSIST_INTERVAL_MS)
                             }
                             session.replyMessageId.value = event.message.id
                             // 通知等边缘副作用由 ChatNotificationManager 消费；
@@ -1070,6 +1085,7 @@ class ChatService(
                 withContext(NonCancellable) {
                     session.processingStatus.value = null
                     // 可能被取消了，或者意外结束，兜底保存
+                    pendingStreamPersists.remove(session.id)?.cancel()
                     val finished = session.finishGeneration()
                     // 生成结束：取消 Live Update 通知，后台时发送完成通知
                     appEventBus.emit(
@@ -1183,7 +1199,7 @@ class ChatService(
     private fun tryReconnect(session: ConversationSession, force: Boolean = false, timed: Boolean = false): Boolean {
         synchronized(session) {
             val ticket = reconnectTickets[session.id] ?: return false
-            if (session.getJob() != null || session.state.value.isAwaitingToolApproval || session.isChangingOwner) return false
+            if (session.getJob() != null || session.state.value.isAwaitingToolApproval || session.isChangingOwner || session.isAutoFiling) return false
             val pause = session.inbox.state.value
             if (!force && (pause.pauseReason != InboxPauseReason.NETWORK || !pause.paused)) return false
             val route = networkHandover.state.value
@@ -1212,11 +1228,14 @@ class ChatService(
             session.awaitingNetworkRecovery = false
             val job = launchGenerationJob(conversationId = session.id) {
                 try {
-                    // Restore the completed-step checkpoint, replacing only the interrupted branch.
+                    // Resume from the completed checkpoint, retaining received code in a separate
+                    // branch. A retry must never silently erase a half-written tool request.
+                    var keptDraftNode = false
                     session.update { conversation ->
                         conversation.copy(messageNodes = conversation.messageNodes.mapNotNull { node ->
                             if (node.id != ticket.replyNodeId) return@mapNotNull node
-                            val retained = ticket.restoreReplyVariants(node.messages)
+                            val retained = ticket.restoreReplyVariantsPreservingDrafts(node.messages)
+                            keptDraftNode = retained.isNotEmpty()
                             if (retained.isEmpty()) null else node.copy(messages = retained,
                                 selectIndex = ticket.restoredSelectIndex(node.selectIndex, retained.size))
                         })
@@ -1226,7 +1245,9 @@ class ChatService(
                         it.error is IOException && it.error !is InboxPersistenceException } }
                     appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(session.id, "",
                         context.getString(R.string.r21_recovery_resumed)))
-                    runTurn(session, regenerateNodeId = ticket.retryRegenerateNodeId)
+                    val retryNode = if (ticket.checkpoint == null && keptDraftNode) ticket.replyNodeId
+                        else ticket.retryRegenerateNodeId
+                    runTurn(session, regenerateNodeId = retryNode)
                     _generationDoneFlow.emit(session.id)
                 } catch (e: Exception) { reportFailure(session, e, R.string.error_title_generation) }
             }
@@ -1255,17 +1276,39 @@ class ChatService(
      * 每个 token 都写库太重，而只在生成结束时写又会在进程被强杀时丢掉整段回复。
      * 这里按 [STREAM_PERSIST_INTERVAL_MS] 节流，写库失败只记日志，不打断生成。
      */
-    private suspend fun persistStreamingThrottled(session: ConversationSession) {
+    private suspend fun persistStreamingThrottled(
+        session: ConversationSession,
+        intervalMillis: Long = STREAM_PERSIST_INTERVAL_MS,
+    ) {
         val now = SystemClock.elapsedRealtime()
         val last = lastStreamPersistAt[session.id] ?: 0L
-        if (now - last < STREAM_PERSIST_INTERVAL_MS) return
-        lastStreamPersistAt[session.id] = now
+        if (now - last < intervalMillis) {
+            // Persist the trailing delta even if the server stalls and sends no next chunk.
+            scheduleTrailingStreamPersist(session, intervalMillis - (now - last))
+            return
+        }
         try {
             session.flush()
+            // Failed writes must not advance the durable checkpoint clock.
+            lastStreamPersistAt[session.id] = SystemClock.elapsedRealtime()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.w(TAG, "Streaming flush failed for ${session.id}", e)
+        }
+    }
+
+    private fun scheduleTrailingStreamPersist(session: ConversationSession, waitMillis: Long) {
+        synchronized(pendingStreamPersists) {
+            if (pendingStreamPersists[session.id]?.isActive == true) return
+            val job = appScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+                delay(waitMillis.coerceAtLeast(1L))
+                // Read current session state; never keep or re-save a stale Conversation snapshot.
+                persistStreamingThrottled(session, intervalMillis = 0L)
+            }
+            pendingStreamPersists[session.id] = job
+            job.invokeOnCompletion { pendingStreamPersists.remove(session.id, job) }
+            job.start()
         }
     }
 
@@ -1627,7 +1670,7 @@ class ChatService(
         additionalPrompt: String,
         keepRecentMessages: Int = 0,
     ): Job = synchronized(compressionLock) {
-        if (sessionManager.get(conversationId)?.isChangingOwner == true) {
+        if (sessionManager.get(conversationId)?.let { it.isChangingOwner || it.isAutoFiling } == true) {
             addError(IllegalStateException(context.getString(R.string.r21_assistant_busy)), conversationId)
             return@synchronized Job().apply { complete() }
         }
@@ -2012,7 +2055,7 @@ class ChatService(
                     val childTasks = subagentRunner.list().filter { it.conversationId == conversationId }
                     val tools = backgroundToolManager.list(BackgroundToolOwner.of(conversationId))
                     val shells = backgroundShellManager.tasksOf(conversationId)
-                    check(!session.isChangingOwner && session.getJob() == null &&
+                    check(!session.isChangingOwner && !session.isAutoFiling && session.getJob() == null &&
                         !session.awaitingNetworkRecovery && !session.state.value.isAwaitingToolApproval &&
                         session.inbox.state.value.messages.isEmpty() && session.inbox.state.value.inFlight == null &&
                         compressionJobs[conversationId]?.isActive != true &&
@@ -2041,11 +2084,76 @@ class ChatService(
                         addError(e, conversationId)
                     }
                     clearRecovery(conversationId)
-                    lastStreamPersistAt.remove(conversationId)
+                    pendingStreamPersists.remove(conversationId)?.cancel()
+                lastStreamPersistAt.remove(conversationId)
                 }
             } finally {
                 session.isChangingOwner = false
             }
+        }
+    }
+
+    private val recoveredLineageAssistants = ConcurrentHashMap.newKeySet<Uuid>()
+
+    fun canAutoFileConversation(conversationId: Uuid): Boolean = synchronized(compressionLock) {
+        val session = sessionManager.get(conversationId)
+        (session == null || !session.isInUse) && compressionJobs[conversationId]?.isActive != true &&
+            subagentRunner.list().none { it.conversationId == conversationId && !it.isFinished } &&
+            backgroundToolManager.list(BackgroundToolOwner.of(conversationId)).none { !it.isFinished } &&
+            backgroundShellManager.tasksOf(conversationId).none { it.status == BackgroundShellStatus.RUNNING }
+    }
+
+    suspend fun applyAutoFileMove(
+        conversationId: Uuid, assistantId: Uuid, expectedUpdateAt: Long,
+        expectedFolderId: Uuid?, folderId: Uuid?, undo: Boolean = false,
+    ): Boolean {
+        if (!canAutoFileConversation(conversationId)) return false
+        if (settingsStore.awaitLoaded().assistants.none { it.id == assistantId }) return false
+        if (!undo && System.currentTimeMillis() - expectedUpdateAt < 24L * 60 * 60 * 1_000) return false
+        return sessionManager.withSession(conversationId) { session ->
+            session.inbox.restore()
+            session.updateOrganizationMetadata(
+                transform = { it.copy(folderId = folderId) },
+                predicate = { it.assistantId == assistantId && it.updateAt.toEpochMilli() == expectedUpdateAt &&
+                    it.folderId == expectedFolderId && !it.isPinned && !it.folderAssignmentLocked },
+                persist = { conversationRepo.applyFolderAssignment(conversationId, assistantId,
+                    expectedUpdateAt, expectedFolderId, folderId) },
+                unloadedPersist = { conversationRepo.applyFolderAssignment(conversationId, assistantId,
+                    expectedUpdateAt, expectedFolderId, folderId) },
+            )
+        }
+    }
+
+    /** One bounded, local-only recovery pass per assistant per process. Never rewrites message IDs or text. */
+    suspend fun recoverConversationLineages(assistantId: Uuid) {
+        if (!recoveredLineageAssistants.add(assistantId)) return
+        try {
+            val assistant = settingsStore.awaitLoaded().assistants.firstOrNull { it.id == assistantId } ?: return
+            val summaries = conversationRepo.observeOrganizationSummaries(assistantId).first()
+                .sortedWith(compareBy<Conversation> { it.createAt }.thenBy { it.id.toString() }).take(512)
+            val openings = ArrayList<Conversation>(summaries.size)
+            for (summary in summaries) {
+                currentCoroutineContext().ensureActive()
+                if (canAutoFileConversation(summary.id)) conversationRepo.getConversationOpening(summary.id)?.let(openings::add)
+            }
+            val inferred = ConversationLineageResolver.infer(openings, assistant.presetMessages.mapTo(HashSet()) { it.id })
+            val byId = openings.associateBy { it.id }
+            for ((id, root) in inferred) {
+                val before = byId[id] ?: continue
+                if (before.lineageId != null || !canAutoFileConversation(id)) continue
+                sessionManager.withSession(id) { session ->
+                    session.inbox.restore()
+                    session.updateOrganizationMetadata(
+                        transform = { it.copy(lineageId = root) },
+                        predicate = { it.assistantId == assistantId && it.updateAt == before.updateAt && it.lineageId == null },
+                        persist = { conversationRepo.setLineageIfUnchanged(before, root) },
+                        unloadedPersist = { conversationRepo.setLineageIfUnchanged(before, root) },
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            recoveredLineageAssistants.remove(assistantId)
+            throw e
         }
     }
 
@@ -2061,7 +2169,7 @@ class ChatService(
         }
         updateConversationMetadata(
             conversationId = conversationId,
-            transform = { it.copy(folderId = folderId) },
+            transform = { it.copy(folderId = folderId, folderAssignmentLocked = true) },
             persist = { conversationRepo.updateConversationFolderId(conversationId, folderId) },
         )
     }
@@ -2075,7 +2183,9 @@ class ChatService(
             session.updateDraft { latest ->
                 // 文件夹属于助手：已被删除或不属于会话的助手时不归入
                 val target = folder?.takeIf { it.assistantId == latest.assistantId }?.id
-                if (latest.folderId == target) latest else latest.copy(folderId = target)
+                if (latest.folderId == target) latest else latest.copy(
+                    folderId = target, folderAssignmentLocked = target != null || latest.folderAssignmentLocked,
+                )
             }
         }
     }

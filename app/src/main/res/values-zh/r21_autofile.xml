@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r21_autofile_title">自动归库闲置会话</string>
+    <string name="r21_autofile_desc">由快速模型把闲置会话归进文件夹，抽屉里更清爽。</string>
+    <string name="r21_autofile_entry">自动归库</string>
+    <string name="r21_autofile_section">归库</string>
+    <string name="r21_autofile_privacy_title">开启前先看一眼</string>
+    <string name="r21_autofile_privacy">会把闲置会话的标题加首尾几段摘要发给已配置的快速模型。</string>
+    <string name="r21_autofile_privacy_quota">每次整理都会消耗 API 额度。</string>
+    <string name="r21_autofile_privacy_default_off">默认关闭，要你自己打开。</string>
+    <string name="r21_autofile_privacy_reversible">每批都能撤销，也不会改动会话内容。</string>
+    <string name="r21_autofile_enable">开启自动归库</string>
+    <string name="r21_autofile_enable_desc">本助手后台按闲置时长整理</string>
+    <string name="r21_autofile_collapse">抽屉里按会话家族折叠</string>
+    <string name="r21_autofile_collapse_desc">只是显示口径，不影响归库</string>
+    <string name="r21_autofile_idle_title">闲置多久才整理</string>
+    <string name="r21_autofile_hours">%1$d 小时</string>
+    <string name="r21_autofile_run">立即整理</string>
+    <string name="r21_autofile_undo">撤销上一批</string>
+    <string name="r21_autofile_running">正在整理…</string>
+    <string name="r21_autofile_running_hint">整理过程中也可以随时关掉自动归库。</string>
+    <string name="r21_autofile_done">已移动 %1$d 条会话</string>
+    <string name="r21_autofile_close">关闭</string>
+    <string name="r21_autofile_family_title">同一会话家族</string>
+    <string name="r21_autofile_family_back">返回上一级列表</string>
+    <string name="r21_autofile_family_badge">展开这一族，共 %1$d 条</string>
+    <string name="r21_autofile_confirm_title">现在发送摘要并整理？</string>
+    <string name="r21_autofile_confirm_text">自动归库是关着的。手动整理一次仍会把闲置会话的限长摘要发给已配置的快速模型，会产生 API 用量。</string>
+    <string name="r21_autofile_confirm_ok">发送并整理</string>
+    <string name="r21_autofile_cancel">取消</string>
+</resources>
