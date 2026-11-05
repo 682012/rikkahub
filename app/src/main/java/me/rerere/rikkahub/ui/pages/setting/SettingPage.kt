@@ -256,6 +256,12 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         headlineContent = { Text(stringResource(R.string.setting_page_mcp)) },
                     )
                     item(
+                        onClick = { navController.navigate(Screen.PermissionHub) },
+                        leadingContent = { CardGroupIcon(HugeIcons.Settings03, containerColor = containerColor, contentColor = contentColor) },
+                        headlineContent = { Text("权限与软件关联") },
+                        supportingContent = { Text("系统授权、后台运行、共享与共同阅读") },
+                    )
+                    item(
                         onClick = { navController.navigate(Screen.SettingFork) },
                         leadingContent = { CardGroupIcon(HugeIcons.McpServer, containerColor = containerColor, contentColor = contentColor) },
                         supportingContent = { Text("工作区长任务、远程执行与子代理") },

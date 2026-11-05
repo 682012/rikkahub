@@ -26,6 +26,10 @@ import me.rerere.tts.provider.TTSManager
 import org.koin.dsl.module
 
 val appModule = module {
+    single { me.rerere.rikkahub.data.organization.ImageOrganizerController(
+        context = get(), appScope = get(), filesManager = get(), genMediaRepository = get(),
+        providerManager = get(), settingsStore = get(), mediaCreationRepository = get()) }
+
     single<Json> { JsonInstant }
 
     single {
@@ -161,6 +165,7 @@ val appModule = module {
             memoryRepository = get(),
             templateTransformer = get(),
             workspaceRepository = get(),
+            okHttpClient = get(),
         )
     }
 

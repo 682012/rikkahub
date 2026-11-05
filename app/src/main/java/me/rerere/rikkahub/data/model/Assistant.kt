@@ -228,8 +228,7 @@ fun PromptInjection.RegexInjection.isTriggered(context: String): Boolean {
     return keywords.any { keyword ->
         if (useRegex) {
             try {
-                val options = if (caseSensitive) emptySet() else setOf(RegexOption.IGNORE_CASE)
-                Regex(keyword, options).containsMatchIn(context)
+                me.rerere.rikkahub.data.ai.transformers.InjectionRegexCache.matches(keyword, caseSensitive, context)
             } catch (e: Exception) {
                 false
             }
@@ -255,7 +254,7 @@ fun extractContextForMatching(
     scanDepth: Int
 ): String {
     return messages
-        .takeLast(scanDepth)
+        .takeLast(scanDepth.coerceAtLeast(0))
         .joinToString("\n") { it.toText() }
 }
 

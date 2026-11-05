@@ -85,11 +85,13 @@ class ChatRequestFactory(
     private val memoryRepository: MemoryRepository,
     templateTransformer: TemplateTransformer,
     workspaceRepository: WorkspaceRepository,
+    okHttpClient: okhttp3.OkHttpClient,
 ) {
     private val inputTransformers: List<InputMessageTransformer> = listOf(
         TimeReminderTransformer,
         PromptInjectionTransformer,
         PlaceholderTransformer,
+        me.rerere.rikkahub.data.ai.transformers.LinkReadingTransformer(okHttpClient),
         DocumentAsPromptTransformer,
         OcrTransformer,
         templateTransformer,
@@ -105,7 +107,10 @@ class ChatRequestFactory(
     // 压缩请求不走 OCR：OCR 是另一次视觉请求，压缩只需要知道"这里有张图片"，
     // 为了看图新增一次对外请求（可能还换来未授权的外传）不值得
     private val compactionInputTransformers: List<InputMessageTransformer> =
-        inputTransformers.filterNot { it === OcrTransformer }
+        inputTransformers.filterNot { it === OcrTransformer }.map {
+            if (it is me.rerere.rikkahub.data.ai.transformers.LinkReadingTransformer)
+                me.rerere.rikkahub.data.ai.transformers.LinkReadingTransformer(okHttpClient, allowNetwork = false) else it
+        }
 
     // 多图逐张识别：只在用户显式标记图片时才发请求，构造函数和 DI 不动，缓存按需创建
     private val sequentialImageDescriber: SequentialImageDescriber by lazy {
@@ -292,7 +297,7 @@ class ChatRequestFactory(
             buildSystemMessage(turn, tools, messages)?.let { add(it) }
             addAll(preparedMessages)
         }.transforms(
-            transformers = inputTransformers,
+            transformers = if (allowSequentialVision) inputTransformers else compactionInputTransformers,
             context = context,
             model = turn.model,
             assistant = assistant,
@@ -300,6 +305,8 @@ class ChatRequestFactory(
             processingStatus = processingStatus,
             workspaceCwd = turn.workspaceCwd,
         ).expandNotices()
+        val systemChars = requestMessages.filter { it.role == MessageRole.SYSTEM }.sumOf { it.toText().length }
+        PromptCompositionStore.recordTransformedSystem(turn.assistant.id.toString(), systemChars)
         return StepRequest(requestMessages, buildParams(turn, tools))
     }
 
@@ -347,28 +354,19 @@ class ChatRequestFactory(
         messages: List<UIMessage>,
     ): UIMessage? {
         val assistant = turn.assistant
-        val system = buildString {
-            val effectiveSystemPrompt =
-                if (assistant.allowConversationSystemPrompt && !turn.conversationSystemPrompt.isNullOrBlank()) {
-                    turn.conversationSystemPrompt
-                } else {
-                    assistant.systemPrompt
-                }
-            if (effectiveSystemPrompt.isNotBlank()) {
-                append(effectiveSystemPrompt)
-            }
-
-            // 记忆
-            if (assistant.enableMemory) {
-                appendLine()
-                append(buildMemoryPrompt(turn.memories))
-            }
-            // 工具prompt
+        val effective = if (assistant.allowConversationSystemPrompt && !turn.conversationSystemPrompt.isNullOrBlank())
+            turn.conversationSystemPrompt else assistant.systemPrompt
+        val sections = buildList {
+            add("主提示词" to effective)
+            if (assistant.enableMemory) add("记忆" to buildMemoryPrompt(turn.memories))
             tools.forEach { tool ->
-                appendLine()
-                append(tool.systemPrompt(turn.model, messages))
+                val guidance = tool.systemPrompt(turn.model, messages)
+                if (guidance.isNotBlank()) add("工具 · ${tool.name}" to guidance)
             }
         }
+        PromptCompositionStore.record(assistant.id.toString(), turn.model.displayName,
+            sections.map { PromptSection(it.first, it.second.length) })
+        val system = sections.map { it.second }.filter { it.isNotBlank() }.joinToString("\n")
         return if (system.isNotBlank()) UIMessage.system(prompt = system).copy(isSynthetic = true) else null
     }
 

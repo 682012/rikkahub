@@ -3,6 +3,8 @@ package me.rerere.rikkahub
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
@@ -136,6 +138,7 @@ import me.rerere.rikkahub.ui.pages.setting.SettingMediaProviderDetailPage
 import me.rerere.rikkahub.ui.pages.setting.SettingSpeechPage
 import me.rerere.rikkahub.ui.pages.setting.SettingWebPage
 import me.rerere.rikkahub.ui.pages.share.handler.ShareHandlerPage
+import me.rerere.rikkahub.ui.pages.share.handler.SharedInput
 import me.rerere.rikkahub.ui.pages.stats.StatsPage
 import me.rerere.rikkahub.ui.pages.translator.TranslatorPage
 import me.rerere.rikkahub.ui.pages.webview.WebViewPage
@@ -154,6 +157,9 @@ private const val EXTRA_CONVERSATION_ID = "conversationId"
 private const val EXTRA_ARTIFACT_WORKSPACE_ID = "artifactWorkspaceId"
 private const val EXTRA_ARTIFACT_PATH = "artifactPath"
 private const val EXTRA_ARTIFACT_FRAGMENT = "artifactFragment"
+
+/** 最多保留的持久化 URI 读授权数量，超出的旧授权会被回收。 */
+private const val MAX_PERSISTED_GRANTS = 8
 
 /** Explicit in-app navigation used by overlay windows, not an externally exported path handler. */
 fun workspaceArtifactIntent(context: Context, workspaceId: String, path: String, fragment: String? = null): Intent =
@@ -256,20 +262,69 @@ class RouteActivity : ComponentActivity() {
                 openNewMediaCreation(backStack)
                 null
             }
-            Intent.ACTION_SEND -> Screen.ShareHandler(
-                text = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty(),
-                streamUri = intent.getStringExtra(Intent.EXTRA_STREAM),
-            )
-            Intent.ACTION_PROCESS_TEXT -> Screen.ShareHandler(
-                text = intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString().orEmpty(),
-            )
-            else -> artifactDestination(intent)
-                ?: mediaCreationDestination(intent)
-                ?: intent.getStringExtra(EXTRA_CONVERSATION_ID)?.let { Screen.Chat(it) }
+            // 只处理外部进来的分享/打开。内部跳转（工件、会话、媒体会话）都不带 action，
+            // 走下面的 internalDestination，所以 VIEW 分支不会抢到内部 intent。
+            Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE, Intent.ACTION_PROCESS_TEXT, Intent.ACTION_VIEW ->
+                shareDestination(intent)
+            else -> internalDestination(intent)
         }
         if (destination != null && backStack.lastOrNull() != destination) {
             backStack.add(destination)
         }
+    }
+
+    /** 内部分发：工件预览、媒体创作通知、会话通知。只在没有外部 share action 时才走到这里。 */
+    private fun internalDestination(intent: Intent): Screen? = artifactDestination(intent)
+        ?: mediaCreationDestination(intent)
+        ?: intent.getStringExtra(EXTRA_CONVERSATION_ID)
+            // 外部可以伪造这个 extra，非法 id 会让 ChatPage 的 Uuid.parse 抛异常，所以先校验。
+            ?.let { id -> runCatching { Uuid.parse(id) }.getOrNull()?.let { Screen.Chat(it.toString()) } }
+
+    /**
+     * 外部分享进来的内容。只取 intent 自己给的东西：文字全文（不截断）、可读的 content URI 附件。
+     * 自己的 provider 和不可读的 URI 直接丢掉，并把丢弃数量交给页面显示，不静默。
+     */
+    private fun shareDestination(intent: Intent): Screen? {
+        val candidates = SharedInput.readUris(intent, packageName)
+        val readable = candidates
+        val kept = readable.take(SharedInput.MAX_ATTACHMENTS)
+        val text = SharedInput.readText(intent)
+        if (text.isBlank() && kept.isEmpty()) {
+            // 没有任何可用内容（例如伪造的空 intent）：留在原来的页面，提示一句。
+            android.widget.Toast.makeText(this, R.string.r20_share_nothing_usable, android.widget.Toast.LENGTH_SHORT)
+                .show()
+            return null
+        }
+        persistReadGrants(intent, kept)
+        return Screen.ShareHandler(
+            text = text,
+            streamUris = kept.map(Uri::toString),
+            droppedAttachments = candidates.size - kept.size,
+        )
+    }
+
+    /**
+     * 只接受真正能读到的 URI：读取权限是随 intent 一起授予的瞬时授权，
+     * 没授权却仍然列出来的话，导入时只会静默失败。
+     */
+    private fun canReadSharedUri(uri: Uri): Boolean = runCatching {
+        checkUriPermission(uri, android.os.Process.myPid(), android.os.Process.myUid(),
+            Intent.FLAG_GRANT_READ_URI_PERMISSION) == PackageManager.PERMISSION_GRANTED
+    }.getOrDefault(false)
+
+    /**
+     * 分享页可能被重建（进程被杀后恢复导航栈），那时瞬时授权已经没了，所以显式请求持久化授权。
+     * 仅尝试保存本次授权，不撤销其他功能已使用的持久授权。
+     */
+    private fun persistReadGrants(intent: Intent, uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        if (intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION == 0) return
+        if (intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION == 0) return
+        uris.forEach { uri ->
+            runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        }
+        // Do not revoke existing SAF grants: they may belong to workspaces, backups or user attachments.
+
     }
 
     private fun artifactDestination(intent: Intent): Screen? {
@@ -393,7 +448,8 @@ class RouteActivity : ComponentActivity() {
                             entry<Screen.ShareHandler> { key ->
                                 ShareHandlerPage(
                                     text = key.text,
-                                    image = key.streamUri
+                                    images = (key.streamUris + listOfNotNull(key.streamUri)).distinct(),
+                                    droppedAttachments = key.droppedAttachments,
                                 )
                             }
 
@@ -564,6 +620,9 @@ class RouteActivity : ComponentActivity() {
                                 SettingFilesPage()
                             }
 
+                            entry<Screen.PermissionHub> {
+                                me.rerere.rikkahub.ui.pages.setting.PermissionHubPage()
+                            }
                             entry<Screen.ImageOrganizer> {
                                 me.rerere.rikkahub.ui.pages.setting.ImageOrganizerPage()
                             }
@@ -705,7 +764,14 @@ sealed interface Screen : NavKey {
     ) : Screen
 
     @Serializable
-    data class ShareHandler(val text: String, val streamUri: String? = null) : Screen
+    data class ShareHandler(
+        val text: String,
+        /** 旧字段，只为了兼容已经存在的导航状态，新代码用 streamUris。 */
+        val streamUri: String? = null,
+        val streamUris: List<String> = emptyList(),
+        /** 没能带进来的附件数量：不可读或超过上限，页面会显示出来。 */
+        val droppedAttachments: Int = 0,
+    ) : Screen
 
     @Serializable
     data object History : Screen
@@ -827,6 +893,9 @@ sealed interface Screen : NavKey {
 
     @Serializable
     data object SettingFiles : Screen
+
+    @Serializable
+    data object PermissionHub : Screen
 
     @Serializable
     data object ImageOrganizer : Screen

@@ -40,12 +40,12 @@ class SkillManager(
         if (builtinExtracted) return
         synchronized(builtinLock) {
             if (builtinExtracted) return
-            runCatching {
+            val extracted = runCatching {
                 BuiltinSkills.extractIfNeeded(context, getBuiltinSkillsDir())
             }.onFailure {
                 Log.w(TAG, "ensureBuiltinSkillsExtracted: Failed to extract builtin skills", it)
             }
-            builtinExtracted = true
+            builtinExtracted = extracted.isSuccess
         }
     }
 
@@ -87,12 +87,14 @@ class SkillManager(
         if (!dir.isDirectory) return@withContext false
         // 列表展示期间目录可能已在工作区里补全成有效技能，删除前再确认一次
         if (parseSkillDir(dir, builtin = false).isSuccess) return@withContext false
-        dir.deleteRecursively()
+        dir.deleteRecursively().also { SkillFileCache.invalidate(dir) }
     }
 
     // 跳过隐藏目录，如原子写入残留的 .<name>.staging.N.tmp
     private fun skillDirsIn(root: File): List<File> =
-        root.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }.orEmpty()
+        root.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }
+            ?.mapNotNull { SkillPaths.resolveSkillDir(root, it.name) }
+            ?.sortedBy { it.name }.orEmpty()
 
     fun saveSkill(name: String, content: String): SkillMetadata? {
         // 通过原子写入(staging + rename)落盘，避免直接 mkdirs 失败时
@@ -112,7 +114,7 @@ class SkillManager(
         val skillDir = SkillPaths.resolveSkillDir(getSkillsDir(), skill.skillDir.name) ?: return@withContext false
         // 目录不存在时 deleteRecursively 也返回 true，需提前拦截，避免误清理启用状态
         if (!skillDir.exists()) return@withContext false
-        val deleted = skillDir.deleteRecursively()
+        val deleted = skillDir.deleteRecursively().also { SkillFileCache.invalidate(skillDir) }
         // 还有同名技能（被覆盖的内置技能或另一个同名用户技能）会继续生效，保留启用状态
         if (deleted && listSkills().none { it.name == name }) {
             settingsStore.update { settings ->
@@ -165,7 +167,7 @@ class SkillManager(
         return try {
             if (!parent.exists() && !parent.mkdirs()) return false
             tempFile.writeText(content)
-            tempFile.renameTo(target)
+            tempFile.renameTo(target).also { if (it) SkillFileCache.invalidate(target) }
         } catch (e: Exception) {
             Log.w(TAG, "saveSkillFile: Failed to save $skillName/$relativePath", e)
             false
@@ -208,6 +210,7 @@ class SkillManager(
             }
 
             backupDir?.deleteRecursively()
+            SkillFileCache.invalidate(targetDir)
             return true
         } catch (e: Exception) {
             Log.w(TAG, "saveSkillFilesAtomically: Failed to save $skillName", e)
@@ -228,7 +231,7 @@ class SkillManager(
     fun deleteSkillFile(skillName: String, relativePath: String): Boolean {
         val skillDir = resolveSkillDir(skillName) ?: return false
         val target = SkillPaths.resolveSkillFile(skillDir, relativePath) ?: return false
-        return target.delete()
+        return target.delete().also { SkillFileCache.invalidate(target) }
     }
 
     private fun resolveSkillDir(skillName: String): File? {
@@ -247,9 +250,10 @@ class SkillManager(
 
     /** 解析技能目录；无法识别时为 [InvalidSkillException]，读文件失败时为 IO 异常 */
     private fun parseSkillDir(skillDir: File, builtin: Boolean): Result<SkillMetadata> = runCatching {
-        val skillFile = skillDir.resolve("SKILL.md")
+        val skillFile = SkillPaths.resolveSkillFile(skillDir, "SKILL.md")
+            ?: throw InvalidSkillException(InvalidSkillReason.ReadFailed)
         if (!skillFile.isFile) throw InvalidSkillException(InvalidSkillReason.MissingSkillMd)
-        val frontmatter = SkillFrontmatterParser.parse(skillFile.readText())
+        val frontmatter = SkillFileCache.metadata(skillFile)
         val name = frontmatter["name"]?.takeIf { it.isNotBlank() }
             ?: throw InvalidSkillException(InvalidSkillReason.MissingName)
         val description = frontmatter["description"]?.takeIf { it.isNotBlank() }
