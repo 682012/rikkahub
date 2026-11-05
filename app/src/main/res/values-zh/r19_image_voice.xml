@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r19_images_workers">图片整理并发数</string>
+    <string name="r19_images_workers_hint">1–16 路；调高会增加内存与上游压力，仍受模型并发上限约束。</string>
+    <string name="r19_tts_playback_title">语音调节</string>
+    <string name="r19_tts_auto_language">自动识别 / 跟随全局</string>
+    <string name="r19_tts_auto_voice">默认音色</string>
+    <string name="r19_tts_language">朗读语言</string>
+    <string name="r19_tts_language_hint">系统 TTS、xAI、ElevenLabs 和 gpt-4o-mini-tts 支持语言指定；其他引擎按文本或模型识别。不会自动翻译原文。</string>
+    <string name="r19_tts_volume">播放音量</string>
+    <string name="r19_tts_advanced">高级语音设置</string>
+    <string name="r19_tts_chunk_length">每段文本长度</string>
+    <string name="r19_tts_chunk_hint">40–400 字符，首段最多 80 字符以尽快开口。分段越短请求越多，也可能影响语气连贯。</string>
+    <string name="r19_tts_prefetch">提前合成段数</string>
+    <string name="r19_tts_prefetch_hint">0–4 段，0 关闭预取。预取能减少等待，但中途停止时已发请求可能计费；系统 TTS 始终串行。</string>
+    <string name="r19_tts_reset">恢复默认语音调节</string>
+    <string name="r19_tts_instructions">语气与表达指令</string>
+    <string name="r19_tts_instructions_hint">适用于 gpt-4o-mini-tts：如温柔、平静、放松地说话。tts-1 / tts-1-hd 不发送此字段。</string>
+    <string name="r19_tts_system_language_hint">单独指定时优先于全局语言；自动时跟随全局，再跟随系统语言。需要本机引擎已安装对应语言包。</string>
+    <string name="r19_tts_system_voice_hint">选择本机引擎的可用音色，也可填写准确的音色 ID。列表按语言筛选。</string>
+</resources>

@@ -85,9 +85,26 @@ data class ImageOrganizerState(
     val scanning: Boolean = false,
     val progress: ImageProgress? = null,
     val error: String? = null,
+    /**
+     * 这一批识别同时放几个请求在飞。
+     *
+     * 默认 [DEFAULT_WORKERS]，范围 [MIN_WORKERS]..[MAX_WORKERS]，越界值读出来会被夹回范围。
+     * worker 数量是固定个工作协程，不随图片张数增长；请求层的全局限流仍由 ProviderManager 保证。
+     */
+    val workers: Int = DEFAULT_WORKERS,
 ) {
     val classifying: Boolean get() = progress != null
     val totalBytes: Long get() = items.sumOf { it.bytes }
+
+    companion object {
+        /** 默认并发：3 个请求同时飞。 */
+        const val DEFAULT_WORKERS: Int = 3
+        const val MIN_WORKERS: Int = 1
+        const val MAX_WORKERS: Int = 16
+
+        /** 把任意输入夹到合法范围，坏值（比如 0、负数、99）一律回落到边界值。 */
+        fun coerceWorkers(value: Int): Int = value.coerceIn(MIN_WORKERS, MAX_WORKERS)
+    }
 }
 
 enum class ImageDeleteSkipReason {

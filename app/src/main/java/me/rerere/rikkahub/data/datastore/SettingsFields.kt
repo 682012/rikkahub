@@ -143,6 +143,7 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         json(TTS_PROVIDERS, Settings::ttsProviders) { copy(ttsProviders = it) },
         uuid(SELECTED_TTS_PROVIDER, Settings::selectedTTSProviderId) { copy(selectedTTSProviderId = it) },
         plain(DEFAULT_TTS_PLAYBACK_SPEED, Settings::defaultTTSPlaybackSpeed) { copy(defaultTTSPlaybackSpeed = it) },
+        json(TTS_PLAYBACK_SETTINGS, Settings::ttsPlaybackSettings) { copy(ttsPlaybackSettings = it) },
 
         // ASR
         json(ASR_PROVIDERS, Settings::asrProviders) { copy(asrProviders = it) },

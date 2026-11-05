@@ -43,7 +43,9 @@ class TtsController(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     // 组件
-    private val chunker = TextChunker(maxChunkLength = 160)
+    private var playbackSettings = TtsPlaybackSettings()
+    private var generation = 0L
+    private var audibleChunkId: UUID? = null
     private val synthesizer = TtsSynthesizer(ttsManager)
     private val audio = AudioPlayer(context)
 
@@ -58,8 +60,7 @@ class TtsController(
     private val cache = java.util.concurrent.ConcurrentHashMap<UUID, kotlinx.coroutines.Deferred<TTSResponse>>()
 
     // 行为参数
-    private val chunkDelayMs = 120L
-    private val prefetchCount = 2
+    // No artificial pause between ready chunks.
 
     // 状态流（保留与旧版兼容的 StateFlow）
     private val _isAvailable = MutableStateFlow(false)
@@ -98,9 +99,19 @@ class TtsController(
 
     /** 选择/取消选择 Provider */
     fun setProvider(provider: TTSProviderSetting?) {
+        if (currentProvider != provider) stop()
         currentProvider = provider
         _isAvailable.update { provider != null }
-        if (provider == null) stop()
+    }
+
+    fun setPlaybackSettings(settings: TtsPlaybackSettings) {
+        val next = settings.sanitized()
+        if (playbackSettings.languageTag != next.languageTag) stop()
+        playbackSettings = next
+        val lookahead = if (currentProvider is TTSProviderSetting.SystemTTS) 0 else next.prefetchCount
+        val keep = queue.take(lookahead).map { it.id }.toSet() + listOfNotNull(audibleChunkId)
+        cache.keys.filter { it !in keep }.forEach { cache.remove(it)?.cancel() }
+        audio.setParameters(next.speed, next.pitch, next.volume)
     }
 
     /**
@@ -116,7 +127,8 @@ class TtsController(
             return
         }
 
-        val newChunks = chunker.split(text)
+        val newChunks = TextChunker(playbackSettings.chunkLength,
+            minOf(80, playbackSettings.chunkLength)).split(text)
         if (newChunks.isEmpty()) return
 
         if (flush) {
@@ -131,14 +143,14 @@ class TtsController(
             allChunks.addAll(remapped)
             queue.addAll(remapped)
         }
-        _totalChunks.update { queue.size }
+        _totalChunks.update { allChunks.size }
         _error.update { null }
 
         _playbackState.update {
             it.copy(
                 currentChunkIndex = _currentChunk.value,
                 totalChunks = _totalChunks.value,
-                status = PlaybackStatus.Buffering
+                status = if (isPaused) PlaybackStatus.Paused else PlaybackStatus.Buffering
             )
         }
 
@@ -146,12 +158,15 @@ class TtsController(
     }
 
     private fun internalReset() {
-        // Reset current session while keeping provider availability
+        // Invalidate stale worker completion before cancelling it.
+        generation++
         workerJob?.cancel()
+        workerJob = null
         audio.stop()
         audio.clear()
         isPaused = false
         queue.clear()
+        audibleChunkId = null
         allChunks.clear()
         cache.values.forEach { it.cancel(CancellationException("Reset")) }
         cache.clear()
@@ -183,32 +198,17 @@ class TtsController(
 
     /** 设置播放速度 */
     fun setSpeed(speed: Float) {
-        audio.setSpeed(speed)
+        playbackSettings = playbackSettings.copy(speed = speed).sanitized()
+        audio.setParameters(playbackSettings.speed, playbackSettings.pitch, playbackSettings.volume)
     }
 
     /** 跳过下一段（不打断当前正在播放） */
     fun skipNext() {
-        if (queue.isNotEmpty()) {
-            queue.poll()
-            _totalChunks.update { queue.size }
-        }
+        queue.poll()?.let { skipped -> cache.remove(skipped.id)?.cancel() }
     }
 
     /** 停止并清空状态 */
-    fun stop() {
-        workerJob?.cancel()
-        audio.stop()
-        audio.clear()
-        isPaused = false
-        queue.clear()
-        allChunks.clear()
-        cache.values.forEach { it.cancel(CancellationException("Stopped")) }
-        cache.clear()
-        _isSpeaking.update { false }
-        _currentChunk.update { 0 }
-        _totalChunks.update { 0 }
-        _playbackState.update { PlaybackState(status = PlaybackStatus.Idle) }
-    }
+    fun stop() = internalReset()
 
     /** 释放资源 */
     fun dispose() {
@@ -225,6 +225,7 @@ class TtsController(
             return
         }
 
+        val workerGeneration = generation
         workerJob = scope.launch {
             _isSpeaking.update { true }
             var processedCount = _currentChunk.value
@@ -236,10 +237,11 @@ class TtsController(
                     }
 
                     val chunk = queue.poll() ?: break
+                    audibleChunkId = chunk.id
 
                     // 更新状态（1-based）
-                    _currentChunk.update { processedCount + 1 }
-                    _totalChunks.update { queue.size + 1 }
+                    _currentChunk.update { chunk.index + 1 }
+                    _totalChunks.update { allChunks.size }
                     _playbackState.update {
                         it.copy(
                             currentChunkIndex = _currentChunk.value,
@@ -247,8 +249,9 @@ class TtsController(
                         )
                     }
 
-                    // 仅预取当前分片后的固定窗口
-                    prefetchNextChunks(chunk.index)
+                    // Schedule the audible chunk before any lookahead.
+                    getOrCreateSynthesis(chunk, provider)
+                    prefetchNextChunks(provider)
 
                     val response = try {
                         awaitOrCreate(chunk, provider)
@@ -260,6 +263,8 @@ class TtsController(
                         continue
                     }
 
+                    // Pause during synthesis must also hold the next audio.
+                    while (isPaused && isActive) delay(40)
                     // 播放
                     try {
                         audio.play(response)
@@ -269,29 +274,28 @@ class TtsController(
                         _error.update { e.message ?: "Audio playback error" }
                     }
 
-                    if (queue.isNotEmpty()) delay(chunkDelayMs)
+                    cache.remove(chunk.id) // release played audio
+                    audibleChunkId = null
 
                     processedCount++
                 }
             } finally {
-                _isSpeaking.update { false }
-                if (queue.isEmpty()) {
-                    _playbackState.update { it.copy(status = PlaybackStatus.Ended) }
+                if (workerGeneration == generation) {
+                    _isSpeaking.update { false }
+                    cache.values.forEach { it.cancel() }
+                    cache.clear()
+                    if (queue.isEmpty()) _playbackState.update { it.copy(
+                        status = if (_error.value == null) PlaybackStatus.Ended else PlaybackStatus.Error,
+                        errorMessage = _error.value) }
                 }
             }
         }
     }
 
-    private fun prefetchNextChunks(currentIndex: Int) {
-        val provider = currentProvider ?: return
-        val begin = currentIndex + 1
-        val endExclusive = (begin + prefetchCount).coerceAtMost(allChunks.size)
-        if (begin >= endExclusive) return
-
-        for (i in begin until endExclusive) {
-            val chunk = allChunks.getOrNull(i) ?: continue
-            getOrCreateSynthesis(chunk, provider)
-        }
+    private fun prefetchNextChunks(provider: TTSProviderSetting) {
+        // Device engines serialize internally; concurrent initialization adds overhead.
+        val count = if (provider is TTSProviderSetting.SystemTTS) 0 else playbackSettings.prefetchCount
+        queue.take(count).forEach { getOrCreateSynthesis(it, provider) }
     }
 
     private suspend fun awaitOrCreate(chunk: TtsChunk, provider: TTSProviderSetting): TTSResponse {
@@ -309,21 +313,23 @@ class TtsController(
         chunk: TtsChunk,
         provider: TTSProviderSetting
     ): kotlinx.coroutines.Deferred<TTSResponse> {
+        val language = playbackSettings.languageTag
         return cache.computeIfAbsent(chunk.id) {
             scope.async(Dispatchers.IO) {
-                synthesizeWithRetry(provider, chunk)
+                synthesizeWithRetry(provider, chunk, language)
             }
         }
     }
 
     private suspend fun synthesizeWithRetry(
         provider: TTSProviderSetting,
-        chunk: TtsChunk
+        chunk: TtsChunk,
+        languageTag: String,
     ): TTSResponse {
         var attempt = 1
         while (true) {
             try {
-                return synthesizer.synthesize(provider, chunk)
+                return synthesizer.synthesize(provider, chunk, languageTag)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

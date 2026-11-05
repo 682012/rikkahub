@@ -23,6 +23,7 @@ import me.rerere.rikkahub.ui.theme.CustomTheme
 import me.rerere.rikkahub.ui.theme.PresetThemes
 import me.rerere.search.SearchCommonOptions
 import me.rerere.search.SearchServiceOptions
+import me.rerere.tts.controller.TtsPlaybackSettings
 import me.rerere.tts.provider.TTSProviderSetting
 import kotlin.uuid.Uuid
 
@@ -71,6 +72,7 @@ data class Settings(
     val ttsProviders: List<TTSProviderSetting> = DEFAULT_TTS_PROVIDERS,
     val selectedTTSProviderId: Uuid = DEFAULT_SYSTEM_TTS_ID,
     val defaultTTSPlaybackSpeed: Float = 1.0f,
+    val ttsPlaybackSettings: TtsPlaybackSettings = TtsPlaybackSettings(),
     val asrProviders: List<ASRProviderSetting> = emptyList(),
     val selectedASRProviderId: Uuid? = null,
     val modeInjections: List<PromptInjection.ModeInjection> = DEFAULT_MODE_INJECTIONS,

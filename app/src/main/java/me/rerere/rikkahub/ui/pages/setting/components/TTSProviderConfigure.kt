@@ -230,7 +230,7 @@ private fun CardGroupScope.openAITTSItems(
     }
 
     // Voice
-    val voices = listOf("alloy", "echo", "fable", "onyx", "nova", "shimmer")
+    val voices = listOf("alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer", "verse", "marin", "cedar")
 
     formItem(
         headlineContent = { Text(stringResource(R.string.setting_tts_page_voice)) },
@@ -247,6 +247,12 @@ private fun CardGroupScope.openAITTSItems(
             },
             modifier = Modifier.fillMaxWidth()
         )
+    }
+    formItem(headlineContent = { Text(stringResource(R.string.r19_tts_instructions)) },
+        supportingContent = { Text(stringResource(R.string.r19_tts_instructions_hint)) }) {
+        OutlinedTextField(value = setting.instructions,
+            onValueChange = { onValueChange(setting.copy(instructions = it)) },
+            modifier = Modifier.fillMaxWidth(), minLines = 2)
     }
 }
 
@@ -499,6 +505,15 @@ private fun CardGroupScope.systemTTSItems(
     setting: TTSProviderSetting.SystemTTS,
     onValueChange: (TTSProviderSetting) -> Unit
 ) {
+    formItem(headlineContent = { Text(stringResource(R.string.r19_tts_language)) },
+        supportingContent = { Text(stringResource(R.string.r19_tts_system_language_hint)) }) {
+        TtsLanguagePicker(setting.languageTag, { tag -> onValueChange(setting.copy(languageTag = tag, voiceName = "")) }, Modifier.fillMaxWidth())
+    }
+    formItem(headlineContent = { Text(stringResource(R.string.setting_tts_page_voice)) },
+        supportingContent = { Text(stringResource(R.string.r19_tts_system_voice_hint)) }) {
+        SystemTtsVoicePicker(setting.voiceName, setting.languageTag,
+            { name -> onValueChange(setting.copy(voiceName = name)) }, Modifier.fillMaxWidth())
+    }
     // Speech Rate
     formItem(
         headlineContent = { Text(stringResource(R.string.setting_tts_page_speech_rate)) },

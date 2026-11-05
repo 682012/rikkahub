@@ -16,6 +16,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,17 +40,28 @@ class AudioPlayer(context: Context) {
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
 
     private var positionJob: Job? = null
+    private var playEpoch = 0L
 
     fun pause() = player.pause()
     fun resume() = player.play()
-    fun stop() = player.stop()
+    fun stop() {
+        playEpoch++
+        stopPositionUpdates()
+        player.stop()
+    }
     fun clear() = player.clearMediaItems()
-    fun release() = player.release()
+    fun release() {
+        stopPositionUpdates()
+        scope.cancel()
+        player.release()
+    }
     fun seekBy(ms: Long) = player.seekTo(player.currentPosition + ms)
-    fun setSpeed(speed: Float) {
-        player.playbackParameters = PlaybackParameters(speed)
+    fun setParameters(speed: Float, pitch: Float, volume: Float) {
+        player.playbackParameters = PlaybackParameters(speed, pitch)
+        player.volume = volume
         _playbackState.update { it.copy(speed = speed) }
     }
+    fun setSpeed(speed: Float) = setParameters(speed, player.playbackParameters.pitch, player.volume)
 
     @OptIn(UnstableApi::class)
     suspend fun play(response: TTSResponse) = suspendCancellableCoroutine<Unit> { cont ->
@@ -61,9 +73,7 @@ class AudioPlayer(context: Context) {
         val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory)
             .createMediaSource(MediaItem.fromUri(Uri.EMPTY))
 
-        player.setMediaSource(mediaSource)
-        player.prepare()
-        player.play()
+        val epoch = ++playEpoch
 
         _playbackState.update {
             it.copy(
@@ -75,6 +85,7 @@ class AudioPlayer(context: Context) {
 
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
+                if (epoch != playEpoch) return
                 when (state) {
                     Player.STATE_BUFFERING -> {
                         _playbackState.update { it.copy(status = PlaybackStatus.Buffering) }
@@ -112,6 +123,7 @@ class AudioPlayer(context: Context) {
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                if (epoch != playEpoch) return
                 player.removeListener(this)
                 stopPositionUpdates()
                 _playbackState.update { it.copy(status = PlaybackStatus.Error, errorMessage = error.message) }
@@ -119,16 +131,27 @@ class AudioPlayer(context: Context) {
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                val status = if (isPlaying) PlaybackStatus.Playing else PlaybackStatus.Paused
+                if (epoch != playEpoch) return
+                val status = when (player.playbackState) {
+                    Player.STATE_ENDED -> PlaybackStatus.Ended
+                    Player.STATE_IDLE -> PlaybackStatus.Idle
+                    Player.STATE_BUFFERING -> if (player.playWhenReady) PlaybackStatus.Buffering else PlaybackStatus.Paused
+                    else -> if (isPlaying) PlaybackStatus.Playing else PlaybackStatus.Paused
+                }
                 _playbackState.update { it.copy(status = status) }
                 if (isPlaying) startPositionUpdates() else stopPositionUpdates()
             }
         }
         player.addListener(listener)
+        player.setMediaSource(mediaSource)
+        player.prepare()
+        player.play()
         cont.invokeOnCancellation {
             player.removeListener(listener)
-            player.stop()
-            stopPositionUpdates()
+            if (epoch == playEpoch) {
+                player.stop()
+                stopPositionUpdates()
+            }
         }
     }
 

@@ -9,6 +9,7 @@ import me.rerere.tts.model.AudioChunk
 import me.rerere.tts.model.AudioFormat
 import me.rerere.tts.model.TTSRequest
 import me.rerere.tts.provider.TTSProvider
+import me.rerere.tts.provider.executeTtsBytes
 import me.rerere.tts.provider.TTSProviderException
 import me.rerere.tts.provider.TTSProviderSetting
 import okhttp3.MediaType.Companion.toMediaType
@@ -34,7 +35,15 @@ class OpenAITTSProvider : TTSProvider<TTSProviderSetting.OpenAI> {
             put("model", providerSetting.model)
             put("input", request.text)
             put("voice", providerSetting.voice)
-            put("response_format", "mp3") // Default to MP3
+            put("response_format", "mp3")
+            // tts-1/tts-1-hd do not accept instructions; keep compatible endpoints untouched.
+            if (providerSetting.model.startsWith("gpt-4o-mini-tts")) {
+                val language = request.languageTag.takeIf { it.isNotBlank() }?.let {
+                    "Pronounce the provided text in ${java.util.Locale.forLanguageTag(it).getDisplayName(java.util.Locale.ENGLISH)}. Do not translate it."
+                }
+                val instructions = listOfNotNull(providerSetting.instructions.takeIf { it.isNotBlank() }, language).joinToString("\n")
+                if (instructions.isNotBlank()) put("instructions", instructions)
+            }
         }
 
         Log.i(TAG, "generateSpeech: $requestBody")
@@ -46,19 +55,7 @@ class OpenAITTSProvider : TTSProvider<TTSProviderSetting.OpenAI> {
             .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        val response = httpClient.newCall(httpRequest).execute()
-
-        if (!response.isSuccessful) {
-            val statusCode = response.code
-            val statusMessage = response.message
-            response.close()
-            throw TTSProviderException(
-                message = "TTS request failed: $statusCode $statusMessage",
-                statusCode = statusCode
-            )
-        }
-
-        val audioData = response.body.bytes()
+        val audioData = httpClient.executeTtsBytes(httpRequest)
 
         emit(
             AudioChunk(

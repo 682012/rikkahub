@@ -1,18 +1,18 @@
 # 个人分支：构建、发布与维护
 
-本页只讲**怎么把这个分支构建出来、怎么发、出问题怎么回退**。用户功能与安装说明在 [仓库首页](../README.md) 与 [功能对比](FEATURES.md)，当前版本的变化见 [r18 说明](RELEASE-r18.md)。
+本页只讲**怎么把这个分支构建出来、怎么发、出问题怎么回退**。用户功能与安装说明在 [仓库首页](../README.md) 与 [功能对比](FEATURES.md)，当前版本的变化见 [r19 说明](RELEASE-r19.md)。
 
 ## 当前状态
 
 | 项目 | 值 |
 |---|---|
-| 版本 | `3.1.1-r18` / `3000065` |
+| 版本 | `3.1.1-r19` / `3000066` |
 | 维护分支 | `fork/3.1.1` |
 | 包名 | `me.rerere.rikkahub.fork`（Debug 变体 `me.rerere.rikkahub.fork.debug`） |
 | 应用名 / 图标 / 签名 | 与 r10 及更早的本分支版本一致，未改 |
 | 官方基线 | `3.1.1` / `ad2c4430`，已合入上游 master `5ad19405` |
 | 数据库 | schema 34（沿用 r3 起的本分支编号，不与官方编号混用） |
-| 发布标签 / 资产名 | `v3.1.1-r18` / `rikkahub-3.1.1-r18.apk` |
+| 发布标签 / 资产名 | `v3.1.1-r19` / `rikkahub-3.1.1-r19.apk` |
 
 已发布的历史版本各自保留 tag 与资产，不覆盖、不复用版本号。正式下载入口为 [Latest](https://github.com/682012/rikkahub/releases/latest)，固定版本按 tag 取包。
 
@@ -66,13 +66,13 @@ GitHub 的 `Fork Verify` 验证流程使用 `KEY_BASE64`、`SIGNING_CONFIG` 与�
 6. 维护分支的 CI 手动触发（`Fork Verify` 只在推送 `ci/**` 或手动运行时构建签名包、跑 JVM 与 API 34 模拟器测试），不自动发 Release；推文档不会顺带发 nightly。
 7. 可见版本号用「上游版本 + 短后缀」（`3.1.1-r10`、`3.1.1-r11`），versionCode 独立递增，不再套早期的 `3000000 + fork.N` 公式。
 
-## r18 的验证入口
+## r19 的验证入口
 
-本版只运行本次改动相关的定向检查，不重跑历史全套。正式构建使用 Windows 云节点 `release`（R8 + lintVital）；冻结源码、构建 sourceId、APK 版本/签名/ABI/CRC/资源校验、源码逐文件比对与公开下载校验分别留证。真实结果随 [正式 Release](https://github.com/682012/rikkahub/releases/latest) 的 `r18.json` 与校验文件交付，不能把下述历史结果当作新版本通过。
+本版只运行本次改动相关的定向检查，不重跑历史全套。正式构建使用 Windows 云节点 `release`（R8 + lintVital）；冻结源码、构建 sourceId、APK 版本/签名/ABI/CRC/资源校验、源码逐文件比对与公开下载校验分别留证。真实结果随 [正式 Release](https://github.com/682012/rikkahub/releases/latest) 的 `r19.json` 与校验文件交付，不能把下述历史结果当作新版本通过。
 
 共享云构建目录同一时间只跑一份任务；队列空闲后才能同步源码，提交绑定本次 sourceId。超时查原 job，不换幂等键重投。
 
-## 历史 r11 的验证范围（不替代 r18）
+## 历史 r11 的验证范围（不替代 r19）
 
 - 正式 Release 构建完成，R8 与 lintVital 通过；版本、包名、原签名、双 ABI、ZIP 完整性与传输 SHA-256 已核对。
 - 16 个测试套件、168 项定向单元测试通过（0 失败 / 0 错误 / 0 跳过）；正式发布复用已有结果，没有重跑测试。
@@ -97,7 +97,7 @@ ZIP 迁移只覆盖 `/workspace` 文件区，不含 Rootfs、数据库与整机�
 
 ## 历史与相关文档
 
-- 当前版本：[r18 说明](RELEASE-r18.md) · [正式包与验收记录](https://github.com/682012/rikkahub/releases/latest)
+- 当前版本：[r19 说明](RELEASE-r19.md) · [正式包与验收记录](https://github.com/682012/rikkahub/releases/latest)
 - 功能计数与源码位置：[FEATURES.md](FEATURES.md)；逐版历史：[CHANGES.md](CHANGES.md)
 - r1–r10 的发布说明：`RELEASE-r1.md` … `RELEASE-r10.md`；更早的 fork.38–fork.43 见 `RELEASE-fork38.md` … `RELEASE-fork43.md`
 - 专项记录：[草稿持久化](AGENT-DRAFTS.md) · [工具效率](AGENT-EFFICIENCY-r11.md) · [架构](AGENT-ARCHITECTURE.md) · [工作区权限](WORKSPACE-ACCESS.md) · [网页会话](WEB-ACCOUNTS.md) · [历史维护现场](HANDOFF.md)

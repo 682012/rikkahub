@@ -8,6 +8,7 @@ import me.rerere.tts.model.AudioChunk
 import me.rerere.tts.model.AudioFormat
 import me.rerere.tts.model.TTSRequest
 import me.rerere.tts.provider.TTSProvider
+import me.rerere.tts.provider.executeTtsBytes
 import me.rerere.tts.provider.TTSProviderException
 import me.rerere.tts.provider.TTSProviderSetting
 import okhttp3.MediaType.Companion.toMediaType
@@ -32,6 +33,7 @@ class ElevenLabsTTSProvider : TTSProvider<TTSProviderSetting.ElevenLabs> {
         val requestBody = JSONObject().apply {
             put("text", request.text)
             put("model_id", providerSetting.model)
+            if (request.languageTag.isNotBlank()) put("language_code", java.util.Locale.forLanguageTag(request.languageTag).language)
             put("voice_settings", JSONObject().apply {
                 put("stability", providerSetting.stability.toDouble())
                 put("similarity_boost", providerSetting.similarityBoost.toDouble())
@@ -47,19 +49,7 @@ class ElevenLabsTTSProvider : TTSProvider<TTSProviderSetting.ElevenLabs> {
             .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        val response = httpClient.newCall(httpRequest).execute()
-
-        if (!response.isSuccessful) {
-            val errorBody = response.body?.string()
-            Log.e(TAG, "generateSpeech: ${response.code} ${response.message}")
-            Log.e(TAG, "generateSpeech: $errorBody")
-            throw TTSProviderException(
-                message = "ElevenLabs TTS request failed: ${response.code} ${response.message}",
-                statusCode = response.code
-            )
-        }
-
-        val audioData = response.body.bytes()
+        val audioData = httpClient.executeTtsBytes(httpRequest)
 
         emit(
             AudioChunk(

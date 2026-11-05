@@ -89,7 +89,8 @@ internal fun Settings.withoutInvalidReferences(): Settings {
 // 把取值收回合法范围，比如删掉搜索服务后选中的下标可能越界
 private fun Settings.withValuesInRange(): Settings = copy(
     searchServiceSelected = searchServiceSelected.coerceIn(0, (searchServices.size - 1).coerceAtLeast(0)),
-    defaultTTSPlaybackSpeed = defaultTTSPlaybackSpeed.coerceIn(0.5f, 2.0f),
+    defaultTTSPlaybackSpeed = (if (defaultTTSPlaybackSpeed.isFinite()) defaultTTSPlaybackSpeed else 1f).coerceIn(0.25f, 3f),
+    ttsPlaybackSettings = ttsPlaybackSettings.sanitized(),
     backgroundToolSettings = backgroundToolSettings.normalized(),
     displaySetting = displaySetting.copy(
         appearance = displaySetting.appearance.normalized(),

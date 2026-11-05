@@ -157,6 +157,7 @@ class SettingsStore internal constructor(
         val TTS_PROVIDERS = stringPreferencesKey("tts_providers")
         val SELECTED_TTS_PROVIDER = stringPreferencesKey("selected_tts_provider")
         val DEFAULT_TTS_PLAYBACK_SPEED = floatPreferencesKey("default_tts_playback_speed")
+        val TTS_PLAYBACK_SETTINGS = stringPreferencesKey("tts_playback_settings")
 
         // ASR
         val ASR_PROVIDERS = stringPreferencesKey("asr_providers")

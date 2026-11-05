@@ -8,6 +8,7 @@ import me.rerere.tts.model.AudioChunk
 import me.rerere.tts.model.AudioFormat
 import me.rerere.tts.model.TTSRequest
 import me.rerere.tts.provider.TTSProvider
+import me.rerere.tts.provider.executeTtsBytes
 import me.rerere.tts.provider.TTSProviderException
 import me.rerere.tts.provider.TTSProviderSetting
 import okhttp3.MediaType.Companion.toMediaType
@@ -32,7 +33,7 @@ class XAITTSProvider : TTSProvider<TTSProviderSetting.XAI> {
         val requestBody = JSONObject().apply {
             put("text", request.text)
             put("voice_id", providerSetting.voiceId)
-            put("language", providerSetting.language)
+            put("language", request.languageTag.takeIf { it.isNotBlank() }?.let { java.util.Locale.forLanguageTag(it).language } ?: providerSetting.language)
         }
 
         Log.i(TAG, "generateSpeech: $requestBody")
@@ -44,19 +45,7 @@ class XAITTSProvider : TTSProvider<TTSProviderSetting.XAI> {
             .post(requestBody.toString().toRequestBody("application/json".toMediaType()))
             .build()
 
-        val response = httpClient.newCall(httpRequest).execute()
-
-        if (!response.isSuccessful) {
-            val errorBody = response.body?.string()
-            Log.e(TAG, "generateSpeech: ${response.code} ${response.message}")
-            Log.e(TAG, "generateSpeech: $errorBody")
-            throw TTSProviderException(
-                message = "xAI TTS request failed: ${response.code} ${response.message}",
-                statusCode = response.code
-            )
-        }
-
-        val audioData = response.body.bytes()
+        val audioData = httpClient.executeTtsBytes(httpRequest)
 
         emit(
             AudioChunk(

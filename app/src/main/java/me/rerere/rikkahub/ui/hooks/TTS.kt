@@ -51,9 +51,10 @@ fun rememberCustomTtsState(): CustomTtsState {
         settings.selectedTTSProviderId,
         settings.ttsProviders,
         settings.defaultTTSPlaybackSpeed,
+        settings.ttsPlaybackSettings,
     ) {
         ttsState.updateProvider(settings.getSelectedTTSProvider())
-        ttsState.setSpeed(settings.defaultTTSPlaybackSpeed)
+        ttsState.updatePlaybackSettings(settings.ttsPlaybackSettings.copy(speed = settings.defaultTTSPlaybackSpeed))
         onDispose { }
     }
 
@@ -140,6 +141,10 @@ private class CustomTtsStateImpl(
 
     fun updateProvider(provider: TTSProviderSetting?) {
         controller.setProvider(provider)
+    }
+
+    fun updatePlaybackSettings(settings: me.rerere.tts.controller.TtsPlaybackSettings) {
+        controller.setPlaybackSettings(settings)
     }
 
     override fun speak(text: String, flushCalled: Boolean) {

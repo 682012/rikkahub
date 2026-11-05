@@ -236,20 +236,20 @@ fun SettingPreferencesGeneralPage(vm: SettingVM = koinViewModel()) {
                     formItem(
                         headlineContent = { Text(stringResource(R.string.setting_tts_page_default_playback_speed)) },
                         supportingContent = { Text(stringResource(R.string.setting_tts_page_default_playback_speed_description)) },
-                        trailingContent = { CardGroupValue("x${"%.1f".format(ttsPlaybackSpeed)}") },
+                        trailingContent = { CardGroupValue("x${"%.2f".format(ttsPlaybackSpeed)}") },
                     ) {
                         Slider(
                             value = ttsPlaybackSpeed,
                             onValueChange = {
-                                ttsPlaybackSpeed = (it * 10).roundToInt() / 10f
+                                ttsPlaybackSpeed = (it * 100).roundToInt() / 100f
                             },
                             onValueChangeFinished = {
                                 vm.updateSettings {
                                     it.copy(defaultTTSPlaybackSpeed = ttsPlaybackSpeed)
                                 }
                             },
-                            valueRange = 0.5f..2.0f,
-                            steps = 14,
+                            valueRange = 0.25f..3.0f,
+                            steps = 54,
                             modifier = Modifier.fillMaxWidth(),
                         )
                     }

@@ -8,24 +8,21 @@ import kotlin.uuid.Uuid
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.files.FilesManager
+import me.rerere.rikkahub.data.organization.effectiveImageWorkers
+import me.rerere.rikkahub.data.organization.forEachImageWorker
 import me.rerere.rikkahub.data.organization.ImageCacheKeys
 import me.rerere.rikkahub.data.organization.ImageCategory
 import me.rerere.rikkahub.data.organization.ImageClassifier
@@ -35,6 +32,7 @@ import me.rerere.rikkahub.data.organization.ImageDeleteResult
 import me.rerere.rikkahub.data.organization.ImageMediaPaths
 import me.rerere.rikkahub.data.organization.ImageOrganizerCache
 import me.rerere.rikkahub.data.organization.ImageOrganizerItem
+import me.rerere.rikkahub.data.organization.ImageOrganizerWorkerStore
 import me.rerere.rikkahub.data.organization.ImageOrganizerModelStore
 import me.rerere.rikkahub.data.organization.ImageOrganizerSources
 import me.rerere.rikkahub.data.organization.ImageOrganizerState
@@ -49,7 +47,7 @@ import java.io.File
  *
  * 设计约束（和 UI 约定见 IMAGE-CONTRACT.md）：
  * - 不自动识别、不在后台定时跑：只有 UI 显式调用 [classify] 才发请求；首次发请求的告知由 UI 负责。
- * - 一次只跑一批，批内串行推进，最多 [MAX_CONCURRENT_REQUESTS] 个请求同时在飞；单张失败不影响整批。
+ * - 一次只跑一批，批内按用户设置的工作协程数并发推进；单张失败不影响整批。
  * - 取消（[cancelClassification] / [onCleared]）立即停，已完成的保留，[CancellationException] 原样抛出。
  * - 删除只处理「明确选中 + 非保留 + 可删 + 无共享引用」的项，实际计划在 [ImageDeletePlanner] 里算（纯 JVM 可测）。
  */
@@ -67,6 +65,8 @@ class ImageOrganizerVM(
 
     private val cache = ImageOrganizerCache(File(filesDir, "$STORE_DIR/classification_cache.json"))
     private val modelStore = ImageOrganizerModelStore(File(filesDir, "$STORE_DIR/model.json"))
+    /** 并发数单独存一份，不动 model.json（两者写入互不影响）。 */
+    private val workerStore = ImageOrganizerWorkerStore(File(filesDir, "$STORE_DIR/workers.json"))
     private val classifier = ImageClassifier(appContext, providerManager)
     private val sources = ImageOrganizerSources(
         context = appContext,
@@ -75,7 +75,12 @@ class ImageOrganizerVM(
         mediaCreationRepository = mediaCreationRepository,
     )
 
-    private val _state = MutableStateFlow(ImageOrganizerState(selectedModelId = modelStore.read()))
+    private val _state = MutableStateFlow(
+        ImageOrganizerState(
+            selectedModelId = modelStore.read(),
+            workers = workerStore.read(),
+        )
+    )
     val state: StateFlow<ImageOrganizerState> = _state.asStateFlow()
 
     private var classifyJob: Job? = null
@@ -166,11 +171,39 @@ class ImageOrganizerVM(
     }
 
     /**
+     * 设置这一批并发识别多少个请求。范围外的值夹回 [ImageOrganizerState.MIN_WORKERS]..[ImageOrganizerState.MAX_WORKERS]。
+     *
+     * 写自己的 JSON（`workers.json`），不动 model.json、不动全局设置。正在跑批时不可改。
+     */
+    fun setWorkers(workers: Int) {
+        if (_state.value.busy) return
+        val value = ImageOrganizerState.coerceWorkers(workers)
+        if (value == _state.value.workers) return
+        pendingSaves++
+        updateState { it.copy(error = null) }
+        viewModelScope.launch {
+            try {
+                if (withContext(Dispatchers.IO) { workerStore.write(value) }) {
+                    updateState { it.copy(workers = value) }
+                } else {
+                    updateState { it.copy(error = workerStore.lastFailure ?: "并发设置没能保存") }
+                }
+            } finally {
+                pendingSaves--
+                updateState { it }
+            }
+        }
+    }
+
+    /**
      * 识别给定的图片。已有的本地缓存命中时不再发请求。
      * 正在跑一批时再调用会被忽略（防重入）。
+     *
+     * 并发是固定 [ImageOrganizerState.workers] 个工作协程从共享游标里取下一张，
+     * 不会按图片张数开 N 个协程；请求层的全局限流仍由 ProviderManager 负责。
      */
     fun classify(ids: Set<String>) {
-        if (ids.isEmpty()) return
+        if (ids.isEmpty() || _state.value.busy) return
         if (classifyJob?.isActive == true) return
 
         val modelId = _state.value.selectedModelId
@@ -201,17 +234,11 @@ class ImageOrganizerVM(
             val total = targets.size
             val done = AtomicInteger(0)
             val failed = AtomicInteger(0)
-            val semaphore = Semaphore(MAX_CONCURRENT_REQUESTS)
+            val workers = effectiveImageWorkers(_state.value.workers, model.maxConcurrentRequests)
             updateState { it.copy(progress = ImageProgress(total = total, done = 0, failed = 0)) }
             try {
-                coroutineScope {
-                    targets.map { item ->
-                        async(Dispatchers.IO) {
-                            semaphore.withPermit {
-                                classifyOne(item, model, providerSetting, total, done, failed)
-                            }
-                        }
-                    }.awaitAll()
+                forEachImageWorker(targets, workers) { item ->
+                    classifyOne(item, model, providerSetting, total, done, failed)
                 }
             } finally {
                 updateState { it.copy(progress = null) }
@@ -412,7 +439,11 @@ class ImageOrganizerVM(
     }
 
     private fun publishProgress(total: Int, done: Int, failed: Int, currentName: String?) {
-        updateState { it.copy(progress = ImageProgress(total, done, failed, currentName)) }
+        updateState { state ->
+            val previous = state.progress
+            state.copy(progress = ImageProgress(total, maxOf(done, previous?.done ?: 0),
+                maxOf(failed, previous?.failed ?: 0), currentName))
+        }
     }
 
     private suspend fun deleteOne(item: ImageOrganizerItem) {
@@ -469,8 +500,6 @@ class ImageOrganizerVM(
 
     companion object {
         private const val STORE_DIR = "image_organizer"
-        /** 批内最多同时两个请求。 */
-        private const val MAX_CONCURRENT_REQUESTS = 2
         /** 识别临时 JPEG 的保留时长：超过这个时间还没被删掉的，下次刷新时清掉。 */
         private const val TEMP_TTL_MILLIS = 60L * 60 * 1000
     }

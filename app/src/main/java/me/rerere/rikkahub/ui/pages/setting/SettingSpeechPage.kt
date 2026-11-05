@@ -71,6 +71,7 @@ import me.rerere.rikkahub.ui.context.LocalTTSState
 import me.rerere.rikkahub.ui.pages.setting.components.ASRProviderConfigure
 import me.rerere.rikkahub.ui.pages.setting.components.ProviderEditSheet
 import me.rerere.rikkahub.ui.pages.setting.components.ProviderTypeSheet
+import me.rerere.rikkahub.ui.pages.setting.components.SpeechPlaybackSettingsCard
 import me.rerere.rikkahub.ui.pages.setting.components.TTSProviderConfigure
 import me.rerere.rikkahub.ui.pages.setting.components.typeName
 import me.rerere.rikkahub.ui.theme.CustomColors
@@ -213,10 +214,17 @@ private fun TTSProviderList(
 ) {
     val lazyListState = rememberLazyListState()
     val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
-        val newProviders = settings.ttsProviders.toMutableList().apply {
-            add(to.index, removeAt(from.index))
+        val fromIndex = settings.ttsProviders.indexOfFirst { it.id == from.key }
+        val toIndex = settings.ttsProviders.indexOfFirst { it.id == to.key }
+        if (fromIndex >= 0 && toIndex >= 0) {
+            onUpdateSettings { latest ->
+                val providers = latest.ttsProviders.toMutableList()
+                val actualFrom = providers.indexOfFirst { it.id == from.key }
+                val actualTo = providers.indexOfFirst { it.id == to.key }
+                if (actualFrom >= 0 && actualTo >= 0) providers.add(actualTo, providers.removeAt(actualFrom))
+                latest.copy(ttsProviders = providers)
+            }
         }
-        onUpdateSettings { it.copy(ttsProviders = newProviders) }
     }
     var deleteTarget by remember { mutableStateOf<TTSProviderSetting?>(null) }
 
@@ -226,6 +234,7 @@ private fun TTSProviderList(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         state = lazyListState
     ) {
+        item(key = "r19-playback") { SpeechPlaybackSettingsCard(settings, onUpdateSettings) }
         items(settings.ttsProviders, key = { it.id }) { provider ->
             ReorderableItem(
                 state = reorderableState,

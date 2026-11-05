@@ -19,10 +19,11 @@ class TtsSynthesizer(
 ) {
     suspend fun synthesize(
         setting: TTSProviderSetting,
-        chunk: TtsChunk
+        chunk: TtsChunk,
+        languageTag: String = "",
     ): TTSResponse = withContext(Dispatchers.IO) {
         collectToResponse(
-            ttsManager.generateSpeech(setting, TTSRequest(text = chunk.text))
+            ttsManager.generateSpeech(setting, TTSRequest(text = chunk.text, languageTag = languageTag))
         )
     }
 
@@ -35,6 +36,7 @@ class TtsSynthesizer(
             if (sampleRate == null) sampleRate = chunk.sampleRate
             output.write(chunk.data)
         }
+        require(output.size() > 0) { "TTS returned empty audio" }
         return TTSResponse(
             audioData = output.toByteArray(),
             format = format ?: AudioFormat.MP3,

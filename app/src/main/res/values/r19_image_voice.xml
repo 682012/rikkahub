@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r19_images_workers">Concurrent image requests</string>
+    <string name="r19_images_workers_hint">1–16 workers; higher uses more memory and provider quota. Model limits still apply.</string>
+    <string name="r19_tts_playback_title">Speech playback</string>
+    <string name="r19_tts_auto_language">Automatic / follow global setting</string>
+    <string name="r19_tts_auto_voice">Default voice</string>
+    <string name="r19_tts_language">Speech language</string>
+    <string name="r19_tts_language_hint">Language hints are supported by System TTS, xAI, ElevenLabs and gpt-4o-mini-tts. Other engines detect from text/model. This does not translate text.</string>
+    <string name="r19_tts_volume">Playback volume</string>
+    <string name="r19_tts_advanced">Advanced playback settings</string>
+    <string name="r19_tts_chunk_length">Text per chunk</string>
+    <string name="r19_tts_chunk_hint">40–400 characters. The first chunk is at most 80 for a faster start. Smaller chunks add requests and may affect phrasing.</string>
+    <string name="r19_tts_prefetch">Prefetch next chunks</string>
+    <string name="r19_tts_prefetch_hint">0–4; 0 disables lookahead. Prefetch reduces gaps but uses extra requests if stopped early. System TTS stays serial.</string>
+    <string name="r19_tts_reset">Restore playback defaults</string>
+    <string name="r19_tts_instructions">Tone and delivery instructions</string>
+    <string name="r19_tts_instructions_hint">For gpt-4o-mini-tts models: e.g. warm, calm, softly spoken. tts-1 and tts-1-hd ignore this field.</string>
+    <string name="r19_tts_system_language_hint">Overrides the global speech language; automatic follows the global setting, then the device language. Requires installed language data.</string>
+    <string name="r19_tts_system_voice_hint">Choose an installed system voice, or enter its exact voice ID. Voices are filtered by language.</string>
+</resources>

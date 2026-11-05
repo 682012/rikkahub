@@ -3,7 +3,7 @@
 中文主说明统一维护在 [仓库首页 README](README.md)，避免多份介绍互相过期。
 
 - [最新正式 APK](https://github.com/682012/rikkahub/releases/latest)
-- [r18 更新说明](fork/RELEASE-r18.md)
+- [r19 更新说明](fork/RELEASE-r19.md)
 - [与官方的差异](fork/FEATURES.md)
 - [版本历史](fork/CHANGES.md)
 - [构建、签名与回退](fork/README.md)

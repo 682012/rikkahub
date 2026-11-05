@@ -448,6 +448,16 @@ fun ImageOrganizerPage(
                 )
             }
 
+            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.r19_images_workers), style = MaterialTheme.typography.labelLarge)
+                    Text(stringResource(R.string.r19_images_workers_hint), style = MaterialTheme.typography.bodySmall)
+                }
+                TextButton(onClick = { vm.setWorkers(state.workers - 1) }, enabled = !state.busy && state.workers > 1) { Text("−") }
+                Text(state.workers.toString(), style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = { vm.setWorkers(state.workers + 1) }, enabled = !state.busy && state.workers < 16) { Text("+") }
+            }
             FilterChipsRow(
                 sourceFilter = sourceFilter,
                 categoryFilter = categoryFilter,
