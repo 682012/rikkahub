@@ -1,0 +1,79 @@
+{
+  "schema": "rikkahub/release-verification/1",
+  "versionName": "3.1.1-r21",
+  "versionCode": 3000068,
+  "package": "me.rerere.rikkahub.fork",
+  "builtTreeRecordedAtCommit": "f6f105f01cfdb1d5c226f7269c314783e3cfd375",
+  "buildCheckoutHead": "8ba55c4cfd8ad6111d9f0b534186f2f00b4a3d29",
+  "buildSourceId": "986fcce3e2701f5e0cadfc0f1c794e6ec443355aa6b72c02abc259651dca2839",
+  "cloudJob": "idem-5df62db4b9dd07b77ca82ef4",
+  "apk": {
+    "name": "rikkahub-3.1.1-r21.apk",
+    "bytes": 45842374,
+    "sha256": "623e7ebde54f604e95df25d8c6ddd04874937a71ec51291a306c1b3042b167c9",
+    "certificateSha256": "cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89",
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ]
+  },
+  "formalBuild": {
+    "task": ":app:assembleGithubRelease",
+    "r8": true,
+    "lintVital": true,
+    "roomKsp": true,
+    "gradleResult": "BUILD SUCCESSFUL in 32m 34s",
+    "exitCode": 0
+  },
+  "artifactAssertions": {
+    "zipCRCVerified": true,
+    "requiredAbisPresent": true,
+    "packageMatches": true,
+    "versionNameMatches": true,
+    "versionCodeMatches": true,
+    "certificateMatches": true,
+    "remoteSha256MatchesLocal": true,
+    "remoteBytesMatchLocal": true,
+    "apksignerVersionRecorded": true,
+    "aaptVersionRecorded": true,
+    "mappingRequirementMet": true
+  },
+  "database": {
+    "version": 35,
+    "identityHash": "1f1167d7b7175efa7f8fde4946443215",
+    "schemaFile": "app/schemas/me.rerere.rikkahub.data.db.AppDatabase/35.json",
+    "generatedSchemaSha256": "dabf2fdc8c406d6928d43fded7de2ccce151265a2b3db1ac78dcd80965b7cbff",
+    "realDeviceUpgradeTested": false
+  },
+  "currentTargetedTests": {
+    "passed": 167,
+    "suites": {
+      "streamCoreAndDraftRecovery": 49,
+      "incrementalDraftParser": 24,
+      "timeReminder": 16,
+      "bodyCharactersAndTimeline": 9,
+      "htmlPolicy": 10,
+      "autoFilePlannerAndStores": 55,
+      "autoFileSessionMutation": 4
+    },
+    "scopeQualification": "167 successful targeted assertions with per-scope recorded inputs. Session mutation scope includes an earlier ChatReconnectPolicy as an unused companion compile dependency; its final code is separately covered by the stream-core scope. This is not a fresh full-suite run against a single commit."
+  },
+  "historyEvidence": {
+    "frozenCommit": "8ba55c4cfd8ad6111d9f0b534186f2f00b4a3d29",
+    "testsPassedAtThatCommit": 375,
+    "countsNotCombinedWithCurrentTargetedTests": true
+  },
+  "unverified": [
+    "New APK not installed or clicked on the user device",
+    "Android UI and notification/WorkManager/SAF runtime not exercised",
+    "HTML page rendered in Chromium, not verified in this APK on the user device",
+    "No real provider throughput benchmark or universal speed guarantee"
+  ],
+  "r20AssetsUnchangedByThisBuild": true,
+  "recordedAt": "2026-11-05T23:00:25.755163+00:00",
+  "releaseCommitLocator": {
+    "gitTag": "v3.1.1-r21",
+    "exactHashInReleaseAttachment": "r21.json:releaseCommit",
+    "postBuildChanges": "Documentation, verification records and generated Room schema35 only; runtime code and resources unchanged"
+  }
+}

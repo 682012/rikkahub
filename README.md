@@ -4,7 +4,7 @@
 
 与官方团队没有隶属关系；上游版权与 AGPL-3.0 许可保持不变；不提供官方或面向终端用户的技术支持。
 
-当前源码 **3.1.1-r21 / 3000068** · 包名 `me.rerere.rikkahub.fork`。后台整理取消与失败状态修复、长文本分享可靠保存；保留 r20 的媒体导出、共读、技能缓存、自动标题和子代理思考续传。 应用名、图标、原图、人设与签名不变。
+当前版本 **3.1.1-r21 / 3000068** · 包名 `me.rerere.rikkahub.fork`。这一版是**大更新**：Agent 主循环与子代理、会话/记忆/队列按助手隔离、断线自动恢复、每助手经验学习、会话家族折叠与话题归库、工具代码实时草稿、时间与字符统计、工作区网页渲染，外加可选的轨道风格、启动动效和小宠物磁贴。应用名、图标、六只角色原图、人设与签名不变。
 
 ## 下载与安装
 
@@ -17,12 +17,22 @@
 - 升级前备份聊天与设置，不要为了升级先卸载（卸载会连应用数据一起丢）。从早期 `fork.*` 版本过来请直接下载安装，旧更新器不认识 `r` 系列版本号。
 - 下载安装不需要构建环境；聊天模型与服务账号仍由你自己配置，不提供共享 API 额度。
 
-## r21：后台任务与分享可靠性修复
+## r21：Agent 架构大更新（当前版本）
 
-- 通知与页面取消绑定具体任务，保存取消状态；关闭自动整理时停止所属自动批次，不误停手动任务。
-- 处理前台服务启动失败、任务中断与损坏队列，显示错误和恢复入口，避免一直卡在排队。
-- 大段分享文字按 UUID 暂存，不塞进导航状态；读取失败可重试，附件补充名称和 MIME 回退。
-- 复用 27 项定向测试和 2 组接线编译回执；正式整包构建与验包状态以 Release 附件为准，未宣称真机通过。[r21 完整说明](fork/RELEASE-r21.md)。
+这次集中更新「Agent 怎么跑、会话归谁、断了怎么接、代码写到哪」，原有配置和 r20 功能继续保留。
+
+- **Agent 主循环与子代理**：工具声明一次建索引，参数按原文缓存；原地打转的检测从「连续同一调用」扩到**周期**（ABAB 这种振荡也认得出），带图片/文件的结果不误判；发给模型的副本里重复的长工具结果折叠成一行指向早先那次，界面与消息仍保留完整内容；审批后继续不会重新领一份步数预算。
+- **会话、记忆与队列按助手隔离**：助手被删后会话不再悄悄回退到「当前助手」串人格，而是明确报错；记忆恒按助手分开，旧的共享记忆只在你点复制时搬一次、不覆盖同名文件；跨助手迁移只搬对话本身，工作目录、文件夹、会话级系统提示、聊天建议、压缩摘要都不跟过去；对话检索、抽屉列表、待发队列同样收在本助手内。
+- **持久队列与断线自动恢复**：网络中断与可重试的临时服务错误会按所设次数恢复，用户停止、待审批、鉴权/配额/请求格式错误、落库失败和「副作用未知」一律不重发；已完成的工具结果保留、不重做；恢复前核对是不是同一条中断，从完成的检查点续跑，并把中断草稿留成独立分支；一个会话只占一个恢复通知身份，子代理与后台工具完成的通知不会在你空闲时自己开一轮付费请求。
+- **每助手经验学习**：只记轮数、工具成败、重试、是否触顶、重新生成次数和耗时，不存正文、思考、参数与返回值，也不额外发模型请求；经验只有「自动统计」（至少 3 轮重复证据）和「你自己确认」两种，注入最多 3 条。**不训练、不微调权重，不新增任何权限，也不保证越用越好。**
+- **会话列表与库整理**：分叉出来的会话收成一张卡，带成员数量角标，点开才展开全族；旧数据按开头那条真正由你发出的消息保守补认，预设开场消息不算分叉，按助手和文件夹隔离，搜索仍列出全部匹配。再把闲置又没归类的会话交给快速模型放进文件夹（**默认关闭**）：开启前会明说「摘要要外发、会花额度」，置信度不够就不搬，手动归好的会话上锁，每批可整批撤销，只改归属、不改内容也不删会话。
+- **工具代码实时草稿**：写文件、编辑、shell/代码/脚本和网关这类长参数边生成边看，约 500ms 节流落库、最后一块也补写；半截 JSON 可以预览、复制、导出，但**不会执行、不进审批**。中断后会保留被中断的那条回复分支。不做「断电零丢失」或「文件已经逐字写进工作区」的承诺。
+- **时间、字符统计与网页渲染**：主对话 Agent 每步请求都用当前设备时钟并带时区偏移，历史时间照历史显示；消息条显示真实结束时刻，详情分开始/结束，全程耗时与模型请求耗时分开；正文字符按 Unicode 码点统计（含标点、不含空白），与上游 token 分开；工作区 HTML/SVG 改内存直载并叠加 CSP，Chromium 上已实际渲染通过，真机 WebView 还没点验。
+- **外观可选**：聊天风格新增**轨道（ORBIT）**——贴着状态栏的紧凑任务栏加一条常驻运行态轨道；启动动效可选轨道环 RING（默认）/ DOTS / OFF；下拉快捷面板新增**小宠物**磁贴，和设置页改的是同一个开关。
+
+常用入口：抽屉 →「自动归库」（开关、闲置小时、立即整理、撤销上一批、「抽屉里按会话家族折叠」）· 助手 → 记忆 →「经验」· 设置 → 主题 → 聊天风格与启动动效 · 下拉快捷面板 → 小宠物。
+
+正式包 `3.1.1-r21 / 3000068` 已用 R8 + lintVital 构建并验包（43.72 MiB，同签名可覆盖 r20）；本轮定向 JVM 检查 167 项通过，未自动安装、未做真机界面点验。完整说明与限制见 [r21 说明](fork/RELEASE-r21.md)，验证口径见 [docs/r21-agent-core/VALIDATION.md](docs/r21-agent-core/VALIDATION.md)。
 
 ## r20：后台整理、共读与媒体导出
 
@@ -45,7 +55,7 @@
 - 消息可靠存入队列后就清掉已提交内容，不再等前一轮 AI 回复完。等待受理时新写的字和新加的附件保留；受理失败则保留原输入。
 - 待发队列按会话存入私有目录，写成功才确认，尚未落入聊天记录的消息可在重启后找回；用稳定消息 ID 避免重复入库。
 - 网络恢复接回失败的文字请求与待发队列，不要求会话页正开着。只恢复网络暂停，手动停止、鉴权/配置错误与待审批任务不会被网络回调放行。
-- 断线从完成的模型步骤接着走，保留已完成工具结果，不重复执行已开始但结果不明的操作；半截新输出不叠加成重复回复。
+- 断线从完成的模型步骤接着走，保留已完成工具结果，不重复执行已开始但结果不明的操作。r18 当初只说「不把半截新输出反复追加」；从 r21 起中断的那条回复分支会被保留下来，可以留着看或另起一条，不是把半截输出悄悄替换掉。
 
 [r18 说明与验证边界](fork/RELEASE-r18.md)。
 
@@ -95,6 +105,10 @@
 | 想改什么 | 位置 |
 |---|---|
 | 长正文默认展开 / 收起 | 偏好设置 → 界面偏好设置 → 长正文默认状态 |
+| 自动归库、闲置小时、家族折叠 | 会话抽屉 → 自动归库 |
+| 每助手经验（查看 / 新增 / 确认） | 助手 → 记忆 → 经验 |
+| 聊天风格（含轨道）、启动动效 | 偏好设置 → 主题 |
+| 小宠物悬浮窗快捷开关 | 下拉快捷面板 → 小宠物磁贴 |
 | 自动分批发图、启用张数、每批张数 | 偏好设置 → 常规 → 多图发送 |
 | 耗时工具转后台、等待阈值 | 偏好设置 → 常规 → 后台工具 |
 | 压缩完成通知 | 偏好设置 → 通知 → 压缩完成通知 |
@@ -129,7 +143,11 @@
 
 ## 能力边界（先看这几条）
 
-- **历史 r11 基线验证范围（不替代 r16 验证）**：r11 有 16 个套件、168 项定向单元测试通过（0 失败 / 0 错误 / 0 跳过），调试变体编译及正式 R8 + lintVital 打包通过，版本、签名与包完整性已核对。发布沿用已有测试，没有重跑。**没有**做真机或模拟器界面回归，**没有**用真实提供商测缓存命中率，也没有跑全量测试套件。界面行为目前只在代码与单元测试层面确认。
+- **r21 已出正式包，但没上真机**：`:app:assembleGithubRelease` 一次通过，32m34s，含 Room/KSP、整包 Kotlin、R8 与 lintVital；包名、版本名/码、原 r20 证书、arm64-v8a + x86_64、ZIP CRC、云端与本地哈希全部核对。本版定向 JVM 检查 167 项通过；历史 375 项绑定的是旧冻结提交，不能算作这一版的通过数。**没有**自动安装、**没有**真机界面点验：通知点击、系统 WorkManager 调度与恢复、SAF、MediaCodec 导出、快捷磁贴绑定都还没在运行期验收，网页只在 Chromium 里渲染过。
+- **经验学习不是训练**：只统计本助手的轮数与工具成败，生成可查看、可否决的建议；不改模型权重、不下载模型、不新增权限，也不保证越用越快。
+- **自动归库会外发摘要**：默认关闭；开启或手动整理一次，都会把闲置会话的标题与首尾摘录发给你配置的快速模型并消耗额度。它只改归属，不改内容、不删会话，撤销按批进行。
+- **工具草稿还没写进工作区**：草稿预览里的内容只是模型正在生成的参数，半截参数不执行、不进审批；节流落库能少丢一些，但不等同断电零丢失。
+- **历史 r11 基线验证范围（不替代 r16/r21 验证）**：r11 有 16 个套件、168 项定向单元测试通过（0 失败 / 0 错误 / 0 跳过），调试变体编译及正式 R8 + lintVital 打包通过，版本、签名与包完整性已核对。发布沿用已有测试，没有重跑。**没有**做真机或模拟器界面回归，**没有**用真实提供商测缓存命中率，也没有跑全量测试套件。界面行为目前只在代码与单元测试层面确认。
 - **后台不等于永不掉线**：Android 厂商强杀或系统重启会中断仍在跑的后台请求与工具，前台服务只是提高存活机会。被中断的任务标为未知/已中断，不自动重放副作用。
 - **非文本结果跨重启有限**：图片等附件在进程重启后能从任务回执恢复的范围有限；正文保留受存储预算限制，超出时明确标注。
 - **Office / EPUB 不还原完整排版**：Office 与 EPUB 是文本/章节提取，不还原版式、不读 DRM；HTML 用 Android 系统 WebView，脚本可运行但没有 JS 桥与本地文件系统访问，外部资源默认关闭、需手动放行；表格预览最多 300 行 / 40 列，完整内容切源码看。
@@ -140,7 +158,8 @@
 
 ## 文档导航
 
-- 当前源码：[r20 说明与边界](fork/RELEASE-r20.md) · [正式包与机器可读验收](https://github.com/682012/rikkahub/releases/latest)
+- 当前版本：[r21 说明与边界](fork/RELEASE-r21.md) · [上一版 r20](fork/RELEASE-r20.md) · [正式包与机器可读验收](https://github.com/682012/rikkahub/releases/latest)
+- r21 维护记录：[Agent 能力、入口与限制](docs/r21-agent-core/CAPABILITIES-r21.md) · [验证范围](docs/r21-agent-core/VALIDATION.md)
 - 六角色素材历史：[r12 立绘与动态](fork/COMPANIONS-r12.md) · [r15 即兴互动](fork/COMPANIONS-r15.md)
 - 横向对比：[完整功能对比](fork/FEATURES.md) · [版本历史](fork/CHANGES.md)
 - 维护：[构建、签名与回退](fork/README.md) · [修改声明](NOTICE.md) · [免责声明](DISCLAIMER.md)
@@ -153,6 +172,8 @@
 上游项目与官方下载渠道：[rikkahub/rikkahub](https://github.com/rikkahub/rikkahub)。本分支保留上游版权声明与 **AGPL-3.0** 许可（见 [LICENSE](LICENSE)）；上游的赞助、贡献者与支持渠道不属于本分支。
 
 ### English summary
+
+**r21** is a large update: rewritten agent loop (indexed tool declarations, cached argument canonicalization, periodic no-progress detection, request-side dedupe that keeps the UI intact, inherited step budget), assistant-scoped conversations/memory/pending queue with explicit migration only, durable queue with whitelist auto-recovery that never replays unknown side effects, per-assistant learning that only counts and suggests (no weight training, no new permissions), conversation-family collapsing, optional idle-chat auto-filing into folders (off by default, sends short summaries to your configured fast model, batch-undoable), live tool-argument drafts that are never executed half-written, current-device time per model step, code-point body character counts, in-memory workspace HTML loading with CSP, an optional ORBIT chat style, RING/DOTS/OFF startup motion, and a pet quick-settings tile. Formal R8/lintVital APK built and package-verified; 167 targeted JVM checks pass, the older 375 pass belongs to a frozen baseline. Not installed; no on-device UI run.
 
 **r20** adds background image classification and virtual AI groups, explicit URL co-reading, additional document text extraction, validated image outputs, and real local PNG/JPEG/WebP/GIF/MP4 exports. It fixes nonstreaming subagent reasoning replay without disabling thinking or repeating executed tools. No private API key is bundled. Android UI/background scheduling and device MediaCodec still need device validation; exact build and check receipts ship with the release.
 

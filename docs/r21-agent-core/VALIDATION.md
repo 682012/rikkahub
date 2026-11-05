@@ -1,43 +1,62 @@
 # r21 Agent 优化 · 验证范围
 
-版本草稿 `3.1.1-r21 / 3000068`。本轮未执行任何 Gradle 任务、整包构建、安装、发布或付费模型探测，正式版本仍是 r20。
+版本 `3.1.1-r21 / 3000068`。**正式包已用 R8 + lintVital 构建并验包**（见下）；仍未安装到手机、未做真机点验；公开发布状态以 [r21 Release](https://github.com/682012/rikkahub/releases/tag/v3.1.1-r21) 为准。r20 的资产与标签未动。
 
-## 已执行的定向验证
+阅读顺序建议：先看「正式构建」，再看「当前定向 167」，最后看「历史 375」——三者不是同一批证据，不能相加。
 
-下列为真实 K2JVMCompiler 2.4.21 + JUnitCore 执行，使用实际依赖与源码，非手写替身；每组独立记录源码 hash。重复覆盖的测试不累计成新增测试数。
+## 一、正式构建（真实结果，2026-11-05/06）
 
-| 范围 | 当前结果 |
+| 项目 | 实际值 |
 |---|---|
-| Agent 主循环、工具调度、重复检测、HTTP 重试与预算 | 120 项，0 失败 |
-| 子代理 FIFO、取消回滚、后台工具交付与串行写屏障 | 28 项，0 失败 |
-| 会话/收件箱归属、文件队列、后台通知交付、防重复与发送恢复 | 73 项，0 失败 |
-| 独立记忆复制与对话查询隔离 | 2 + 6 项，0 失败 |
-| 经验学习内核与超大损坏文件恢复 | 9 项，0 失败 |
-| 整轮自动恢复决策与检查点 | 31 项，0 失败，其中 15 项 RecoveryPolicy 测试也在 Agent 组内 |
-| 记忆注入预算、整理调度/补做、整理 transcript | 9 + 27 + 11 项，0 失败 |
-| 通知 tag、PendingIntent 用途与哈希碰撞 | 21 项，0 失败 |
-| 启动策略、轨道状态与样式 | 15 + 14 项，0 失败；旧错误遮住生成状态的失败已修后复跑 |
+| 命令 | `./gradlew :app:assembleGithubRelease`（R8 + release lintVital，非 fastBuild） |
+| 结果 | 一次通过，`BUILD SUCCESSFUL in 32m 34s`；Room/KSP、整包 Kotlin、R8、lintVital 全部完成，mapping 1,546,908 行 |
+| 构建来源 | 唯一幂等 job `idem-5df62db4b9dd07b77ca82ef4`；sourceId `986fcce3e2701f5e0cadfc0f1c794e6ec443355aa6b72c02abc259651dca2839` |
+| 源码一致性 | 出包时冻结清单 2623 个文件逐 hash 核对零漂移；输入包 55,085,763 B。发布仅补文档、校验记录和生成 schema，运行时代码不变 |
+| 产物 | `rikkahub-3.1.1-r21.apk`，45,842,374 字节（43.72 MiB），SHA-256 `623e7ebde54f604e95df25d8c6ddd04874937a71ec51291a306c1b3042b167c9` |
+| 包体核对 | 包名 `me.rerere.rikkahub.fork`、versionName/versionCode、原 r20 证书、arm64-v8a + x86_64、ZIP CRC、云端与本地哈希均通过（`RELEASE-VERIFICATION.json` 的 assertions 全 true） |
+| 数据库 | 真实 Room 导出 schema 35，identityHash `1f1167d7b7175efa7f8fde4946443215`；34→35 显式迁移只加 `lineage_id` / `folder_assignment_locked` 两列，旧行 COALESCE 兜底、不回填 |
 
-以上按测试类去重共 **375 项真实 JUnit 测试**，全部通过；汇总时重新核对测试源码/生产源码 hash 均与当前工作树一致。
+构建本身的通过只说明 Gradle、KSP、AAPT、R8、lintVital 与打包链路对这份源码成立，**不**说明界面、通知、后台调度在设备上表现正确。
 
-五条供应商 HTTP 路径连同 ErrorParser/Retry/RecoveryPolicy、流解码与消息定义，共 23 个真实源文件，定向编译通过。未执行真实网络请求或 SSE 回调。
+## 二、当前定向验证（本轮 167 项）
 
-## 接线编译与未覆盖范围
+真实 Kotlin/JUnit 执行，使用实际源码与依赖，按 scope 记录输入与 SHA；汇总见 Release 附件 [TARGETED-CHECKS.json](https://github.com/682012/rikkahub/releases/download/v3.1.1-r21/TARGETED-CHECKS.json)。会话元信息 scope 的 `ChatReconnectPolicy.kt` 是较早的伴随编译依赖，其最终版本另由流式内核与恢复 scope 覆盖；167 项不是把所有历史套件重新绑定到同一个提交做的全量运行。
 
-- ChatService / AppModule、队列、恢复、通知与磁贴连同 80 个真实源文件已做独立编译，零错误。完整 Compose 页面（32 个真实源文件）也已通过真实 Compose 编译器检查，零错误。三组接线的当前字节与回执一致。早期失败主要来自旧 Debug jar 不含 r20 的继承接口、缺 Ktor/MCP/Koin/Coil/Firebase 依赖，不能把这些直接当成生产代码缺陷；发现的三处错误 Compose 调用已经修复，最终接线回执已确认这些修复通过编译。
-- 完整 Gradle 配置、AAPT/KSP、lintVital/R8、APK 签名/升级、真机视觉与交互均未运行。JVM 中的 Android SDK jar 仅用于类型检查，生成的 R.java 仅校验符号，不代表资源链接。
+| 范围 | 结果 |
+|---|---|
+| 流式内核与恢复（工具参数完整状态、主循环回归、检查点与中断草稿分支） | 49 项，0 失败 |
+| 真实草稿解析（流式工具参数增量、转义与 Unicode、同长度重写） | 24 项，0 失败 |
+| 时间（每 step 取设备时钟、时区偏移、历史时间不冒充现在） | 16 项，0 失败 |
+| 正文/时间指标（Unicode 码点、含标点不含空白、开始/结束分开） | 9 项，0 失败 |
+| HTML 纯策略（HTML/SVG 文档、CSP 叠加、fragment 与资源作用域；不含 WebView 运行期） | 10 项，0 失败 |
+| 归库 planner/store（候选筛选、置信度与家族规则、批次上限、撤销日志、按助手设置） | 55 项，0 失败 |
+| 会话元信息提交（未加载历史保留、写失败不发布、忙碌拦截、阻止陈旧提交并释放 guard） | 4 项，0 失败 |
 
-## 工作区证据入口
+合计 **167 项，0 失败**。这些测试覆盖的是纯逻辑与状态机；它们不含 Compose 渲染、真实网络请求、WorkManager 调度或数据库真机迁移。
 
-`/workspace/rk-sync/r21-agent-core/` 下：
+## 三、历史基线（375 项，不等于当前通过数）
 
-- `checks/runs/`：Agent 与记忆定向检查的分次回执。
-- `D-check/`：许可池与后台工具真实 JUnit 回执。
-- `checks/m-check/`：隔离、学习、恢复的分 scope 回执。
-- `checks/http-wiring/results/PROVIDERS-COMPILE.json`：五条 HTTP 路径定向编译。
-- `checks/q-notification/`、`checks/pure-ui/`：通知身份与启动/轨道纯函数。
-- `checks/preflight-static/`：中英资源、Manifest 引用与版本静态清单。
-- `checks/n2-service/`、`checks/ui-final/`：服务与最终 UI 接线材料；`checks/n-wiring/` 保留早期闭包排错记录。
-- `checks/FINAL-EVIDENCE.json`：按测试类去重、核对当前源码 hash 的统一清单。
+早期 r21 Agent 阶段的定向检查共 375 项（主循环/工具调度 120、子代理 28、队列与通知 73、记忆与对话查询 8、经验学习 9、自动恢复 31、记忆注入与整理 47、通知身份 21、启动与轨道纯函数 29 等，按测试类去重），当时绑定的是**更早的冻结提交** 8ba55c4 前后的工作树。
 
-旧 `r21-productivity/release/` 只绑定大优化前的阶段快照，不能用作本轮最终构建证据。后续出包需在源码冻结后另建回执目录。
+它们证明的是那一阶段的行为；本轮源码在助手隔离、队列、恢复、UI 等处已再次改动，因此：
+
+- 375 项不能写成「当前也全部通过」；
+- 也不能与当前 167 项相加宣称「542 项通过」——那是两批不同输入上的结果；
+- 需要为某一项背书时，以对应 scope 的新回执为准。
+
+旧 `r21-productivity/release/` 只绑定大优化前的阶段快照，同样不能用作本轮构建证据。
+
+## 四、未做的运行期验收
+
+- **未自动安装**到用户手机，**未**做真机界面点验：Compose 观感、轨道风格实际排版、启动动效播放、工具草稿卡片、归库面板交互都没有在设备上点过。
+- 通知点击与授权、系统 WorkManager 调度与恢复、SAF provider、设备 MediaCodec 导出、快捷磁贴绑定：未做运行期验收。
+- 网页只在 Chromium（移动视口）实渲染通过；新 APK 的 WebView 行为与根因未在真机证实。
+- 未跑全量 `test` / `lint` / `spotless`；本轮定向以外没有新增测试数据。
+- 没有真实供应商网络请求或 SSE 回调验证；五条供应商 HTTP 路径此前的定向编译属于历史证据，不能代表当前运行期行为。
+
+## 五、证据入口
+
+- 构建与验包：`rk-sync/r21-release/RELEASE-VERIFICATION.json`、`SHA256SUMS`、`BUILD-STATE.json`、`build/AWAIT-RESULT.json`。
+- 当前 167 项各 scope 回执：`rk-sync/r21-release/evidence/CURRENT-CHECKS.json`。
+- 全树回滚备份：`r21-agent-core/pre-release-20261105T165604Z/source.tar.gz`（已验 gzip/SHA）。
+- 历史阶段的 Agent/记忆/通知/UI 回执仍在 `rk-sync/r21-agent-core/checks/` 下，按冻结提交读取，勿当本轮结果。

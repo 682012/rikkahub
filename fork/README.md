@@ -11,7 +11,7 @@
 | 包名 | `me.rerere.rikkahub.fork`（Debug 变体 `me.rerere.rikkahub.fork.debug`） |
 | 应用名 / 图标 / 签名 | 与 r10 及更早的本分支版本一致，未改 |
 | 官方基线 | `3.1.1` / `ad2c4430`，已合入上游 master `5ad19405` |
-| 数据库 | schema 34（沿用 r3 起的本分支编号，不与官方编号混用） |
+| 数据库 | schema 35（r21 在会话表新增 `lineage_id` / `folder_assignment_locked`，显式 34→35 迁移，旧行 COALESCE 兜底；沿用 r3 起的本分支编号，不与官方编号混用） |
 | 发布标签 / 资产名 | `v3.1.1-r21` / `rikkahub-3.1.1-r21.apk` |
 
 已发布的历史版本各自保留 tag 与资产，不覆盖、不复用版本号。正式下载入口为 [Latest](https://github.com/682012/rikkahub/releases/latest)，固定版本按 tag 取包。
@@ -66,13 +66,32 @@ GitHub 的 `Fork Verify` 验证流程使用 `KEY_BASE64`、`SIGNING_CONFIG` 与�
 6. 维护分支的 CI 手动触发（`Fork Verify` 只在推送 `ci/**` 或手动运行时构建签名包、跑 JVM 与 API 34 模拟器测试），不自动发 Release；推文档不会顺带发 nightly。
 7. 可见版本号用「上游版本 + 短后缀」（`3.1.1-r10`、`3.1.1-r11`），versionCode 独立递增，不再套早期的 `3000000 + fork.N` 公式。
 
-## r20 的验证入口
+## r21 的验证入口
 
-本版只运行本次改动相关的定向检查，不重跑历史全套。正式构建使用 Windows 云节点 `release`（R8 + lintVital）；冻结源码、构建 sourceId、APK 版本/签名/ABI/CRC/资源校验、源码逐文件比对与公开下载校验分别留证。真实结果随 [正式 Release](https://github.com/682012/rikkahub/releases/latest) 的 `r20.json` 与校验文件交付，不能把下述历史结果当作新版本通过。
+本版只运行本次改动相关的定向检查，不重跑历史全套。正式构建使用 Windows 云节点 `release`（R8 + lintVital），唯一幂等 job `idem-5df62db4b9dd07b77ca82ef4`，`sourceId 986fcce3e2701f5e0cadfc0f1c794e6ec443355aa6b72c02abc259651dca2839`，`./gradlew :app:assembleGithubRelease` 一次通过，Gradle 32m34s，Room/KSP、整包 Kotlin、R8 与 lintVital 全部完成，mapping 1,546,908 行。产物 `rikkahub-3.1.1-r21.apk` 45,842,374 字节（43.72 MiB），SHA-256 `623e7ebde54f604e95df25d8c6ddd04874937a71ec51291a306c1b3042b167c9`；包名、版本名/码、原 r20 证书、arm64-v8a + x86_64、ZIP CRC 与云端/本地哈希均核过。构建时冻结清单 2623 个文件逐 hash 比对零漂移；发布阶段只补文档、校验记录与 Room 导出 schema，运行时代码不变，真实 Room 导出的 schema 35（identityHash `1f1167d7b7175efa7f8fde4946443215`）随源码归档。
 
-共享云构建目录同一时间只跑一份任务；队列空闲后才能同步源码，提交绑定本次 sourceId。超时查原 job，不换幂等键重投。
+定向 Kotlin/JUnit 当前 167 项：流式内核与恢复 49、真实草稿解析 24、时间 16、正文/时间指标 9、HTML 策略 10、归库 planner/store 55、会话元信息提交 4，全部通过。历史 375 项属于更早的冻结提交，**不能**与本轮相加宣称「542 项通过」。仍没有自动安装、真机 UI 点验、通知点击、WorkManager 调度/恢复、SAF、MediaCodec 与快捷磁贴绑定的运行期验收；网页只在 Chromium 移动视口实渲染。真实结果随 [正式 Release](https://github.com/682012/rikkahub/releases/latest) 的 `r21.json` 与校验文件交付。
 
-## 历史 r11 的验证范围（不替代 r20）
+## r21 源码对应（维护用）
+
+| 主题 | 主要位置 |
+|---|---|
+| 主循环：工具索引、参数缓存、周期重复检测、步数继承 | `ai/src/main/java/me/rerere/ai/agent/AgentLoop.kt`、`ToolRepetition.kt` |
+| 助手隔离与显式迁移 | `data/model/Conversation.kt`（`migrateToAssistant`）、`ConversationConfig.orphanAssistant()`、`data/repository/MemoryRepository.kt` |
+| 恢复决策与通知 | `ChatAutoRecovery`、`ChatReconnectCheckpoint`、`ChatRecoveryNotificationManager`（`service/ChatService.kt` 接线） |
+| 经验学习 | `data/repository/AssistantLearningRepository.kt`、UI 在助手 → 记忆 →「经验」 |
+| 家族折叠 | `data/organization/ConversationLineage.kt`、`data/db/dao/ConversationDAO.kt`、`ConversationFork.kt` |
+| 相似话题归库 | `data/organization/autofile/`（Controller/Planner/Journal/Work），UI `ui/pages/chat/ConversationAutoFilePanel.kt` |
+| 工具参数实时草稿 | `service/ChatService.kt`（`STREAM_TOOL_DRAFT_PERSIST_INTERVAL_MS = 500`）、`ai/ui/StreamChunkHandler.kt` |
+| 数据库 34→35 | `data/db/AppDatabase.kt`（`version = 35`）、`data/db/migrations/Migration_34_35.kt` |
+| 轨道风格与启动动效 | `ChatUiStyle` / `ChatStyleSpec`、`app/src/main/java/me/rerere/rikkahub/startup/` |
+| 小宠物磁贴 | `CompanionQuickTileService`（`AndroidManifest.xml` 已声明 `BIND_QUICK_SETTINGS_TILE`） |
+
+改这些区域时留意：`ConversationEntity` 的 summary 转换必须带出 `lineageId` 与 `folderAssignmentLocked`，否则候选会被当成「未锁、独立家族」；归库只能走 `ChatService.applyAutoFileMove`，不要读整条会话再存回去。
+
+共享云构建目录同一时间只跑一份任务；队列空闲后才能同步源码，提交绑定本次 sourceId。超时查原 job，不换幂等键重投；`build-r21.py` 发现既有 submit 回执会拒绝重投。
+
+## 历史 r11 的验证范围（不替代 r21）
 
 - 正式 Release 构建完成，R8 与 lintVital 通过；版本、包名、原签名、双 ABI、ZIP 完整性与传输 SHA-256 已核对。
 - 16 个测试套件、168 项定向单元测试通过（0 失败 / 0 错误 / 0 跳过）；正式发布复用已有结果，没有重跑测试。
