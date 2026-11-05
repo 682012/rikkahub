@@ -404,6 +404,7 @@ class MediaCreationService(
                 val limit = if (isVideo) MediaOutputVerifier.MAX_VIDEO_BYTES else MediaOutputVerifier.MAX_IMAGE_BYTES
                 val incoming = File(dir, "$OUTPUT_PREFIX$index.pending")
                 val data = output.data
+                val url = output.url
                 when {
                     data != null -> {
                         require(data.isNotEmpty() && data.size.toLong() <= limit) { "产出文件为空或超过大小限制" }
@@ -414,7 +415,7 @@ class MediaCreationService(
                             check(partial.renameTo(incoming)) { "产出文件保存失败" }
                         } finally { partial.delete() }
                     }
-                    !output.url.isNullOrBlank() -> download(setting, output.url, incoming, maxBytes = limit)
+                    !url.isNullOrBlank() -> download(setting, url, incoming, maxBytes = limit)
                     else -> error(context.getString(R.string.media_creation_error_no_output))
                 }
                 val actual = MediaOutputVerifier.validateLocal(

@@ -514,7 +514,7 @@ private fun isProbablyText(bytes: ByteArray): Boolean {
 }
 
 private fun isProbablyJson(text: String): Boolean {
-    if (runCatching { me.rerere.ai.util.json.parseToJsonElement(text) }.isSuccess) return true
+    if (runCatching { kotlinx.serialization.json.Json.parseToJsonElement(text) }.isSuccess) return true
     // 只截到头部时 JSON 不完整，退化成结构性检查
     val first = text.firstOrNull() ?: return false
     val last = text.trimEnd().lastOrNull() ?: return false
