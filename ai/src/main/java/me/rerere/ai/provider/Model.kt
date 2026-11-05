@@ -77,4 +77,15 @@ sealed class BuiltInTools {
     @Serializable
     @SerialName("image_generation")
     data object ImageGeneration : BuiltInTools()
+
+    /**
+     * OpenAI Responses 的 `code_interpreter`：模型在服务端容器里跑代码，生成的图表/文件以
+     * `container_file_citation` 返回。
+     *
+     * 请求侧只负责发送 `{"type":"code_interpreter","container":{"type":"auto"}}`；能否真正取回产物取决于
+     * 网关是否提供 `/containers/{id}/files/{id}/content`，需要实际探活，解析侧只按“识别到的形状”处理。
+     */
+    @Serializable
+    @SerialName("code_interpreter")
+    data object CodeInterpreter : BuiltInTools()
 }

@@ -16,9 +16,12 @@ import me.rerere.ai.ui.OpenAIReasoningMetadata
 import me.rerere.ai.ui.ReasoningType
 import me.rerere.ai.ui.ServerToolStatus
 import me.rerere.ai.ui.StreamChunk
+import me.rerere.ai.ui.UIMessageAnnotation
+import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.toMetadata
 import me.rerere.ai.util.json
 import me.rerere.ai.util.parseErrorDetail
+import me.rerere.common.http.jsonArrayOrNull
 import me.rerere.common.http.jsonObjectOrNull
 
 internal class ResponseApiStreamDecoder : StreamChunkDecoder {
@@ -139,6 +142,7 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
                 val type = item["type"]?.jsonPrimitive?.content ?: error("chunk type not found")
                 val id = item.itemIdOrCallId() ?: error("chunk id not found")
                 when (type) {
+                    "message" -> messageCitations(item)
                     "reasoning" -> {
                         val metadata = OpenAIReasoningMetadata(
                             reasoningId = id,
@@ -200,6 +204,10 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
             "response.completed", "response.incomplete" -> parseTerminalResponse(payload)
             "response.failed" -> failWithResponseError(payload)
             "error" -> failWithError(payload)
+            "response.output_text.annotation.added" -> {
+                val annotation = payload["annotation"]?.jsonObjectOrNull?.toResponsesAnnotation()
+                if (annotation == null) emptyList() else state.citations(listOf(annotation), source = null)
+            }
             else -> parseServerToolStatusEvent(chunkType, itemId)
         }
     }
@@ -215,6 +223,20 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
     private fun functionCallOutput(item: JsonObject): List<StreamChunk> {
         val callId = item["call_id"]?.jsonPrimitive?.contentOrNull ?: return emptyList()
         return state.endTool(callId) + StreamChunk.ToolCallOutput(callId, item.functionCallOutputText())
+    }
+
+    /**
+     * message item 的 `content[].annotations`。
+     *
+     * 流里可能先来 `response.output_text.annotation.added`，再在 `output_item.done` 里重复同一批注解；
+     * state 按 container/file id 去重，同一个文件只会得到一份注解和一份文件部件。
+     */
+    private fun messageCitations(item: JsonObject, refresh: Boolean = false): List<StreamChunk> {
+        val annotations = item["content"]?.jsonArrayOrNull.orEmpty()
+            .flatMap { content -> content.jsonObjectOrNull?.get("annotations")?.jsonArrayOrNull.orEmpty() }
+            .toResponsesAnnotations()
+        if (annotations.isEmpty()) return emptyList()
+        return state.citations(annotations, source = "message", refresh = refresh)
     }
 
     // function_call 的 item.id 在规范中是可选的，只有 call_id 必填
@@ -235,6 +257,13 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
 
         return buildList {
             parseUsage(response?.get("usage") as? JsonObject)?.let { add(StreamChunk.Usage(it)) }
+            // 部分网关只在终态里带完整 output，注解要在这里补一次（state 负责去重）
+            response?.get("output")?.jsonArrayOrNull.orEmpty().forEach { item ->
+                val itemObject = item.jsonObjectOrNull ?: return@forEach
+                val itemType = itemObject["type"]?.jsonPrimitive?.contentOrNull
+                if (itemType != "message") return@forEach
+                addAll(messageCitations(itemObject, refresh = true))
+            }
             addAll(state.finish(
                 finishReason = finishReason,
                 responseId = response?.get("id")?.jsonPrimitive?.contentOrNull,
@@ -287,6 +316,12 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
         val toolCallIdsByOutputIndex = mutableMapOf<Int, String>()
         val toolIdsWithInput = mutableSetOf<String>()
         val reasoningMetadata = mutableMapOf<String, JsonObject>()
+
+        /** 本次响应已见过的注解键，避免重复事件把同一引用挂多份。 */
+        private val knownAnnotationKeys = mutableSetOf<String>()
+
+        /** 本次响应已产出的文件产物 id。 */
+        private val knownFileArtifactIds = mutableSetOf<String>()
 
         // 文本 id（item:text:index）到当前 part id。xAI 在服务端工具前后都往同一个 message item 写正文，
         // 中间插进了其他 part 时要另起一段，part 才能按生成顺序排列
@@ -411,6 +446,33 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
             // 没收到开始事件时 part 在这里新建
             if (knownServerToolIds.add(id)) interruptTexts()
             return listOf(StreamChunk.ServerToolEnd(id, input, output, status, metadata))
+        }
+
+        /**
+         * 注解 + 文件产物。
+         *
+         * 去重键是 container/file id：`annotation.added` 和 `output_item.done` 会重复同一份注解，
+         * `response.completed` 又可能带上完整 output；每个文件只能产生一份注解和一份 [UIMessagePart.Document]。
+         * `url_citation` 不产生文件，只作为注解保留。
+         */
+        fun citations(
+            annotations: List<UIMessageAnnotation>,
+            source: String?,
+            refresh: Boolean = false,
+        ): List<StreamChunk> = buildList {
+            val fresh = mutableListOf<UIMessageAnnotation>()
+            val artifacts = mutableListOf<StreamChunk>()
+            annotations.forEach { annotation ->
+                val fileKey = annotation.fileArtifactId()
+                // 注解本身按内容去重；终态 refresh 只补文件部件，避免重复注解
+                if (!refresh && knownAnnotationKeys.add(annotation.annotationKey())) fresh += annotation
+                if (fileKey == null) return@forEach
+                if (!knownFileArtifactIds.add(fileKey)) return@forEach
+                val document = annotation.toFileArtifactPart(source) ?: return@forEach
+                artifacts += StreamChunk.FileArtifact(fileKey, document)
+            }
+            if (fresh.isNotEmpty()) add(StreamChunk.Annotations(fresh))
+            addAll(artifacts)
         }
 
         fun finish(

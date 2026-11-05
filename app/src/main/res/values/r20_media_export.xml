@@ -1,0 +1,14 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="r20_export_title">Export &amp; motion</string>
+    <string name="r20_export_local_note">Keep the original. GIF / MP4 motion transforms this image locally; it does not generate a new AI video scene.</string>
+    <string name="r20_export_motion_limit">Motion supports up to 1920×1080 pixels. MP4 needs even dimensions.</string>
+    <string name="r20_export_zoom">Zoom</string>
+    <string name="r20_export_pan">Pan</string>
+    <string name="r20_export_fade">Fade</string>
+    <string name="r20_export_first_frame">Animated inputs use their first frame. Save the original to preserve animation.</string>
+    <string name="r20_export_close">Close</string>
+    <string name="r20_export_cancel">Cancel export</string>
+    <string name="r20_export_start">Create file</string>
+    <string name="r20_export_failed">Export failed</string>
+</resources>

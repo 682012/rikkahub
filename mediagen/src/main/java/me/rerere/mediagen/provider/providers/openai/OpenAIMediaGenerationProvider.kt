@@ -7,6 +7,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
+import me.rerere.mediagen.model.MediaGenerationError
 import me.rerere.mediagen.model.MediaGenerationInput
 import me.rerere.mediagen.model.MediaGenerationModel
 import me.rerere.mediagen.model.MediaGenerationOutput
@@ -17,7 +18,6 @@ import me.rerere.mediagen.model.MediaGenerationUsage
 import me.rerere.mediagen.provider.MediaGenerationProvider
 import me.rerere.mediagen.provider.MediaGenerationProviderSetting
 import me.rerere.mediagen.provider.providers.executeJson
-import me.rerere.mediagen.provider.providers.imageMimeType
 import me.rerere.mediagen.provider.providers.long
 import me.rerere.mediagen.provider.providers.obj
 import me.rerere.mediagen.provider.providers.postJson
@@ -34,6 +34,16 @@ import kotlin.uuid.Uuid
 
 /**
  * 目前只实现了图像：接口同步返回结果，[create] 直接得到终态任务。请求里带图片输入时走编辑接口，否则走生成接口。
+ *
+ * ## 请求里的产出格式
+ * `output_format`（png / jpeg / webp）和 `quality` 都由 [MediaGenerationRequest.extraParameters] 传入：
+ * 它们只有部分模型接受，属于模型级差异，不属于适配器的公共字段。适配器只负责把它们原样下发，
+ * 并在公共字段之后写入，保证 `size` / `n` 不被覆盖。
+ *
+ * ## 响应里的产出格式
+ * 响应里的 `output_format`、`size` 都是**声明**，不是证据：实测同一中转在请求 png 时返回过 JPEG，
+ * 请求 1024x1024 时返回过 1254x1254。所以这里给出的 [MediaGenerationOutput.mimeType] 只能是提示，
+ * 真正可用与否由上层按文件字节判断。
  */
 class OpenAIMediaGenerationProvider(
     private val client: OkHttpClient,
@@ -61,6 +71,7 @@ class OpenAIMediaGenerationProvider(
         request: MediaGenerationRequest,
     ): JsonObject = buildJsonObject {
         validate(request)
+        // 先写公共请求里带入的额外参数，再由公共字段覆盖同名项
         request.extraParameters.forEach { (key, value) -> put(key, value) }
         put("model", model.modelId)
         put("prompt", request.prompt)
@@ -101,28 +112,45 @@ class OpenAIMediaGenerationProvider(
     }
 
     internal fun parseTask(root: JsonObject, fallbackModel: String? = null): MediaGenerationTask {
-        val defaultFormat = root.string("output_format")
-        val data = root["data"] as? JsonArray ?: error("OpenAI response does not contain data")
+        val data = root["data"] as? JsonArray
+        val outputs = data.orEmpty().mapNotNull { element ->
+            val item = element as? JsonObject ?: return@mapNotNull null
+            // 同一项里 url 和 b64_json 都给了、但都是空串的中转也见过，空串一律当作没有
+            val base64 = item.string("b64_json")?.takeIf { it.isNotBlank() }
+            val url = item.string("url")?.takeIf { it.isNotBlank() }
+            if (base64 == null && url == null) return@mapNotNull null
+            MediaGenerationOutput(
+                url = url,
+                data = base64?.let(::decodeBase64),
+                // 只是提示：请求什么格式、返回什么格式都不代表文件实际是什么。真正的格式由字节决定。
+                mimeType = mimeHint(item, root.string("output_format")),
+                // 同理，响应里的 size 是声明值，不能当作实际尺寸
+                resolution = item.string("size") ?: root.string("size"),
+            )
+        }
+        // 空 data、空 base64 都不能算成功：调用方拿到空列表只会得到「保存失败」这种更含糊的错误
+        val error = root.obj("error")
+        if (outputs.isEmpty()) {
+            return MediaGenerationTask(
+                id = Uuid.random().toString(),
+                provider = id,
+                model = fallbackModel,
+                status = MediaGenerationStatus.FAILED,
+                error = MediaGenerationError(
+                    code = error?.string("code"),
+                    message = error?.string("message") ?: "OpenAI returned no image",
+                ),
+                createdAtEpochSeconds = root.long("created"),
+                metadata = JsonObject(root - "data"),
+            )
+        }
         return MediaGenerationTask(
             // 同步接口没有服务端任务 ID
             id = Uuid.random().toString(),
             provider = id,
             model = fallbackModel,
             status = MediaGenerationStatus.SUCCEEDED,
-            outputs = data.map { element ->
-                val item = element.jsonObject
-                // 部分中转同时给 url 和空字符串的 b64_json，空串当作没有
-                val base64 = item.string("b64_json")?.takeIf { it.isNotBlank() }
-                // dall-e 系列和部分中转不返回 b64_json，而是有时效的 url
-                val url = item.string("url")?.takeIf { it.isNotBlank() }
-                if (base64 == null && url == null) error("OpenAI image contains neither b64_json nor url")
-                MediaGenerationOutput(
-                    url = url,
-                    data = base64?.let { Base64.decode(it.substringAfter("base64,")) },
-                    mimeType = imageMimeType(item.string("output_format") ?: defaultFormat, "image/png"),
-                    resolution = root.string("size"),
-                )
-            },
+            outputs = outputs,
             createdAtEpochSeconds = root.long("created"),
             usage = root.obj("usage")?.let {
                 MediaGenerationUsage(totalTokens = it.long("total_tokens"))
@@ -130,6 +158,32 @@ class OpenAIMediaGenerationProvider(
             // data 里是整张图片的 base64，不放进 metadata
             metadata = JsonObject(root - "data"),
         )
+    }
+
+    // 部分中转把 base64 包成 data URI 返回
+    private fun decodeBase64(value: String): ByteArray {
+        require(value.length <= 90 * 1024 * 1024) { "Image payload exceeds 64 MiB" }
+        return Base64.decode(value.substringAfter("base64,")).also { require(it.isNotEmpty()) { "Image payload is empty" } }
+    }
+
+    // 每项自己的 output_format 优先，其次响应顶层的，最后按扩展名猜；都对不上时按 png 提示
+    private fun mimeHint(item: JsonObject, defaultFormat: String? = null): String {
+        val format = item.string("output_format")
+            ?: item.string("media_type")
+            ?: defaultFormat
+            ?: item.string("url")?.let { url -> url.substringBefore('?').substringAfterLast('/').substringAfterLast('.', "") }
+        return when {
+            format.isNullOrBlank() -> "image/png"
+            format.startsWith("image/") -> format.lowercase()
+            else -> when (format.lowercase()) {
+                "png" -> "image/png"
+                "jpg", "jpeg" -> "image/jpeg"
+                "webp" -> "image/webp"
+                "gif" -> "image/gif"
+                "svg" -> "image/svg+xml"
+                else -> "image/png"
+            }
+        }
     }
 
     private fun validate(request: MediaGenerationRequest) {

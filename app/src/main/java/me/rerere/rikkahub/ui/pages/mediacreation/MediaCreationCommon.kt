@@ -53,6 +53,15 @@ import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.files.MediaCreationFiles
 import me.rerere.rikkahub.data.model.MediaCreationParams
 import me.rerere.rikkahub.data.model.MediaCreationStatus
+import me.rerere.rikkahub.data.model.MediaImageComplexity
+import me.rerere.rikkahub.data.model.MediaImageDispatch
+import me.rerere.rikkahub.data.model.MediaImageExportFit
+import me.rerere.rikkahub.data.model.MediaImageExportMode
+import me.rerere.rikkahub.data.model.MediaImageFormat
+import me.rerere.rikkahub.data.model.MediaImageNote
+import me.rerere.rikkahub.data.model.MediaImageModels
+import me.rerere.rikkahub.data.model.MediaImageQuality
+import me.rerere.rikkahub.data.model.dispatchFor
 import me.rerere.rikkahub.utils.getActivity
 import java.io.File
 
@@ -77,11 +86,18 @@ internal val MediaCreationStatus.label: String
 /** 时长的特殊取值：交给模型决定（智能时长）。 */
 internal const val AUTO_DURATION = -1
 
-/** 用户改过的参数，按「比例 · 分辨率 · 时长 · 数量」的顺序列出；都没改时为空。 */
+/**
+ * 用户改过的参数，按「比例 · 分辨率 · 时长 · 数量」的顺序列出；都没改时为空。
+ *
+ * 图像选项给出的是**实际下发**的值（[MediaImageDispatch]），不是用户点过的值：接口不认的取值不会出现在这里。
+ */
 @Composable
-internal fun MediaCreationParams.summary(kind: MediaKind): List<String> = listOfNotNull(
+internal fun MediaCreationParams.summary(kind: MediaKind, imageModelId: String? = null): List<String> {
+    val image = imageModelId?.let { this.image.dispatchFor(it, this) }
+    val imageSize = image?.resolution
+    return listOfNotNull(
     aspectRatio,
-    resolution,
+    (imageSize ?: resolution)?.let { size -> imageSize?.let { "$it ${stringResource(R.string.r20_media_size_requested)}" } ?: size },
     durationSeconds?.let {
         if (it == AUTO_DURATION) {
             stringResource(R.string.media_creation_page_summary_auto_duration)
@@ -120,7 +136,59 @@ internal fun MediaCreationParams.summary(kind: MediaKind): List<String> = listOf
         )
     },
     seed?.let { stringResource(R.string.media_creation_page_summary_seed, it) },
-)
+    MediaImageFormat.fromKey(image?.extra?.get("output_format")?.content)?.label,
+    MediaImageQuality.fromKey(image?.extra?.get("quality")?.content)?.label,
+    MediaImageComplexity.fromKey(image?.extra?.get("complexity")?.content)?.label,
+    )
+}
+
+internal val MediaImageFormat.label: String
+    @Composable get() = when (this) {
+        MediaImageFormat.PNG -> stringResource(R.string.r20_media_format_png)
+        MediaImageFormat.JPEG -> stringResource(R.string.r20_media_format_jpeg)
+        MediaImageFormat.WEBP -> stringResource(R.string.r20_media_format_webp)
+        MediaImageFormat.GIF -> "GIF"
+    }
+
+internal val MediaImageQuality.label: String
+    @Composable get() = when (this) {
+        MediaImageQuality.AUTO -> stringResource(R.string.r20_media_quality_auto)
+        MediaImageQuality.LOW -> stringResource(R.string.r20_media_quality_low)
+        MediaImageQuality.MEDIUM -> stringResource(R.string.r20_media_quality_medium)
+        MediaImageQuality.HIGH -> stringResource(R.string.r20_media_quality_high)
+        MediaImageQuality.XHIGH -> stringResource(R.string.r20_media_quality_xhigh)
+        MediaImageQuality.MAX -> stringResource(R.string.r20_media_quality_max)
+    }
+
+internal val MediaImageComplexity.label: String
+    @Composable get() = when (this) {
+        MediaImageComplexity.LOW -> stringResource(R.string.r20_media_complexity_low)
+        MediaImageComplexity.MEDIUM -> stringResource(R.string.r20_media_complexity_medium)
+        MediaImageComplexity.HIGH -> stringResource(R.string.r20_media_complexity_high)
+    }
+
+internal val MediaImageExportMode.label: String
+    @Composable get() = when (this) {
+        MediaImageExportMode.ORIGINAL -> stringResource(R.string.r20_media_export_original)
+        MediaImageExportMode.REENCODE -> stringResource(R.string.r20_media_export_reencode)
+    }
+
+internal val MediaImageExportFit.label: String
+    @Composable get() = when (this) {
+        MediaImageExportFit.CONTAIN -> stringResource(R.string.r20_media_export_fit_contain)
+        MediaImageExportFit.COVER -> stringResource(R.string.r20_media_export_fit_cover)
+        MediaImageExportFit.STRETCH -> stringResource(R.string.r20_media_export_fit_stretch)
+    }
+
+/** 这些提示和 [MediaImageDispatch.notes] 一一对应，说明这一项实际会怎么下发。 */
+internal val MediaImageNote.message: String
+    @Composable get() = when (this) {
+        MediaImageNote.QUALITY_DOWNGRADED -> stringResource(R.string.r20_media_note_quality_downgraded)
+        MediaImageNote.SIZE_NOT_SENT -> stringResource(R.string.r20_media_note_size_not_sent)
+        MediaImageNote.SIZE_FROM_ASPECT_RATIO -> stringResource(R.string.r20_media_note_size_from_ratio)
+        MediaImageNote.ACTUAL_SIZE_MAY_DIFFER -> stringResource(R.string.r20_media_note_actual_size)
+        MediaImageNote.COMPLEXITY_NOT_SENT -> stringResource(R.string.r20_media_note_complexity_not_sent)
+    }
 
 /**
  * 各厂商常用的参数取值，只是输入时的快捷选项：模型之间的差异很大，实际能用哪些值以接口为准，
@@ -143,10 +211,16 @@ internal data class MediaCreationPresets(
 }
 
 internal fun MediaGenerationProviderSetting.presets(kind: MediaKind): MediaCreationPresets = when (this) {
-    is MediaGenerationProviderSetting.OpenAI -> MediaCreationPresets(
-        resolutions = listOf("1024x1024", "1536x1024", "1024x1536"),
-        counts = IMAGE_COUNTS,
-    )
+    // 2 / 2.5 / 2.6 都接受任意尺寸；1024x1024 实测常常给出 1254，这里只当作「要一张方图」
+    is MediaGenerationProviderSetting.OpenAI -> when (kind) {
+        MediaKind.IMAGE -> MediaCreationPresets(
+            resolutions = MediaImageModels.SIZE_PRESETS,
+            counts = IMAGE_COUNTS,
+        )
+
+        // 适配器没有实现视频，列不出选项
+        MediaKind.VIDEO -> MediaCreationPresets()
+    }
 
     is MediaGenerationProviderSetting.Volcengine -> when (kind) {
         // 各代 Seedream 的档位不同：5.0 pro / flash 是 1K、1.5K、2K，5.0 lite 是 2K、3K、4K，4.5 是 2K、4K

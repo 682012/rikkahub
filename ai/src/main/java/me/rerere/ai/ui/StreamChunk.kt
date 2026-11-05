@@ -150,6 +150,19 @@ sealed class StreamChunk {
     @SerialName("annotations")
     data class Annotations(val annotations: List<UIMessageAnnotation>) : StreamChunk()
 
+    /**
+     * Provider 明确把某个生成文件作为产物返回（例如 Responses 的 `container_file_citation`）。
+     *
+     * [document] 里的 url 是 [UIMessagePart.Document] 的安全引用（可能不是 http(s)，需要鉴权才能取到内容），
+     * 收到后按 [id] 幂等追加，避免同一响应里重复的注解/终态事件把同一个文件挂多份。
+     */
+    @Serializable
+    @SerialName("file_artifact")
+    data class FileArtifact(
+        val id: String,
+        val document: UIMessagePart.Document,
+    ) : StreamChunk()
+
     @Serializable
     @SerialName("usage")
     data class Usage(

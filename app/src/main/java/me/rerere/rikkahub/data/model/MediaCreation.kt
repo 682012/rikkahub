@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 import me.rerere.mediagen.model.ImageRole
 import me.rerere.mediagen.model.MediaGenerationInput
 import me.rerere.mediagen.model.MediaGenerationRequest
@@ -58,6 +59,9 @@ data class MediaCreationAsset(
 
 /**
  * 用户选择的公共参数，null 表示交给接口的默认值。
+ *
+ * 图像专属的选项放在 [image] 里：它们只有部分模型接受，不进入公共字段，也不会在切换模型时被静默改写。
+ * 导出相关的字段只在本地按目标尺寸重新编码时用得上，不影响下发给接口的请求。
  */
 @Serializable
 data class MediaCreationParams(
@@ -69,7 +73,24 @@ data class MediaCreationParams(
     val watermark: Boolean? = null,
     val seed: Long? = null,
     val promptEnhancement: Boolean? = null,
-)
+    val image: MediaImageOptions = MediaImageOptions(),
+    /** 原样保存，或者在本地重新编码到 [exportWidth] × [exportHeight]。 */
+    val exportMode: MediaImageExportMode = MediaImageExportMode.ORIGINAL,
+    /** 本地重新编码的目标尺寸；为 null 表示保持原图尺寸。 */
+    val exportWidth: Int? = null,
+    val exportHeight: Int? = null,
+    val exportFit: MediaImageExportFit = MediaImageExportFit.CONTAIN,
+    /** 本地重新编码的背景色（ARGB）。透明原图保留 alpha 时用不到，其余情况铺在空出来的地方。 */
+    val exportBackground: Long = OPAQUE_WHITE,
+) {
+    /** 是否设了有效的导出目标尺寸。 */
+    val hasExportTarget: Boolean
+        get() = exportWidth != null && exportHeight != null && exportWidth > 0 && exportHeight > 0
+
+    companion object {
+        const val OPAQUE_WHITE: Long = 0xFFFFFFFFL
+    }
+}
 
 /**
  * 一项已经落盘的产出，路径都相对于应用的 filesDir。
@@ -166,6 +187,13 @@ fun MediaCreationParams.supportedBy(capabilities: MediaGenerationCapabilities): 
         watermark = watermark.takeIfSupported(MediaGenerationParameter.WATERMARK),
         seed = seed.takeIfSupported(MediaGenerationParameter.SEED),
         promptEnhancement = promptEnhancement.takeIfSupported(MediaGenerationParameter.PROMPT_ENHANCEMENT),
+        // 图像专属选项不属于公共字段：只在下发给图像接口时由适配器按模型筛选，这里原样保留
+        image = image,
+        exportMode = exportMode,
+        exportWidth = exportWidth,
+        exportHeight = exportHeight,
+        exportFit = exportFit,
+        exportBackground = exportBackground,
     )
 }
 
@@ -190,6 +218,12 @@ fun MediaCreationParams.withRequired(
         seed = seed.orRequired(MediaGenerationParameter.SEED, defaults.seed),
         promptEnhancement = promptEnhancement
             .orRequired(MediaGenerationParameter.PROMPT_ENHANCEMENT, defaults.promptEnhancement),
+        image = image,
+        exportMode = exportMode,
+        exportWidth = exportWidth,
+        exportHeight = exportHeight,
+        exportFit = exportFit,
+        exportBackground = exportBackground,
     )
 }
 
@@ -235,6 +269,10 @@ fun MediaCreationDraft.canSubmit(capabilities: MediaGenerationCapabilities): Boo
 /**
  * 组装下发给适配器的请求。[inputUrls] 与 [assets] 一一对应，是适配器可以直接使用的地址
  * （公网地址或本地文件路径）。
+ *
+ * 图像请求会把 [MediaCreationParams.image] 换算成 `output_format` / `quality` / `output_compression` /
+ * `complexity` 放进 `extraParameters`。适配器先写这些参数、再写公共字段，所以 `size`、`n` 仍然由公共字段决定。
+ * 没有 `imageModelId` 时不加任何图像专属参数。
  */
 fun buildMediaGenerationRequest(
     prompt: String,
@@ -242,9 +280,11 @@ fun buildMediaGenerationRequest(
     assets: List<MediaCreationAsset>,
     inputUrls: List<String>,
     capabilities: MediaGenerationCapabilities,
+    imageModelId: String? = null,
 ): MediaGenerationRequest {
     require(assets.size == inputUrls.size) { "assets and inputUrls must have the same size" }
     val supported = params.supportedBy(capabilities)
+    val image = imageModelId?.let { params.image.dispatchFor(it, params) }
     return MediaGenerationRequest(
         prompt = prompt.takeIf(String::isNotBlank),
         inputs = assets.zip(inputUrls) { asset, url ->
@@ -254,13 +294,14 @@ fun buildMediaGenerationRequest(
             }
         },
         count = supported.count,
-        resolution = supported.resolution,
+        resolution = image?.resolution ?: supported.resolution,
         aspectRatio = supported.aspectRatio,
         durationSeconds = supported.durationSeconds,
         generateAudio = supported.generateAudio,
         watermark = supported.watermark,
         seed = supported.seed,
         promptEnhancement = supported.promptEnhancement,
+        extraParameters = image?.asJson() ?: JsonObject(emptyMap()),
     )
 }
 

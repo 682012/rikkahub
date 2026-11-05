@@ -118,7 +118,18 @@ import me.rerere.rikkahub.data.model.MediaCreationAssetType
 import me.rerere.rikkahub.data.model.MediaCreationDraft
 import me.rerere.rikkahub.data.model.MediaCreationOutput
 import me.rerere.rikkahub.data.model.MediaCreationParams
+import me.rerere.rikkahub.data.model.MediaImageComplexity
+import me.rerere.rikkahub.data.model.MediaImageDispatch
+import me.rerere.rikkahub.data.model.MediaImageExportFit
+import me.rerere.rikkahub.data.model.MediaImageExportMode
+import me.rerere.rikkahub.data.model.MediaImageFormat
+import me.rerere.rikkahub.data.model.MediaImageModels
+import me.rerere.rikkahub.data.model.MediaImageNote
+import me.rerere.rikkahub.data.model.MediaImageOptions
+import me.rerere.rikkahub.data.model.MediaImageQuality
 import me.rerere.rikkahub.data.model.canSubmit
+import me.rerere.rikkahub.data.model.dispatchFor
+import me.rerere.rikkahub.data.model.effectiveQualityOrHigh
 import me.rerere.rikkahub.data.model.mixesFramesWithReferences
 import me.rerere.rikkahub.data.model.withRequired
 import me.rerere.rikkahub.ui.components.ai.PickerHeader
@@ -281,7 +292,7 @@ internal fun MediaCreationComposer(
                     if (selection != null && capabilities != null && capabilities.parameters.isNotEmpty()) {
                         val summary = draft.params
                             .withRequired(capabilities, selection.provider.presets(selection.model.kind).defaults)
-                            .summary(selection.model.kind)
+                            .summary(selection.model.kind, selection.imageModelId)
                         ComposerChip(
                             icon = HugeIcons.SlidersHorizontal,
                             text = summary.take(3).joinToString(" · ")
@@ -879,10 +890,17 @@ private fun ParamsSheet(
     val required = selection.capabilities.requiredParameters
     val presets = remember(selection.provider, kind) { selection.provider.presets(kind) }
     val defaults = presets.defaults
+    // 图像格式 / 质量 / 复杂度只有 OpenAI 图像接口能吃下，其它厂商不展示假选项
+    val imageModelId = selection.imageModelId
+    val showImageOptions = imageModelId != null && selection.provider is MediaGenerationProviderSetting.OpenAI
+    // 实际会下发什么：和提交时用的是同一份换算
+    val dispatch = remember(imageModelId, current) {
+        imageModelId?.let { current.image.dispatchFor(it, current) }
+    }
 
     ComposerSheet(onDismiss = onDismiss) {
         // 改过的参数，和输入区按钮上显示的是同一份
-        val changed = current.summary(kind)
+        val changed = current.summary(kind, imageModelId)
         PickerHeader(
             title = stringResource(R.string.media_creation_page_params_title),
             hint = changed.joinToString(" · ")
@@ -915,6 +933,22 @@ private fun ParamsSheet(
                     onValueChange = { update(current.copy(aspectRatio = it)) },
                 )
             }
+            if (showImageOptions && imageModelId != null) {
+                ImageOutputSection(
+                    modelId = imageModelId,
+                    options = current.image,
+                    dispatch = dispatch,
+                    onOptionsChange = { update(current.copy(image = it)) },
+                )
+                // 尺寸之外，用户最常调的就是质量：新请求默认「高」，但面板打开时不一定已经写回草稿
+                if (current.image.quality == null) {
+                    Text(
+                        text = stringResource(R.string.r20_media_quality_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
             if (MediaGenerationParameter.RESOLUTION in supported) {
                 TextParam(
                     label = stringResource(R.string.media_creation_page_param_resolution),
@@ -930,6 +964,24 @@ private fun ParamsSheet(
                     ),
                     onValueChange = { update(current.copy(resolution = it)) },
                 )
+                // 自定义尺寸不合法时明确告诉用户不会被下发，而不是发出去换一个 400
+                val customInvalid = current.resolution
+                    ?.let { MediaImageModels.parsePixelSize(it) }
+                    ?.let { imageModelId?.let { id -> !MediaImageModels.isUsableSize(id, current.resolution) } } == true
+                if (customInvalid) {
+                    Text(
+                        text = stringResource(R.string.r20_media_size_invalid),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                dispatch?.notes?.forEach { note ->
+                    Text(
+                        text = note.message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (MediaGenerationParameter.DURATION in supported) {
                 NumberParam(
@@ -981,6 +1033,109 @@ private fun ParamsSheet(
                     allowZero = true,
                     maxDigits = 10,
                     onValueChange = { update(current.copy(seed = it)) },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 图像产出的格式 / 质量 / 复杂度。这三项不在公共参数里，值通过 `extraParameters` 下发给接口，
+ * 所以这里显示的是「实际会下发」的结果：接口不认的档位会被标出来，而不是悄悄换掉。
+ */
+@Composable
+private fun ImageOutputSection(
+    modelId: String,
+    options: MediaImageOptions,
+    dispatch: MediaImageDispatch?,
+    onOptionsChange: (MediaImageOptions) -> Unit,
+) {
+    val qualities = remember(modelId) { supportedQualityChoices(modelId) }
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(
+            text = stringResource(R.string.r20_media_section_output),
+            style = MaterialTheme.typography.titleSmallEmphasized,
+        )
+        ChoiceParam(
+            label = stringResource(R.string.r20_media_format),
+            options = MediaImageFormat.entries.filter { it != MediaImageFormat.GIF || MediaImageModels.supportsComplexity(modelId) }.map { it to it.label },
+            selected = options.format,
+            defaultLabel = stringResource(R.string.r20_media_format_default),
+            onSelect = { onOptionsChange(options.copy(format = it)) },
+        )
+        Text(
+            text = stringResource(R.string.r20_media_format_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        ChoiceParam(
+            label = stringResource(R.string.r20_media_quality),
+            options = qualities.map { it to it.label },
+            // 没选过时按新请求的默认值显示，避免按钮上出现「默认」而实际发的是 high
+            selected = options.effectiveQualityOrHigh(),
+            defaultLabel = stringResource(R.string.r20_media_quality_auto),
+            onSelect = { onOptionsChange(options.copy(quality = it)) },
+        )
+        Text(
+            text = stringResource(R.string.r20_media_quality_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (dispatch != null && MediaImageNote.QUALITY_DOWNGRADED in dispatch.notes) {
+            Text(
+                text = stringResource(R.string.r20_media_quality_unsupported_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        if (MediaImageModels.supportsComplexity(modelId)) {
+            ChoiceParam(
+                label = stringResource(R.string.r20_media_complexity),
+                options = MediaImageComplexity.entries.map { it to it.label },
+                selected = options.complexity,
+                defaultLabel = stringResource(R.string.r20_media_quality_auto),
+                onSelect = { onOptionsChange(options.copy(complexity = it)) },
+            )
+            Text(
+                text = stringResource(R.string.r20_media_complexity_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** 当前模型认识的质量档位；`xhigh` / `max` 只有 2.5 及更新的版本才有。 */
+private fun supportedQualityChoices(modelId: String): List<MediaImageQuality> =
+    MediaImageQuality.entries.filter { MediaImageModels.supportedQuality(modelId, it) }
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun <T> ChoiceParam(
+    label: String,
+    options: List<Pair<T, String>>,
+    selected: T?,
+    defaultLabel: String?,
+    onSelect: (T?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    FormItem(label = { Text(label) }, modifier = modifier) {
+        FlowRow(
+            modifier = Modifier.selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (defaultLabel != null) {
+                PresetButton(
+                    selected = selected == null,
+                    onClick = { onSelect(null) },
+                    text = defaultLabel,
+                )
+            }
+            options.forEach { (option, text) ->
+                PresetButton(
+                    selected = selected == option,
+                    onClick = { onSelect(option) },
+                    text = text,
                 )
             }
         }
@@ -1124,8 +1279,9 @@ private fun NumberParam(
     allowZero: Boolean = false,
     maxDigits: Int = 3,
     special: Pair<Long, String>? = null,
+    modifier: Modifier = Modifier,
 ) {
-    FormItem(label = { Text(label) }) {
+    FormItem(label = { Text(label) }, modifier = modifier) {
         if (presets.isNotEmpty()) {
             PresetChips(
                 value = value,

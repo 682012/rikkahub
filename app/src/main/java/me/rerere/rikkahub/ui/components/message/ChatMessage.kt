@@ -701,11 +701,7 @@ private fun Modifier.clipDrawing(shape: Shape): Modifier = drawWithCache {
 private fun ChatMessageCitations(annotations: List<UIMessageAnnotation>) {
     var expand by remember { mutableStateOf(false) }
     val urls = remember(annotations) {
-        annotations.map { annotation ->
-            when (annotation) {
-                is UIMessageAnnotation.UrlCitation -> annotation.url
-            }
-        }
+        annotations.filterIsInstance<UIMessageAnnotation.UrlCitation>().map { it.url }
     }
     Column(
         modifier = Modifier.animateContentSize(MaterialTheme.motionScheme.defaultSpatialSpec()),
@@ -733,6 +729,8 @@ private fun ChatMessageCitations(annotations: List<UIMessageAnnotation>) {
                     ) {
                         annotations.fastForEachIndexed { index, annotation ->
                             when (annotation) {
+                                is UIMessageAnnotation.FileCitation -> Text(annotation.title.ifBlank { annotation.fileId })
+                                is UIMessageAnnotation.ContainerFileCitation -> Text(annotation.title.ifBlank { annotation.fileId })
                                 is UIMessageAnnotation.UrlCitation -> {
                                     Row(
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)

@@ -165,6 +165,95 @@ class OpenAIMediaGenerationProviderTest {
     }
 
     @Test
+    fun emptyDataIsNotSuccess() {
+        val provider = OpenAIMediaGenerationProvider(OkHttpClient())
+
+        val emptyList = provider.parseTask(mediaGenerationJson.parseToJsonElement("""{"created":1,"data":[]}""").jsonObject)
+        assertEquals(MediaGenerationStatus.FAILED, emptyList.status)
+        assertTrue(emptyList.outputs.isEmpty())
+        assertEquals("OpenAI returned no image", emptyList.error?.message)
+
+        val noImages = provider.parseTask(
+            mediaGenerationJson.parseToJsonElement("""{"data":[{"b64_json":""},{"url":""},{"b64_json":null}]}""").jsonObject,
+        )
+        assertEquals(MediaGenerationStatus.FAILED, noImages.status)
+        assertTrue(noImages.outputs.isEmpty())
+
+        // data 字段整个缺失同样不是成功
+        val missing = provider.parseTask(mediaGenerationJson.parseToJsonElement("""{"created":1}""").jsonObject)
+        assertEquals(MediaGenerationStatus.FAILED, missing.status)
+
+        // 错误信息要透传，而不是丢掉
+        val withError = provider.parseTask(
+            mediaGenerationJson.parseToJsonElement(
+                """{"data":[],"error":{"code":"moderation_blocked","message":"blocked by safety"}}""",
+            ).jsonObject,
+        )
+        assertEquals(MediaGenerationStatus.FAILED, withError.status)
+        assertEquals("moderation_blocked", withError.error?.code)
+        assertEquals("blocked by safety", withError.error?.message)
+    }
+
+    @Test
+    fun declaredFormatIsOnlyAHintPerItem() {
+        // 实测：请求 png 时中转返回过 JPEG。这里只按响应里的声明给提示，真实格式由文件字节决定（上层负责）
+        val root = mediaGenerationJson.parseToJsonElement(
+            """
+            {
+              "output_format": "png",
+              "size": "1024x1024",
+              "data": [
+                {"b64_json": "aGVsbG8=", "output_format": "jpeg", "size": "1254x1254"},
+                {"url": "https://cdn.example.com/out.webp?sign=1"}
+              ]
+            }
+            """.trimIndent(),
+        ).jsonObject
+
+        val outputs = OpenAIMediaGenerationProvider(OkHttpClient()).parseTask(root).outputs
+        assertEquals(listOf("image/jpeg", "image/webp"), outputs.map { it.mimeType })
+        assertEquals(listOf("1254x1254", "1024x1024"), outputs.map { it.resolution })
+    }
+
+    @Test
+    fun dataUriBase64IsDecoded() {
+        val root = mediaGenerationJson.parseToJsonElement(
+            """{"data":[{"b64_json":"data:image/png;base64,aGVsbG8="}]}""",
+        ).jsonObject
+
+        assertEquals("hello", OpenAIMediaGenerationProvider(OkHttpClient()).parseTask(root).outputs.single().data!!.decodeToString())
+    }
+
+    @Test
+    fun imageOutputOptionsRideExtraParametersAndKeepPublicFields() {
+        val provider = OpenAIMediaGenerationProvider(OkHttpClient())
+        val body = provider.buildGenerationBody(
+            setting = setting,
+            model = model.copy(modelId = "gpt-image-2.6-sunburst"),
+            request = MediaGenerationRequest(
+                prompt = "海报",
+                count = 1,
+                resolution = "1536x1024",
+                extraParameters = buildJsonObject {
+                    put("output_format", "webp")
+                    put("quality", "high")
+                    put("output_compression", 85)
+                    put("complexity", "high")
+                    // 公共字段必须覆盖额外参数里的同名项
+                    put("size", "1024x1024")
+                },
+            ),
+        )
+
+        assertEquals(JsonPrimitive("webp"), body["output_format"])
+        assertEquals(JsonPrimitive("high"), body["quality"])
+        assertEquals(JsonPrimitive(85), body["output_compression"])
+        assertEquals(JsonPrimitive("high"), body["complexity"])
+        assertEquals(JsonPrimitive("1536x1024"), body["size"])
+        assertEquals(JsonPrimitive(1), body["n"])
+    }
+
+    @Test
     fun imageInputsAreUploadedToEditEndpointAsMultipart() = runBlocking {
         val first = tempFolder.newFile("a.png").apply { writeText("png-bytes") }
         val second = tempFolder.newFile("b.JPG").apply { writeText("jpg-bytes") }

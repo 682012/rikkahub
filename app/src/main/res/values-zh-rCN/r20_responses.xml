@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="r20_responses_code_title">代码解释器（Responses）</string>
+    <string name="r20_responses_code_desc">仅用于支持代码执行及容器文件下载的 Responses 渠道。部分中转只返回文件链接，无法取回真实文件。</string>
+</resources>

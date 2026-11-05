@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- r20：媒体创作的产出格式 / 质量 / 尺寸 / 导出控件 -->
+    <string name="r20_media_section_output">产出</string>
+    <string name="r20_media_section_size">尺寸</string>
+    <string name="r20_media_section_advanced">高级</string>
+    <string name="r20_media_section_export">导出尺寸</string>
+
+    <string name="r20_media_format">格式</string>
+    <string name="r20_media_format_default">接口默认</string>
+    <string name="r20_media_format_png">PNG</string>
+    <string name="r20_media_format_jpeg">JPEG</string>
+    <string name="r20_media_format_webp">WebP</string>
+    <string name="r20_media_format_hint">接口可能不理会这里的选择，保存的文件一律按真实字节识别格式并命名。</string>
+
+    <string name="r20_media_quality">质量</string>
+    <string name="r20_media_quality_auto">自动</string>
+    <string name="r20_media_quality_low">低</string>
+    <string name="r20_media_quality_medium">中</string>
+    <string name="r20_media_quality_high">高</string>
+    <string name="r20_media_quality_xhigh">超高</string>
+    <string name="r20_media_quality_max">最高</string>
+    <string name="r20_media_quality_hint">没有单独选过的图像请求默认用「高」。质量越高越贵、越慢。</string>
+    <string name="r20_media_quality_unsupported_hint">这个模型不接受这一档，会按「高」下发。</string>
+
+    <string name="r20_media_complexity">画面复杂度</string>
+    <string name="r20_media_complexity_low">简单</string>
+    <string name="r20_media_complexity_medium">标准</string>
+    <string name="r20_media_complexity_high">复杂</string>
+    <string name="r20_media_complexity_hint">只有 gpt-image-2.6 接受这一项，部分中转会静默忽略。</string>
+
+    <string name="r20_media_size_preset">常用尺寸</string>
+    <string name="r20_media_size_custom">自定义尺寸</string>
+    <string name="r20_media_size_custom_placeholder">如 1536x864</string>
+    <string name="r20_media_size_invalid">宽高都要是 16 的倍数，在 256 到 3840 之间，比例在 1:3 到 3:1 之间。</string>
+    <string name="r20_media_size_actual">最终像素由接口决定，请以结果上的真实尺寸为准。</string>
+
+    <string name="r20_media_note_quality_downgraded">这个模型不接受所选质量档位，会按「高」下发。</string>
+    <string name="r20_media_note_size_not_sent">这个模型只接受标准尺寸，自定义尺寸不会下发。</string>
+    <string name="r20_media_note_size_from_ratio">只下发比例，具体像素由接口决定。</string>
+    <string name="r20_media_note_actual_size">方图实测常常返回 1254×1254，以结果上显示的真实尺寸为准。</string>
+    <string name="r20_media_note_complexity_not_sent">画面复杂度只对 gpt-image-2.6 生效，当前不会下发。</string>
+
+    <string name="r20_media_export">导出</string>
+    <string name="r20_media_export_original">保留原始文件</string>
+    <string name="r20_media_export_reencode">按目标尺寸重新编码</string>
+    <string name="r20_media_export_original_hint">原始字节原样保存，不做任何转码。</string>
+    <string name="r20_media_export_width">目标宽度</string>
+    <string name="r20_media_export_height">目标高度</string>
+    <string name="r20_media_export_fit">填充方式</string>
+    <string name="r20_media_export_fit_contain">等比缩放，留边</string>
+    <string name="r20_media_export_fit_cover">铺满并裁掉多余</string>
+    <string name="r20_media_export_fit_stretch">拉伸</string>
+    <string name="r20_media_export_background">留边颜色</string>
+    <string name="r20_media_export_hint">下载完成后在本地重新编码，需要 App 侧接上导出步骤。</string>
+    <string name="r20_media_export_pending">主程序还没有接上本地导出，目前先保存原始文件。</string>
+
+    <string name="r20_media_output_actual">%1$s · %2$d×%3$d</string>
+    <string name="r20_media_output_actual_unknown">%1$s · 尺寸未知</string>
+    <string name="r20_media_output_mismatch">接口声称 %1$s，实际文件是 %2$s，以文件为准。</string>
+
+    <string name="r20_media_models_used_hint">gpt-image-2.6 已验证图片与 GIF 输出；请先在提供商中添加模型。</string>
+    <string name="r20_media_size_requested">请求</string>
+</resources>

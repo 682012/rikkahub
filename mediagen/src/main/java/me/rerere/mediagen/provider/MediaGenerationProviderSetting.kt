@@ -50,7 +50,10 @@ sealed class MediaGenerationProviderSetting {
         override val name: String = "OpenAI",
         override val apiKey: String = "",
         override val baseUrl: String = "https://api.openai.com/v1",
+        // 初始模型仅作建议，实际输出的尺寸和格式必须由文件解码确认。
+        // 这两个只是初始建议，渠道是否真的提供取决于中转，切换渠道后要按 /models 自己确认。
         override val models: List<MediaGenerationModel> = listOf(
+            MediaGenerationModel(modelId = "gpt-image-2.6", kind = MediaKind.IMAGE),
             MediaGenerationModel(modelId = "gpt-image-2.5-sunburst", kind = MediaKind.IMAGE),
             MediaGenerationModel(modelId = "gpt-image-2.5-flare", kind = MediaKind.IMAGE),
         ),

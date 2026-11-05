@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -187,6 +188,17 @@ fun MediaGenerationProviderModelsConfigure(
                 supportingContent = { Text(stringResource(R.string.setting_media_page_models_desc)) },
                 leadingContent = { CardGroupIcon(HugeIcons.Add01) },
             )
+
+            // 新增的模型名先按输入框里的内容保存；这里只提示哪些模型值得加，不替用户改动渠道
+            if (setting is MediaGenerationProviderSetting.OpenAI) {
+                formItem {
+                    Text(
+                        text = stringResource(R.string.r20_media_models_used_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
     }
 }

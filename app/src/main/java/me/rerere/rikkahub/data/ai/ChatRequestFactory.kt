@@ -32,6 +32,7 @@ import me.rerere.rikkahub.data.ai.transformers.OutputMessageTransformer
 import me.rerere.rikkahub.data.ai.transformers.PlaceholderTransformer
 import me.rerere.rikkahub.data.ai.transformers.PromptInjectionTransformer
 import me.rerere.rikkahub.data.ai.transformers.RegexOutputTransformer
+import me.rerere.rikkahub.data.ai.transformers.ResponsesFilesToLocalTransformer
 import me.rerere.rikkahub.data.ai.transformers.TemplateTransformer
 import me.rerere.rikkahub.data.ai.transformers.ThinkTagTransformer
 import me.rerere.rikkahub.data.ai.transformers.TimeReminderTransformer
@@ -96,10 +97,18 @@ class ChatRequestFactory(
         WorkspaceReminderTransformer(workspaceRepository),
     )
 
+    /**
+     * 生成结束时依次执行的输出转换链。
+     *
+     * [ResponsesFilesToLocalTransformer] 放最后：它按“当前 provider + 本轮消息”把 Responses 容器/库文件
+     * 取回落地，必须在 think tag、正则、base64 图片都处理完之后再跑。单个文件取不到只影响那个部件，
+     * 不会让整条回复失败（取消照常向上抛）。
+     */
     private val outputTransformers: List<OutputMessageTransformer> = listOf(
         ThinkTagTransformer,
         Base64ImageToLocalFileTransformer,
         RegexOutputTransformer,
+        ResponsesFilesToLocalTransformer,
     )
 
     // 压缩请求不走 OCR：OCR 是另一次视觉请求，压缩只需要知道"这里有张图片"，

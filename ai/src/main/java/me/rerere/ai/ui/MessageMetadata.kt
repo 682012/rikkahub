@@ -117,6 +117,44 @@ data class DiffMetadata(
 ) : PartMetadata
 
 /**
+ * Provider 返回的、需要鉴权才能取到内容的文件产物（r20 Responses `container_file_citation` /
+ * `file_citation`）的元数据。
+ *
+ * [UIMessagePart.Document.url] 保存 [responsesContainerFileReference] / [responsesStoreFileReference]
+ * 生成的**不含凭据**的引用；App 侧按这里的 id 去取内容，落地本地文件后自行替换 url。
+ * 字段全部可空且 key 稳定，旧会话里没有这个 metadata 的部件不受影响。
+ */
+@Serializable
+data class ResponsesFileOutputMetadata(
+    /** 固定为 `openai_responses`，表示该引用属于哪个 wire protocol。 */
+    @SerialName("responses_file_protocol")
+    val protocol: String? = null,
+    /** [KIND_CONTAINER_FILE] 或 [KIND_FILE]。 */
+    @SerialName("responses_file_kind")
+    val kind: String? = null,
+    @SerialName("responses_file_container_id")
+    val containerId: String? = null,
+    @SerialName("responses_file_id")
+    val fileId: String? = null,
+    @SerialName("responses_file_name")
+    val filename: String? = null,
+    /** 引用在助手正文里的字符锚点，上游没给时为空。 */
+    @SerialName("responses_file_start_index")
+    val annotationStartIndex: Int? = null,
+    @SerialName("responses_file_end_index")
+    val annotationEndIndex: Int? = null,
+    /** 产生该产物的输出项类型，例如 `code_interpreter_call`；只是来源描述，不代表能力已探活。 */
+    @SerialName("responses_file_source")
+    val source: String? = null,
+) : PartMetadata {
+    companion object {
+        const val PROTOCOL: String = "openai_responses"
+        const val KIND_CONTAINER_FILE: String = "container_file"
+        const val KIND_FILE: String = "file"
+    }
+}
+
+/**
  * 将 metadata 解析为类型化的 [PartMetadata], 解析失败或 metadata 为 null 时返回 null
  *
  * 由于 json 配置了 ignoreUnknownKeys, 不同 provider 的 metadata 互不干扰

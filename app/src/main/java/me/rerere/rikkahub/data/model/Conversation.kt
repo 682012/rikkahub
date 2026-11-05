@@ -37,7 +37,15 @@ data class Conversation(
     // 所属文件夹（助手内分组），null 表示未归入任何文件夹
     val folderId: Uuid? = null,
     @Transient
-    val newConversation: Boolean = false
+    val newConversation: Boolean = false,
+    /**
+     * 标题的来路和进度。只活在内存里，跟着 [copy] 一路传下去，不落库（表结构在 r20 不扩列）。
+     *
+     * null 表示刚加载/刚新建、还没有过标题动作，这时按当前标题保守推断（见 [titleState]）：
+     * 空白标题当作可以自动生成，已经有标题则当作有正式标题、不再被自动覆盖。
+     */
+    @Transient
+    val automaticTitleState: ConversationTitleState? = null,
 ) {
     val files: List<Uri>
         get() = messageNodes

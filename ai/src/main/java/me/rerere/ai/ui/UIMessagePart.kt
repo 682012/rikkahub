@@ -108,7 +108,19 @@ sealed class UIMessagePart {
         val fileName: String,
         val mime: String = "text/*",
         override var metadata: JsonObject? = null
-    ) : UIMessagePart()
+    ) : UIMessagePart() {
+        /**
+         * 是否只是“需要鉴权才能取到内容”的 Provider 引用，尚未落地为本地/可公开访问的文件。
+         *
+         * 这类引用不能交给外部应用或图片加载器直接打开，也不应发给模型以外的下载器；
+         * 判定见 [parseResponsesFileReference]。
+         */
+        val requiresAuthenticatedFetch: Boolean
+            get() = parseResponsesFileReference(url) != null
+
+        /** 还没落地内容的 Provider 引用不参与上传判定，避免把占位句柄当成附件发出去。 */
+        fun isPendingProviderReference(): Boolean = requiresAuthenticatedFetch
+    }
 
     @Serializable
     @SerialName("reasoning")
@@ -177,6 +189,22 @@ sealed class UIMessagePart {
     ) : UIMessagePart() {
         val isFinished: Boolean
             get() = status == ServerToolStatus.COMPLETED || status == ServerToolStatus.FAILED
+
+        /**
+         * 该调用引出的文件产物（Responses `code_interpreter_call.outputs[].url` 等）。
+         *
+         * 只在 Provider 明确给了文件地址时存在；这些地址可能需要鉴权，App 侧按 [url] 自行校验后再落地，
+         * 不在这里假设可公开访问。
+         */
+        fun fileOutputUrls(): List<String> = buildList {
+            val outputs = (output as? kotlinx.serialization.json.JsonArray) ?: return@buildList
+            outputs.forEach { item ->
+                val obj = item as? kotlinx.serialization.json.JsonObject ?: return@forEach
+                if (obj["type"]?.toString()?.trim('"') != "image") return@forEach
+                val url = obj["url"]?.toString()?.trim('"') ?: return@forEach
+                if (url.isNotBlank()) add(url)
+            }
+        }
     }
 
     @Serializable

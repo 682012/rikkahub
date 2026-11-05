@@ -48,6 +48,7 @@ import me.rerere.ai.ui.ServerToolProtocol
 import me.rerere.ai.ui.ServerToolStatus
 import me.rerere.ai.ui.StreamChunk
 import me.rerere.ai.ui.UIMessage
+import me.rerere.ai.ui.UIMessageAnnotation
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.metadataAs
 import me.rerere.ai.ui.toMetadata
@@ -61,6 +62,7 @@ import me.rerere.ai.util.mergeCustomHeaders
 import me.rerere.ai.util.parseErrorDetail
 import me.rerere.ai.util.stringSafe
 import me.rerere.common.http.await
+import me.rerere.common.http.jsonArrayOrNull
 import me.rerere.common.http.jsonObjectOrNull
 import me.rerere.common.http.jsonPrimitiveOrNull
 import me.rerere.common.http.sse.newEventSource
@@ -335,6 +337,15 @@ class ResponseAPI(
                                     put("model", "gpt-image-2.5-sunburst")
                                 })
                             }
+
+                            BuiltInTools.CodeInterpreter -> {
+                                add(buildJsonObject {
+                                    put("type", "code_interpreter")
+                                    put("container", buildJsonObject {
+                                        put("type", "auto")
+                                    })
+                                })
+                            }
                         }
                     }
                 }
@@ -591,6 +602,22 @@ class ResponseAPI(
         println(jsonObject)
         val outputs = jsonObject["output"]?.jsonArray ?: error("output not found")
         val parts = arrayListOf<UIMessagePart>()
+        val annotations = arrayListOf<UIMessageAnnotation>()
+        // 同一份容器文件只能出现一个文件部件，即使上游在多个 item 里重复引用
+        val seenArtifactIds = mutableSetOf<String>()
+
+        fun collectAnnotations(source: JsonObject?, sourceType: String?) {
+            val annotationArrays = source?.get("content")?.jsonArrayOrNull.orEmpty()
+                .mapNotNull { it.jsonObjectOrNull?.get("annotations")?.jsonArrayOrNull }
+            annotationArrays.flatMap { it.toResponsesAnnotations() }.forEach { annotation ->
+                if (annotations.none { it.annotationKey() == annotation.annotationKey() }) {
+                    annotations.add(annotation)
+                }
+                val fileKey = annotation.fileArtifactId() ?: return@forEach
+                if (!seenArtifactIds.add(fileKey)) return@forEach
+                annotation.toFileArtifactPart(sourceType)?.let { parts.add(it) }
+            }
+        }
 
         outputs.forEach { outputItem ->
             val output = outputItem.jsonObject
@@ -687,6 +714,9 @@ class ResponseAPI(
                             else -> error("unknown part type $partType")
                         }
                     }
+                    // 文件产物跟在正文之后：正文里的 sandbox:/mnt/data/x.png 仍保持原文，
+                    // 由这里的 Document 提供可打开的引用（App 负责鉴权取内容）
+                    collectAnnotations(output, "message")
                 }
 
                 else -> if (isOpenAIServerToolCall(type)) {
@@ -701,6 +731,7 @@ class ResponseAPI(
             message = UIMessage(
                 role = MessageRole.ASSISTANT,
                 parts = parts,
+                annotations = annotations,
             ),
             finishReason = jsonObject["status"]?.jsonPrimitive?.contentOrNull,
             usage = parseTokenUsage(jsonObject["usage"]?.jsonObject)

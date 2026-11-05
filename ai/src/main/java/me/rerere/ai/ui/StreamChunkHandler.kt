@@ -87,6 +87,9 @@ class StreamChunkHandler(private val model: Model? = null) {
      */
     private val toolCallSlots = mutableMapOf<String, ToolCallSlot>()
 
+    /** 本次响应里已经追加过的文件产物 id，重复的注解/终态事件不会重复挂同一个文件。 */
+    private val fileArtifactIds = mutableSetOf<String>()
+
     /**
      * 将一个 [chunk] 合并进消息列表末尾的助手消息，并返回新的消息列表。
      *
@@ -385,12 +388,22 @@ class StreamChunkHandler(private val model: Model? = null) {
                 removeEmptyImageParts(if (index == null) emptySet() else setOf(index))
             }
             is StreamChunk.Annotations -> copy(annotations = (annotations + chunk.annotations).distinct())
+            is StreamChunk.FileArtifact -> {
+                if (!fileArtifactIds.add(chunk.id)) {
+                    this
+                } else {
+                    copy(parts = parts + chunk.document)
+                }
+            }
             is StreamChunk.Usage -> copy(
                 usage = if (chunk.completeSnapshot) chunk.usage else usage.merge(chunk.usage),
                 lastUsage = chunk.lastRequestUsage,
             )
             is StreamChunk.Finish -> copy(
-                finishedAt = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault())
+                finishedAt = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()),
+                // An annotation may precede its text delta; completed artifacts belong after the text.
+                parts = parts.filterNot { it is UIMessagePart.Document && it.requiresAuthenticatedFetch } +
+                    parts.filter { it is UIMessagePart.Document && it.requiresAuthenticatedFetch },
             ).finishReasoning().removeEmptyImageParts(imagePartIndexes.values.toSet()).also {
                 // Finish 同时结束尚未显式结束的 reasoning，并释放本次响应流的索引状态。
                 textPartIndexes.clear()

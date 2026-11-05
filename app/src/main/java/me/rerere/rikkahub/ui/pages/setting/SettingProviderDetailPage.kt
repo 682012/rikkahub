@@ -1388,6 +1388,10 @@ private fun BuiltInToolsSettings(
             BuiltInTools.ImageGeneration to Pair(
                 stringResource(R.string.setting_page_built_in_tools_image_generation),
                 stringResource(R.string.setting_page_built_in_tools_image_generation_desc)
+            ),
+            BuiltInTools.CodeInterpreter to Pair(
+                stringResource(R.string.r20_responses_code_title),
+                stringResource(R.string.r20_responses_code_desc)
             )
         )
 

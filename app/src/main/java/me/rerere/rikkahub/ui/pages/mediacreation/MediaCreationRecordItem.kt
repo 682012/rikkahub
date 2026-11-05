@@ -77,6 +77,7 @@ import me.rerere.hugeicons.stroke.Share01
 import me.rerere.hugeicons.stroke.Tick02
 import me.rerere.hugeicons.stroke.Video01
 import me.rerere.mediagen.model.ImageRole
+import me.rerere.mediagen.model.MediaKind
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.model.MediaCreationAsset
 import me.rerere.rikkahub.data.model.MediaCreationAssetType
@@ -84,6 +85,7 @@ import me.rerere.rikkahub.data.model.MediaCreationNode
 import me.rerere.rikkahub.data.model.MediaCreationOutput
 import me.rerere.rikkahub.data.model.MediaCreationRecord
 import me.rerere.rikkahub.data.model.MediaCreationStatus
+import me.rerere.rikkahub.data.model.MediaImageFormat
 import me.rerere.rikkahub.ui.components.ui.ImagePreviewDialog
 import me.rerere.rikkahub.ui.components.ui.VideoPlayerDialog
 import me.rerere.rikkahub.ui.context.LocalToaster
@@ -255,11 +257,34 @@ private fun RecordInput(
                 modifier = Modifier.clickable { expanded = !expanded },
             )
         }
+        // 产出的真实格式和尺寸：来自文件本身，不是请求或接口声称的值
+        val actual = record.outputs.firstOrNull()?.let { output ->
+            if (output.isVideo) return@let null
+            val format = MediaImageFormat.fromMimeType(output.mimeType)
+            val label = format?.name ?: output.mimeType.substringAfter('/')
+            if (output.width != null && output.height != null) {
+                stringResource(R.string.r20_media_output_actual, label, output.width, output.height)
+            } else {
+                stringResource(R.string.r20_media_output_actual_unknown, label)
+            }
+        }
+        if (record.outputs.any { !it.isVideo } && actual != null) {
+            Text(
+                text = actual,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         val time = remember(record.createAt) {
             record.createAt.atZone(ZoneId.systemDefault()).toLocalDateTime().toMessageTimeString()
         }
         Text(
-            text = (listOf(record.modelId) + record.params.summary(record.kind) + time).joinToString(" · "),
+            // 记录里存的就是实际下发的参数：图像选项按记录的模型名换算，和当时请求的内容一致
+            text = (
+                listOf(record.modelId) +
+                    record.params.summary(record.kind, record.modelId.takeIf { record.kind == MediaKind.IMAGE }) +
+                    time
+                ).joinToString(" · "),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -467,6 +492,8 @@ private fun OutputMenu(
     val toaster = LocalToaster.current
     val scope = rememberCoroutineScope()
     var expanded by remember { mutableStateOf(false) }
+    var exportOpen by remember { mutableStateOf(false) }
+    if (exportOpen) MediaExportDialog(file, output.mimeType, output.width, output.height) { exportOpen = false }
 
     @Composable
     fun MenuItem(text: String, icon: ImageVector, onClick: () -> Unit) {
@@ -516,6 +543,7 @@ private fun OutputMenu(
                     vm.useImage(output, ImageRole.LAST_FRAME)
                 }
             }
+            if (!output.isVideo) MenuItem(stringResource(R.string.r20_export_title), HugeIcons.Download01) { exportOpen = true }
             MenuItem(stringResource(R.string.media_creation_page_save_to_gallery), HugeIcons.Download01) {
                 scope.launch {
                     runCatching { saveMediaToGallery(context, file, output.mimeType) }

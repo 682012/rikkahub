@@ -55,7 +55,11 @@ import me.rerere.rikkahub.data.model.MediaCreationParams
 import me.rerere.rikkahub.data.model.MediaCreationRecord
 import me.rerere.rikkahub.data.model.MediaCreationSession
 import me.rerere.rikkahub.data.model.MediaCreationStatus
+import me.rerere.rikkahub.data.model.MediaImageModels
+import me.rerere.rikkahub.data.model.MediaImageOptions
+import me.rerere.rikkahub.data.model.MediaImageQuality
 import me.rerere.rikkahub.data.model.canSubmit
+import me.rerere.rikkahub.data.model.dispatchFor
 import me.rerere.rikkahub.data.model.supportedBy
 import me.rerere.rikkahub.data.model.withRequired
 import me.rerere.rikkahub.data.repository.MediaCreationRepository
@@ -73,7 +77,11 @@ data class MediaCreationModelSelection(
     val provider: MediaGenerationProviderSetting,
     val model: MediaGenerationModel,
     val capabilities: MediaGenerationCapabilities,
-)
+) {
+    /** 图像接口按模型区分格式 / 质量 / 尺寸，视频没有这些选项。 */
+    val imageModelId: String?
+        get() = model.modelId.takeIf { model.kind == MediaKind.IMAGE }
+}
 
 /** 可以再次放进输入区的一项历史产出。 */
 data class MediaCreationRecentOutput(
@@ -226,6 +234,11 @@ class MediaCreationVM(
 
     fun updateParams(params: MediaCreationParams) = updateDraft { it.copy(params = params) }
 
+    /** 改图像专属选项。质量、格式、复杂度都不改公共字段，也不会影响视频模型。 */
+    fun updateImageOptions(options: MediaImageOptions) = updateDraft { draft ->
+        draft.copy(params = draft.params.copy(image = options))
+    }
+
     /** 清空提示词和素材，模型和参数保留。 */
     fun clearDraft() {
         promptState.clearText()
@@ -237,6 +250,11 @@ class MediaCreationVM(
 
     /**
      * 切换模型。换了厂商或类型时参数的取值不再通用，恢复成默认；素材调整成新模型能接受的形态。
+     *
+     * 图像选项（格式、质量、复杂度）跟着用户走：换模型不会悄悄改掉它们，只会按新模型的差异决定是否下发，
+     * 界面上用提示说明。导出设置是本地的，任何情况下都保留。
+     *
+     * 选择渠道和模型是用户的动作，这里不会自动换成别的渠道。
      */
     fun selectModel(provider: MediaGenerationProviderSetting, model: MediaGenerationModel) = updateDraft { draft ->
         val capabilities = provider.capabilities(model.kind) ?: return@updateDraft draft
@@ -246,7 +264,14 @@ class MediaCreationVM(
             previous.model.kind == model.kind
         draft.copy(
             modelId = model.id,
-            params = if (sameShape) draft.params else MediaCreationParams(),
+            params = if (sameShape) draft.params else MediaCreationParams(
+                image = draft.params.image,
+                exportMode = draft.params.exportMode,
+                exportWidth = draft.params.exportWidth,
+                exportHeight = draft.params.exportHeight,
+                exportFit = draft.params.exportFit,
+                exportBackground = draft.params.exportBackground,
+            ),
             assets = draft.assets.supportedBy(capabilities),
         )
     }
@@ -434,6 +459,8 @@ class MediaCreationVM(
             return
         }
         if (!submitted.canSubmit(selection.capabilities)) return
+        // 新的一次生成：图像请求没单独选过质量时按「高」，避免默认落到最便宜的档位
+        val params = submitted.params.withDefaultImageQuality(selection)
         generateJob = submit(
             MediaCreationSubmission(
                 sessionId = sessionId,
@@ -441,7 +468,7 @@ class MediaCreationVM(
                 provider = selection.provider,
                 model = selection.model,
                 prompt = submitted.prompt,
-                params = submitted.params,
+                params = params,
                 assets = submitted.assets,
             ),
             selection.capabilities,
@@ -494,9 +521,19 @@ class MediaCreationVM(
             _events.trySend(MediaCreationEvent.UploadNotConfigured)
             return null
         }
+        // 图像尺寸在提交时就落到「实际下发的值」：非法尺寸或只给了比例的情况都在这里换算好，
+        // 记录里保存的和真正发出去的一致，重新生成（rerun）也不会再变一次
+        if (submission.model.kind == MediaKind.IMAGE && submission.params.resolution != null) {
+            val normalized = submission.params.withRequiredImageSize(submission.model)
+            if (normalized.resolution != submission.params.resolution) {
+                updateDraft { it.copy(params = it.params.copy(resolution = normalized.resolution)) }
+            }
+        }
         // 接口必填的参数没有设置时用默认值，记录里保存的就是实际下发的值
         val defaults = submission.provider.presets(submission.model.kind).defaults
-        val completed = submission.copy(params = submission.params.withRequired(capabilities, defaults))
+        val completed = submission.copy(
+            params = submission.params.withRequired(capabilities, defaults).withRequiredImageSize(submission.model),
+        )
         return viewModelScope.launch {
             try {
                 val record = service.submit(completed)
@@ -511,6 +548,17 @@ class MediaCreationVM(
                 )
             }
         }
+    }
+
+    /**
+     * 图像请求的默认质量：用户选过（含「自动」）就按用户的来；没选过时用「高」，并且**写回草稿**，
+     * 这样下一次打开参数面板看到的就是实际会下发的档位，而不是一个空着的「默认」。
+     */
+    private fun MediaCreationParams.withDefaultImageQuality(selection: MediaCreationModelSelection): MediaCreationParams {
+        if (selection.model.kind != MediaKind.IMAGE) return this
+        if (image.quality != null) return this
+        val completed = copy(image = image.copy(quality = MediaImageQuality.HIGH))
+        return completed
     }
 
     /** 把一条记录的提示词、素材和参数填回输入区，之后生成的结果成为它所在那一项的新版本。 */
@@ -619,6 +667,31 @@ class MediaCreationVM(
         private const val RECENT_RECORD_LIMIT = 60
         private val DRAFT_SAVE_DELAY = 500.milliseconds
     }
+}
+
+/**
+ * 提交前把图像尺寸变成「实际会下发」的样子，记录里存的就是真正发出去的值：
+ * - 只给了比例时换算成像素尺寸（接口只认 size）
+ * - 模型不接受的自定义尺寸退回标准档位，保证这张图能生成出来，而不是换一个 400
+ * - 什么都没选时不会凭空下发一个 size
+ */
+private fun MediaCreationParams.withRequiredImageSize(model: MediaGenerationModel): MediaCreationParams {
+    if (model.kind != MediaKind.IMAGE || !model.modelId.contains("gpt-image", ignoreCase = true)) return this
+    val dispatched = image.dispatchFor(model.modelId, this)
+    val requested = resolution?.takeIf(String::isNotBlank)
+    val normalized = when {
+        dispatched.resolution != null -> dispatched.resolution
+        requested != null && dispatched.resolution == null ->
+            // 只给了比例之外的东西（档位名、非法自定义尺寸）：不支持自定义尺寸时改用它认识的标准档位
+            if (MediaImageModels.parsePixelSize(requested) != null || !MediaImageModels.supportsCustomSize(model.modelId)) {
+                MediaImageModels.STANDARD_SIZES.first()
+            } else {
+                requested
+            }
+
+        else -> null
+    }
+    return if (normalized == requested) this else copy(resolution = normalized)
 }
 
 private fun List<MediaGenerationProviderSetting>.findSelection(modelId: Uuid?): MediaCreationModelSelection? {

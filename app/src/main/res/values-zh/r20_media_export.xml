@@ -1,0 +1,14 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="r20_export_title">导出与动效</string>
+    <string name="r20_export_local_note">保留原图，另存指定格式。GIF / MP4 动效是本地图像运动，不是 AI 新生成的视频场景。</string>
+    <string name="r20_export_motion_limit">动效最多 1920×1080 像素；MP4 宽高需为偶数，画面按等比裁切铺满。</string>
+    <string name="r20_export_zoom">推近</string>
+    <string name="r20_export_pan">平移</string>
+    <string name="r20_export_fade">淡入</string>
+    <string name="r20_export_first_frame">动态源转码只使用第一帧；要保留原有动画，请直接保存原文件。</string>
+    <string name="r20_export_close">关闭</string>
+    <string name="r20_export_cancel">取消导出</string>
+    <string name="r20_export_start">生成文件</string>
+    <string name="r20_export_failed">导出失败</string>
+</resources>

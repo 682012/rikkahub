@@ -200,6 +200,7 @@ private fun parseBuiltInTool(tool: String): BuiltInTools {
         "search" -> BuiltInTools.Search
         "url_context", "url-context", "urlcontext" -> BuiltInTools.UrlContext
         "image_generation", "image-generation", "imagegeneration" -> BuiltInTools.ImageGeneration
+        "code_interpreter", "code-interpreter" -> BuiltInTools.CodeInterpreter
         else -> throw BadRequestException("Unsupported built-in tool")
     }
 }

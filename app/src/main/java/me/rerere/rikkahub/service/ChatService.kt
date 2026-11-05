@@ -64,6 +64,9 @@ import me.rerere.rikkahub.data.event.CompressionOutcome
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.TitleBranchAnchor
+import me.rerere.rikkahub.data.model.TitleTrigger
+import me.rerere.rikkahub.data.model.TitleWriteGuard
 import me.rerere.rikkahub.data.model.bindConfig
 import me.rerere.rikkahub.data.model.cancelInterruptedTools
 import me.rerere.rikkahub.data.model.deleteMessage
@@ -74,12 +77,21 @@ import me.rerere.rikkahub.data.model.getAssistantOf
 import me.rerere.rikkahub.data.model.getChatModelOf
 import me.rerere.rikkahub.data.model.getStoredAssistantOf
 import me.rerere.rikkahub.data.model.insertContextCheckpoint
+import me.rerere.rikkahub.data.model.isMateriallyNewContext
 import me.rerere.rikkahub.data.model.isAwaitingToolApproval
 import me.rerere.rikkahub.data.model.localFileUrls
+import me.rerere.rikkahub.data.model.refinedTitle
 import me.rerere.rikkahub.data.model.replaceUserRegexes
 import me.rerere.rikkahub.data.model.selectBranch
+import me.rerere.rikkahub.data.model.titleBranchAnchor
+import me.rerere.rikkahub.data.model.titleDecision
+import me.rerere.rikkahub.data.model.titleFingerprint
+import me.rerere.rikkahub.data.model.titleState
 import me.rerere.rikkahub.data.model.toMessageNode
 import me.rerere.rikkahub.data.model.withAssistantUpdate
+import me.rerere.rikkahub.data.model.withEarlyTitle
+import me.rerere.rikkahub.data.model.withForcedTitle
+import me.rerere.rikkahub.data.model.withManualTitle
 import me.rerere.rikkahub.data.model.withNodeFavorite
 import me.rerere.rikkahub.data.model.withToolApproval
 import me.rerere.rikkahub.data.model.withTranslation
@@ -106,6 +118,12 @@ private const val STREAM_PERSIST_INTERVAL_MS = 1_500L
 
 /** 手动压缩的终态状态在内存里保留多久，够 UI 显示一次结果 */
 private const val COMPRESSION_STATE_RETENTION_MS = 10 * 60 * 1000L
+
+/**
+ * 被单飞挡掉的标题请求最多等前面那个多久。早标题比一轮结束的标题慢时，
+ * 精修靠这次补做；等太久说明快速模型出问题了，直接放弃，不能一直挂着。
+ */
+private const val TITLE_FOLLOWUP_WAIT_MS = 8_000L
 
 data class ChatError(
     val id: Uuid = Uuid.random(),
@@ -612,6 +630,13 @@ class ChatService(
                 // 用户消息已经写进会话：输入草稿这时才可以清掉
                 queued.persisted?.complete(true)
 
+                // 消息一落库就按已配置的标题规则在后台起临时标题，不等 AI 回复；
+                // 快速模型慢、没配置或报错都不影响这一轮继续生成
+                session.state.value.currentMessages
+                    .firstOrNull { it.id == queued.id }
+                    ?.let(TitleTrigger::of)
+                    ?.let { trigger -> launchEarlyTitle(conversationId, trigger) }
+
                 // 开始补全
                 val result = if (queued.answer) runTurn(session) else null
 
@@ -918,7 +943,9 @@ class ChatService(
             val reason = checkNotNull(finishReason)
             // 等待审批时这一轮还没结束，标题、建议和记忆整理等审批之后再做
             if (reason !is AgentFinishReason.AwaitingApproval) {
-                sessionManager.launchWithSession(conversationId) { generateTitle(conversationId) }
+                // 标题：发消息时已经按原话起过就用那个；这里只在还没有标题时才补一个，
+                // 有临时标题时看内容是否真的往前走了、再精修一次，已经精修过的会话不重复起标题
+                launchEndOfTurnTitle(conversationId)
                 sessionManager.launchWithSession(conversationId) { generateSuggestion(conversationId) }
                 if (turn.assistant.enableMemory) memoryConsolidationScheduler.onTurnFinished(session.state.value)
             }
@@ -1089,37 +1116,170 @@ class ChatService(
 
     // ---- 生成标题 ----
 
+    /**
+     * 发送用户消息后立刻起临时标题：只用用户原话，不等 AI 回答。
+     *
+     * 在后台跑，失败、没配快速模型、模型很慢都不影响聊天本身。
+     * 停止生成后请求也照常做完写回：它在另一个任务里，不跟着这一轮被取消。
+     *
+     * 只发了图片/文件的用户消息没有文字快照，照样触发：生成时退回用最近的完整对话。
+     */
+    private fun launchEarlyTitle(conversationId: Uuid, trigger: TitleTrigger) {
+        val settings = settingsStore.settingsFlow.value
+        if (!settings.enableAutoTitle) return
+        // 没有可用的快速模型就不必发请求，标题留给结束时的兜底
+        if (metaGenerator.titleModel(settings) == null) return
+        sessionManager.launchWithSession(conversationId) {
+            requestTitle(conversationId, trigger, force = false)
+        }
+    }
+
+    /** 一轮结束时兜底：还没有标题就补；有临时标题且内容往前走了，就精修一次 */
+    private fun launchEndOfTurnTitle(conversationId: Uuid) {
+        val settings = settingsStore.settingsFlow.value
+        if (!settings.enableAutoTitle) return
+        if (metaGenerator.titleModel(settings) == null) return
+        sessionManager.launchWithSession(conversationId) {
+            requestTitle(conversationId, immediate = null, force = false)
+        }
+    }
+
+    /**
+     * 自动/手动生成标题。
+     *
+     * @param immediate 用户消息刚发出去时的临时标题锚点；为空表示一轮结束后的兜底与精修
+     * @param force 用户在界面上手动重新生成：忽略自动开关和手改标记，这一版就是用户要的
+     */
     suspend fun generateTitle(
         conversationId: Uuid,
-        force: Boolean = false
+        force: Boolean = false,
+    ): Unit = withContext(Dispatchers.IO) {
+        requestTitle(conversationId, immediate = null, force = force)
+    }
+
+    private suspend fun requestTitle(
+        conversationId: Uuid,
+        immediate: TitleTrigger?,
+        force: Boolean,
     ): Unit = withContext(Dispatchers.IO) {
         withLoadedSession<Unit>(conversationId) { session ->
-            val incarnation = session.incarnation
-            val conversation = session.state.value
-            if (!force && conversation.title.isNotBlank()) return@withLoadedSession
-
-            val settings = settingsStore.awaitLoaded()
-            // 关掉自动生成后只跳过对话结束时的自动调用，手动重新生成照常执行
-            if (!force && !settings.enableAutoTitle) return@withLoadedSession
-
-            runCatching {
-                val title = metaGenerator.generateTitle(settings, conversation)
-                // 只写标题这一列：这时可能已经在生成下一轮，不能把还没生成完的内容一起落库。
-                // 生成期间会话被删除的话不写入
-                session.updateMetadata(
-                    transform = { it.copy(title = title) },
-                    persist = { conversationRepo.updateTitle(conversationId, title) },
-                    expectedIncarnation = incarnation,
-                )
-            }.onFailure {
-                it.printStackTrace()
-                addError(
-                    error = it,
-                    conversationId = conversationId,
-                    title = context.getString(R.string.error_title_generate_title),
-                    solution = ChatErrorSolution.CheckFastModelSettings,
-                )
+            // 同一个会话一次只做一个标题请求：早标题和结束时标题撞上时，后到的那个先让路
+            val ran = session.singleFlightTitle<Unit> {
+                generateTitleLocked(session, conversationId, immediate, force)
             }
+            if (ran != null) return@withLoadedSession
+            // 让路的那一次不能就此算了：早标题比一轮结束晚到、或者上一条消息的标题还没跑完时，
+            // 「回答已经出来、该精修一次」就只能在这里补上。等前面那个写完再看最新内容判断，
+            // 该不该做由 generateTitleLocked 里的策略决定（同一段内容只精修一次，不会每轮重起标题）。
+            session.queuedTitle(TITLE_FOLLOWUP_WAIT_MS) {
+                generateTitleLocked(session, conversationId, immediate, force)
+            }
+        }
+    }
+
+    private suspend fun generateTitleLocked(
+        session: ConversationSession,
+        conversationId: Uuid,
+        immediate: TitleTrigger?,
+        force: Boolean,
+    ) {
+        val settings = settingsStore.awaitLoaded()
+        // 关掉自动生成后只跳过自动调用，手动重新生成照常执行
+        if (!force && !settings.enableAutoTitle) return
+        val modelAndProvider = metaGenerator.titleModel(settings)
+        if (modelAndProvider == null) {
+            // 缺快速模型是用户设置问题：手动点的要看到错误，不能把异常抛到调用方外面
+            if (force) addError(
+                error = IllegalStateException(context.getString(R.string.error_fast_model_not_found)),
+                conversationId = conversationId,
+                title = context.getString(R.string.error_title_generate_title),
+                solution = ChatErrorSolution.CheckFastModelSettings,
+            )
+            return
+        }
+
+        val conversation = session.state.value
+        val current = conversation.titleState
+        // 用户手改过的标题：自动调用永远不覆盖；手动重新生成不看这个
+        if (!force && !current.isAuto) return
+
+        val messages = conversation.currentMessages
+        val fingerprint = titleFingerprint(messages)
+        val hasContent = messages.any { it.role == MessageRole.USER || it.role == MessageRole.ASSISTANT }
+        val newContext = immediate == null && conversation.title.isNotBlank() &&
+            isMateriallyNewContext(messages, current.anchor)
+        val decision = conversation.titleDecision(
+            fingerprint = fingerprint,
+            newContext = newContext,
+            force = force,
+            hasContent = hasContent,
+        )
+        if (!decision.request) return
+
+        // 写回时要核对的分支：早标题锚在刚发出的那条用户消息上；精修锚在那条用户消息和它下面这条回答上。
+        // 期间用户改写了消息、切了分支或重新生成了回答，就不写（那已经是另一段对话了）
+        val branch = if (immediate != null) {
+            TitleBranchAnchor(immediate.messageId, immediate.userText)
+        } else {
+            messages.titleBranchAnchor(
+                answerMessageId = if (decision.refine) messages.lastOrNull()?.id else null,
+            )
+        }
+        // 只有用户原话才进锚点，助手的长回答不参与，所以标题不会每轮都跟着回答变
+        val anchor = immediate ?: TitleTrigger(
+            messageId = branch?.userMessageId ?: Uuid.random(),
+            userText = branch?.userText ?: current.anchor,
+        )
+        // 早标题只给用户原话；精修和手动重新生成用最近几条真实对话。
+        // 用户只发了图片/文件（没有文字）时也没有快照，同样退回完整对话，别把空字符串喂给快速模型
+        val snapshot = if (decision.fullContext) null else anchor.userText.takeIf { it.isNotBlank() }
+        val guard = TitleWriteGuard(
+            title = conversation.title,
+            source = current.source,
+            branch = branch,
+            force = force,
+        )
+
+        val incarnation = session.incarnation
+        runCatching {
+            val title = metaGenerator.generateTitle(
+                settings = settings,
+                conversation = conversation,
+                model = modelAndProvider.first,
+                provider = modelAndProvider.second,
+                userTextSnapshot = snapshot,
+            ).trim()
+            if (title.isBlank()) return@runCatching
+            // 只写标题这一列：这时可能已经在生成下一轮，不能把还没生成完的内容一起落库。
+            // 会话被删除/整条换掉，或者用户在这期间手改了标题、切了分支，都不写入
+            val written = session.updateMetadata(
+                transform = { latest ->
+                    when {
+                        // 手动重新生成：手改过的标题也能换，来源保持不变
+                        force -> latest.withForcedTitle(title, fingerprint)
+                        // 精修时如果期间用户已经手改或这段内容已精修过，refinedTitle 返回 null：不写
+                        decision.refine -> latest.refinedTitle(title, fingerprint)
+                        else -> latest.withEarlyTitle(title, anchor)
+                    }
+                },
+                persist = { conversationRepo.updateTitle(conversationId, title) },
+                expectedIncarnation = incarnation,
+                predicate = guard::allows,
+            )
+            if (!written) {
+                // 会话被删/被整条换掉，或者期间用户手改了标题、切了分支：这一版标题作废
+                Log.i(TAG, "title for $conversationId discarded: conversation changed while generating")
+            }
+        }.onFailure {
+            if (it is CancellationException) throw it
+            it.printStackTrace()
+            // 自动标题失败不打断聊天，也不弹错误；只有用户手动点的才提示
+            if (force) addError(
+                error = it,
+                conversationId = conversationId,
+                title = context.getString(R.string.error_title_generate_title),
+                solution = ChatErrorSolution.CheckFastModelSettings,
+            )
         }
     }
 
@@ -1629,7 +1789,8 @@ class ChatService(
     suspend fun updateTitle(conversationId: Uuid, title: String) {
         updateColumn(
             conversationId = conversationId,
-            transform = { it.copy(title = title) },
+            // 用户手改的标题：标记成手改并清掉待精修的临时标题，之后晚到的自动标题不会盖掉它
+            transform = { it.withManualTitle(title) },
             persist = { conversationRepo.updateTitle(conversationId, title) },
         )
     }

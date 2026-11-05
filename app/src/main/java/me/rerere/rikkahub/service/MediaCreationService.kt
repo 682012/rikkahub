@@ -35,6 +35,8 @@ import me.rerere.rikkahub.MEDIA_CREATION_NOTIFICATION_CHANNEL_ID
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.files.MediaCreationFiles
+import me.rerere.rikkahub.data.files.MediaOutputVerifier
+import me.rerere.rikkahub.data.model.MediaImageFormat
 import me.rerere.rikkahub.data.remote.RemoteFileStore
 import me.rerere.rikkahub.data.model.MediaCreationAsset
 import me.rerere.rikkahub.data.model.MediaCreationOutput
@@ -317,7 +319,13 @@ class MediaCreationService(
             record.inputs.map { repository.resolve(it.path).absolutePath }
         }
         repository.updateRecord(record.id) { it.copy(status = MediaCreationStatus.RUNNING) }
-        val request = buildMediaGenerationRequest(record.prompt, record.params, record.inputs, inputUrls, capabilities)
+        require(record.params.image.format != MediaImageFormat.GIF ||
+            (setting is MediaGenerationProviderSetting.OpenAI && record.modelId.contains("gpt-image-2.6"))) {
+            "原生 GIF 需要已支持该能力的 gpt-image-2.6 渠道"
+        }
+        val request = buildMediaGenerationRequest(record.prompt, record.params, record.inputs, inputUrls, capabilities,
+            imageModelId = model.modelId.takeIf { record.kind == MediaKind.IMAGE && setting is MediaGenerationProviderSetting.OpenAI },
+        )
         return manager.create(setting, model, request).getOrElse {
             currentCoroutineContext().ensureActive()
             throw it
@@ -388,48 +396,46 @@ class MediaCreationService(
         // 清掉上一次没下完的残留
         dir.listFiles { file -> file.name.startsWith(OUTPUT_PREFIX) }?.forEach { it.delete() }
 
-        outputs.mapIndexedNotNull { index, output ->
-            val isVideo = output.mimeType.startsWith("video/")
-            val file = File(dir, "$OUTPUT_PREFIX$index.${output.fileExtension()}")
-            val data = output.data
-            val url = output.url
-            when {
-                data != null -> file.writeBytes(data)
-                url != null -> {
-                    Log.i(TAG, "Downloading output $index (${output.mimeType}) from $url")
-                    download(setting, url, file)
-                    Log.i(TAG, "Downloaded output $index: ${file.length()} bytes -> ${file.name}")
+        require(outputs.isNotEmpty()) { context.getString(R.string.media_creation_error_no_output) }
+        try {
+            outputs.mapIndexed { index, output ->
+                currentCoroutineContext().ensureActive()
+                val isVideo = record.kind == MediaKind.VIDEO
+                val limit = if (isVideo) MediaOutputVerifier.MAX_VIDEO_BYTES else MediaOutputVerifier.MAX_IMAGE_BYTES
+                val incoming = File(dir, "$OUTPUT_PREFIX$index.pending")
+                val data = output.data
+                when {
+                    data != null -> {
+                        require(data.isNotEmpty() && data.size.toLong() <= limit) { "产出文件为空或超过大小限制" }
+                        val partial = File(dir, incoming.name + MediaCreationFiles.PARTIAL_SUFFIX)
+                        try {
+                            partial.writeBytes(data)
+                            currentCoroutineContext().ensureActive()
+                            check(partial.renameTo(incoming)) { "产出文件保存失败" }
+                        } finally { partial.delete() }
+                    }
+                    !output.url.isNullOrBlank() -> download(setting, output.url, incoming, maxBytes = limit)
+                    else -> error(context.getString(R.string.media_creation_error_no_output))
                 }
-                else -> return@mapIndexedNotNull null
-            }
-
-            if (isVideo) {
-                val poster = File(dir, "$OUTPUT_PREFIX${index}_poster.jpg")
-                    .takeIf { MediaCreationFiles.extractFrame(file, it, last = false) }
-                // 尾帧只是「续写」时的捷径，下载不到就等用的时候再从视频里抽
-                val lastFrame = output.lastFrameUrl?.let { lastFrameUrl ->
-                    File(dir, "$OUTPUT_PREFIX${index}_last.${lastFrameUrl.urlExtension() ?: "jpg"}")
-                        .takeIf { runCatching { download(setting, lastFrameUrl, it, attempts = 1) }.isSuccess }
-                }
-                val info = MediaCreationFiles.videoInfo(file)
+                val actual = MediaOutputVerifier.validateLocal(
+                    incoming, expectedVideo = isVideo,
+                    requireAnimatedGif = record.params.image.format == MediaImageFormat.GIF,
+                )
+                val file = File(dir, "$OUTPUT_PREFIX$index.${actual.extension}")
+                check(incoming.renameTo(file)) { context.getString(R.string.media_creation_error_save_failed) }
+                val poster = if (isVideo) File(dir, "$OUTPUT_PREFIX${index}_poster.jpg")
+                    .takeIf { MediaCreationFiles.extractFrame(file, it, last = false) } else null
+                // Tail frames are an optimization; derive them from the validated local video on demand.
                 MediaCreationOutput(
-                    path = repository.relativePath(file),
-                    mimeType = output.mimeType,
-                    width = info?.width,
-                    height = info?.height,
-                    durationSeconds = output.durationSeconds ?: info?.durationSeconds,
+                    path = repository.relativePath(file), mimeType = actual.mimeType,
+                    width = actual.width, height = actual.height,
+                    durationSeconds = actual.durationSeconds,
                     posterPath = poster?.let(repository::relativePath),
-                    lastFramePath = lastFrame?.let(repository::relativePath),
-                )
-            } else {
-                val info = MediaCreationFiles.imageInfo(file)
-                MediaCreationOutput(
-                    path = repository.relativePath(file),
-                    mimeType = output.mimeType,
-                    width = info?.width,
-                    height = info?.height,
                 )
             }
+        } catch (error: Throwable) {
+            dir.listFiles { file -> file.name.startsWith(OUTPUT_PREFIX) }?.forEach { it.delete() }
+            throw error
         }
     }
 
@@ -438,6 +444,7 @@ class MediaCreationService(
         url: String,
         target: File,
         attempts: Int = DOWNLOAD_ATTEMPTS,
+        maxBytes: Long = MediaOutputVerifier.MAX_VIDEO_BYTES,
     ) {
         // 个别厂商的结果地址没有签名，要带着密钥去取
         val request = Request.Builder().url(url).headers(setting.downloadHeaders(url).toHeaders()).build()
@@ -445,7 +452,7 @@ class MediaCreationService(
         while (true) {
             attempt++
             try {
-                downloadOnce(request, target)
+                downloadOnce(request, target, maxBytes)
                 return
             } catch (e: Exception) {
                 currentCoroutineContext().ensureActive()
@@ -456,7 +463,7 @@ class MediaCreationService(
         }
     }
 
-    private suspend fun downloadOnce(request: Request, target: File) {
+    private suspend fun downloadOnce(request: Request, target: File, maxBytes: Long) {
         val partial = File(target.parentFile, target.name + MediaCreationFiles.PARTIAL_SUFFIX)
         val call = okHttpClient.newCall(request)
         try {
@@ -473,13 +480,17 @@ class MediaCreationService(
                     check(response.isSuccessful) {
                         context.getString(R.string.media_creation_error_download_failed, response.code)
                     }
+                    require(response.body.contentLength() <= maxBytes) { "产出文件超过大小限制" }
                     response.body.byteStream().use { input ->
                         partial.outputStream().use { output ->
                             val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            var total = 0L
                             while (true) {
                                 currentCoroutineContext().ensureActive()
                                 val read = input.read(buffer)
                                 if (read < 0) break
+                                total += read
+                                require(total <= maxBytes) { "产出文件超过大小限制" }
                                 output.write(buffer, 0, read)
                             }
                         }

@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import me.rerere.ai.ui.withoutEmptyGeneratedImages
 import me.rerere.ai.ui.finishReasoning
 import me.rerere.rikkahub.data.model.Conversation
@@ -158,18 +159,22 @@ class ConversationSession(
      *
      * @param expectedIncarnation 跨挂起点的操作在开始时记下的 [incarnation]。[replace] 在同一把锁内递增它，
      * 所以在锁内比较才可靠：会话在这期间被删除或整条换掉时不写入，返回 false
+     * @param predicate 按最新状态再判断一次：不满足时（比如用户已经手改标题）不写入，返回 false。
+     * 判断和修改在同一把锁内，晚到的自动标题不会盖掉用户后来的修改
      */
     internal suspend fun updateMetadata(
-        transform: (Conversation) -> Conversation,
+        transform: (Conversation) -> Conversation?,
         persist: suspend (Conversation) -> Unit,
         expectedIncarnation: Int = incarnation,
+        predicate: (Conversation) -> Boolean = { true },
     ): Boolean {
         return writeMutex.withLock {
             if (incarnation != expectedIncarnation) return@withLock false
-            val (before, updated) = synchronized(this) {
+            val (before, current) = synchronized(this) {
                 val before = _state.value
-                before to update(transform)
+                before to if (predicate(before)) tryUpdate(transform) else null
             }
+            val updated = current ?: return@withLock false
             persist(updated)
             // 改之前内存和数据库一致，按列写完两边又一致了，回收时不必整份重写；
             // 之后如果又有别的修改，内存已经不是 updated 这个实例，仍然算作没落库
@@ -177,6 +182,34 @@ class ConversationSession(
             true
         }
     }
+
+    // 这个会话正在做的一次标题请求。同一时刻只放过一个：早标题和一轮结束后的标题不并发。
+    private val titleMutex = Mutex()
+
+    /**
+     * 抢到这个会话的标题请求位置时执行 [block]；已经有请求在跑时返回 null 且什么都不做。
+     * 被挡掉的调用方用 [queuedTitle] 等前面那个做完再判断一次，不能就此认定「已经有人起了标题」。
+     */
+    suspend fun <T> singleFlightTitle(block: suspend () -> T): T? {
+        if (!titleMutex.tryLock()) return null
+        return try {
+            block()
+        } finally {
+            titleMutex.unlock()
+        }
+    }
+
+    /**
+     * 等前面的标题请求让出位置（最多 [timeoutMs]）再执行 [block]；前面那个一直不结束就返回 null。
+     *
+     * 用于被 [singleFlightTitle] 挡掉的那次请求：早标题比一轮结束时的标题慢、后者先撞上门时，
+     * 精修就靠这一次补上——等早标题写完，再按最新内容重新判断要不要精修。
+     * 有超时是因为它不能让标题任务无限挂着。
+     */
+    suspend fun <T> queuedTitle(timeoutMs: Long, block: suspend () -> T): T? =
+        withTimeoutOrNull(timeoutMs) {
+            titleMutex.withLock { block() }
+        }
 
     /**
      * 整条替换会话（删除、撤销删除）：先停止并等待所有任务，在锁内改写数据库，再把内存换成与之一致的状态。

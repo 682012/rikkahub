@@ -535,6 +535,7 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
                         })
                         BuiltInTools.UrlContext,
                         BuiltInTools.ImageGeneration,
+                        BuiltInTools.CodeInterpreter,
                         -> Unit
                     }
                 }

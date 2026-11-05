@@ -1,0 +1,5 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="r20_responses_code_title">Code interpreter (Responses)</string>
+    <string name="r20_responses_code_desc">Enable only for a Responses provider with code execution and container file download. Some gateways return links without real files.</string>
+</resources>
