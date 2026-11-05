@@ -25,11 +25,10 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /** 一段固定长度的动画，播完就通知调用方把自己摘掉，不会常驻，也没有循环。 */
-private const val INTRO_DURATION_MS = 520
+private const val INTRO_DURATION_MS = 280
 
-private const val ENTER_END = 0.22f
-private const val FADE_START = 0.62f
-private const val SCRIM_ALPHA = 0.10f
+private const val ENTER_END = 0.12f
+private const val FADE_START = 0.50f
 
 /**
  * 冷启动时的短前景开场。
@@ -48,7 +47,6 @@ fun StartupIntroOverlay(
 ) {
     val progress = remember { Animatable(0f) }
     val finish = rememberUpdatedState(onFinished)
-    val scrimColor = MaterialTheme.colorScheme.surface
     val accentColor = MaterialTheme.colorScheme.primary
     val glowColor = MaterialTheme.colorScheme.tertiary
 
@@ -68,11 +66,7 @@ fun StartupIntroOverlay(
         val exit = exitRaw * exitRaw
         val glyphAlpha = enter * (1f - exit)
 
-        // 很淡的过渡层，始终保留底下内容的可读性，不掩盖加载问题
-        val scrimAlpha = SCRIM_ALPHA * (1f - exit)
-        if (scrimAlpha > 0.004f) {
-            drawRect(color = scrimColor.copy(alpha = scrimAlpha))
-        }
+        // 不再叠遮罩：聊天页从第一帧起就是原亮度，动效只是一笔轻描
         if (glyphAlpha <= 0.01f) return@Canvas
 
         when (motion) {

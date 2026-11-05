@@ -177,11 +177,11 @@ private const val EXTRA_ARTIFACT_FRAGMENT = "artifactFragment"
 private const val MAX_PERSISTED_GRANTS = 8
 
 /** 系统 Splash 图标退场：很短的一段，只做淡出和轻微放大。 */
-private const val SPLASH_EXIT_DURATION_MS = 180L
+private const val SPLASH_EXIT_DURATION_MS = 120L
 
 /** 保险丝：无论如何都要在首帧之后把 Splash 摘掉，绝不能让启动图一直盖着应用。 */
-private const val SPLASH_EXIT_TIMEOUT_MS = 600L
-private const val SPLASH_EXIT_SCALE = 1.08f
+private const val SPLASH_EXIT_TIMEOUT_MS = 400L
+private const val SPLASH_EXIT_SCALE = 1.04f
 
 /** Explicit in-app navigation used by overlay windows, not an externally exported path handler. */
 fun workspaceArtifactIntent(context: Context, workspaceId: String, path: String, fragment: String? = null): Intent =
