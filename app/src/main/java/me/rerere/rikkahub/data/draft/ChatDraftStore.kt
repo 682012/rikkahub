@@ -187,7 +187,7 @@ class ChatDraftStore(
             if (key in deleted) return null
             versions[key] ?: 0L
         }
-        val stored = storage.read(key)?.takeIf { !it.isEmpty } ?: return null
+        val stored = storage.read(key)?.takeIf { it.hasPersistableState } ?: return null
         return synchronized(lock) {
             val cachedNow = cache[key]
             if (cachedNow != null) return@synchronized cachedNow
@@ -218,14 +218,14 @@ class ChatDraftStore(
             val previous = cache[key]
             cache[key] = draft
             // 只有光标变了：盘上那份内容还是对的，不用重写
-            if (previous != null && previous.sameContent(draft)) {
+            if (previous != null && previous.sameStoredContent(draft)) {
                 when (val queued = pending[key]) {
-                    is Pending.Save -> if (queued.draft.sameContent(draft)) return
-                    Pending.Delete -> if (draft.isEmpty) return
+                    is Pending.Save -> if (queued.draft.sameStoredContent(draft)) return
+                    Pending.Delete -> if (!draft.hasPersistableState) return
                     null -> return
                 }
             }
-            if (draft.isEmpty) {
+            if (!draft.hasPersistableState) {
                 // 本来就没有、也不等着删：不用白删一次
                 if (previous == null && pending[key] !is Pending.Save) {
                     versions[key] = (versions[key] ?: 0L) + 1

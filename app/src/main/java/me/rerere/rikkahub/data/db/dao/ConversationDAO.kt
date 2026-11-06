@@ -52,6 +52,27 @@ interface ConversationDAO {
     @Query("SELECT title FROM conversationentity WHERE assistant_id = :assistantId")
     suspend fun getTitlesOfAssistant(assistantId: String): List<String>
 
+    /**
+     * 分组（= 文件夹）里的会话，给抽屉列表里「展开的组」用。
+     *
+     * 严格按助手 + 组过滤：别的助手里就算有同一个 folder_id 也不会带出来。限量读取，超出部分由界面给
+     * 「查看全部」入口走分页视图，避免一个几百条的大组在展开时整段读进内存。
+     */
+    @Query(
+        "SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, folder_id as folderId, lineage_id AS lineageId, folder_assignment_locked AS folderAssignmentLocked, 1 AS familySize FROM conversationentity WHERE assistant_id = :assistantId AND folder_id = :folderId ORDER BY is_pinned DESC, update_at DESC LIMIT :limit"
+    )
+    fun observeGroupConversations(
+        assistantId: String,
+        folderId: String,
+        limit: Int,
+    ): Flow<List<LightConversationEntity>>
+
+    /** 助手内每个分组的会话数，给组标题上的角标；空 folder_id（未归组）不算。 */
+    @Query(
+        "SELECT folder_id AS folderId, COUNT(*) AS count FROM conversationentity WHERE assistant_id = :assistantId AND folder_id != '' GROUP BY folder_id"
+    )
+    fun observeFolderCounts(assistantId: String): Flow<List<FolderConversationCount>>
+
     @Query("SELECT id, title FROM conversationentity WHERE assistant_id = :assistantId AND id IN (:ids)")
     suspend fun getTitlesByIds(assistantId: String, ids: List<String>): List<ConversationTitleRow>
 
@@ -321,5 +342,8 @@ interface ConversationDAO {
 }
 
 data class ConversationDayCount(val day: String, val count: Int)
+
+/** 一个分组（文件夹）里的会话数。 */
+data class FolderConversationCount(val folderId: String, val count: Int)
 
 data class AssistantConversationCount(val assistantId: String, val count: Int)

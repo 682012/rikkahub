@@ -18,6 +18,7 @@ import me.rerere.ai.core.MessageRole
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.core.Tool
 import me.rerere.ai.provider.Model
+import me.rerere.ai.provider.Provider
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.canDisableToolCallsWithDefinitions
@@ -27,6 +28,9 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.expandNotices
 import me.rerere.ai.ui.limitContext
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.channel.ChannelFailoverProvider
+import me.rerere.rikkahub.data.ai.channel.ChannelTarget
+import me.rerere.rikkahub.data.ai.channel.resolveChannelPlan
 import me.rerere.rikkahub.data.ai.clientprofile.ProfiledRequest
 import me.rerere.rikkahub.data.ai.clientprofile.applyProfile
 import me.rerere.rikkahub.data.ai.execution.ExecutionGuidance
@@ -59,6 +63,7 @@ import me.rerere.rikkahub.data.knowledge.KnowledgeLimits
 import me.rerere.rikkahub.data.knowledge.LocalKnowledgeRepository
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.ConversationClientProfile
 import me.rerere.rikkahub.data.model.MemoryFile
 import me.rerere.rikkahub.data.model.getAssistantOf
 import me.rerere.rikkahub.data.model.getChatModelOf
@@ -104,6 +109,18 @@ class ChatTurnContext(
      * 会话关闭高效模式、或本轮没有代码类工具时为空串，此时系统提示一个字都不变。
      */
     val executionGuidance: String = "",
+    /**
+     * 本轮允许尝试的有序渠道（同模型多渠道优先级，fork）。
+     *
+     * 空列表 = 没开启 / 没配置 / 只有一个渠道，此时 [createAgent] 不加任何包装，
+     * 请求路径与旧版本完全一致。列表非空时索引 0 是本轮首发的渠道。
+     */
+    val channelPlan: List<ChannelTarget> = emptyList(),
+    /**
+     * 用户选的客户端兼容档原始值。渠道切换后要按新 provider 重新套一次兼容档
+     * （OpenAI 兼容与 Claude 的档位不一样），所以这里保留原始选择而不是只留解析结果。
+     */
+    val clientProfilePreference: ConversationClientProfile = ConversationClientProfile.NATIVE,
 ) {
     // The memory snapshot is fixed for this turn; avoid rebuilding it on every tool step.
     val memoryPrompt: String by lazy { if (assistant.enableMemory) buildMemoryPrompt(memories) else "" }
@@ -225,6 +242,14 @@ class ChatRequestFactory(
             },
             tools = tools,
             clientProfile = clientProfile,
+            // 同模型多渠道优先级（fork）：只取用户显式排过的渠道；关闭/未配置时为空列表，
+            // createAgent 不加包装，请求路径与旧版本一致。
+            channelPlan = if (mainTurn) {
+                resolveChannelPlan(settings.providers, model, settings.channelFailover)
+            } else {
+                emptyList()
+            },
+            clientProfilePreference = conversation.runtime.clientProfile,
             // 一轮只查一次知识库，片段挂在用户请求尾部（不可信引用），工具步骤里原样复用
             knowledgeContext = if (mainTurn && runtimeOptions.knowledgeEnabled) {
                 knowledgeContextFor(assistant, requestMessages)
@@ -276,11 +301,18 @@ class ChatRequestFactory(
         takePendingParts: suspend () -> List<UIMessagePart> = { emptyList() },
         takePendingUserParts: suspend () -> List<UIMessagePart> = { emptyList() },
     ): Pair<AgentRequest, AgentHooks> {
+        val usageTag = UsageTag(UsageSource.CHAT, turn.assistant.id, turn.conversationId)
+        val baseProvider = usageRecorder.wrap(
+            providerManager.getProviderByType(turn.providerSetting),
+            usageTag,
+        )
+        val actualProvider = providerWithChannelFailover(turn, baseProvider, usageTag, processingStatus)
+        fun stampChannel(message: UIMessage): UIMessage =
+            (actualProvider as? ChannelFailoverProvider)?.let {
+                message.copy(modelId = it.currentChannel().model.id)
+            } ?: message
         val request = AgentRequest(
-            provider = usageRecorder.wrap(
-                providerManager.getProviderByType(turn.providerSetting),
-                UsageTag(UsageSource.CHAT, turn.assistant.id, turn.conversationId),
-            ),
+            provider = actualProvider,
             providerSetting = turn.providerSetting,
             messages = messages,
             tools = turn.tools,
@@ -305,22 +337,61 @@ class ChatRequestFactory(
             }
 
             override suspend fun previewStep(message: UIMessage, newPartsFrom: Int) =
-                message.transformNewParts(newPartsFrom) {
+                stampChannel(message.transformNewParts(newPartsFrom) {
                     it.visualTransforms(outputTransformers, context, turn.model, turn.assistant, turn.settings)
-                }
+                })
 
             override suspend fun finishStep(message: UIMessage, newPartsFrom: Int) =
-                message.transformNewParts(newPartsFrom) {
+                stampChannel(message.transformNewParts(newPartsFrom) {
                     it.transforms(outputTransformers, context, turn.model, turn.assistant, turn.settings)
                         .visualTransforms(outputTransformers, context, turn.model, turn.assistant, turn.settings)
                         .onGenerationFinish(outputTransformers, context, turn.model, turn.assistant, turn.settings)
-                }
+                })
 
             override suspend fun pendingParts() = takePendingParts()
 
             override suspend fun pendingUserParts() = takePendingUserParts()
         }
         return request to hooks
+    }
+
+    /**
+     * 同模型多渠道优先级（fork）：把 provider 包成「按用户排的顺序逐个渠道试」。
+     *
+     * - 计划为空（开关关闭/没配组/没有可用渠道）时原样返回基础 provider，请求路径与旧版本一致；
+     *   计划里只剩一个渠道（当前渠道被删或被禁用）时也要用它，所以只判断空不看数量；
+     * - 每次尝试都用目标渠道自己的 providerSetting + model 调 provider 并记 usage，
+     *   统计里看到的是**实际出话**的渠道；
+     * - 切换本身不重跑工具步骤：已经在会话里的工具结果原样保留，只有这一次模型请求换地址重发。
+     */
+    private fun providerWithChannelFailover(
+        turn: ChatTurnContext,
+        base: Provider<ProviderSetting>,
+        tag: UsageTag,
+        processingStatus: MutableStateFlow<String?>,
+    ): Provider<ProviderSetting> {
+        val plan = turn.channelPlan
+        if (plan.isEmpty()) return base
+        return ChannelFailoverProvider(
+            channels = plan,
+            providerFor = { target ->
+                usageRecorder.wrap(providerManager.getProviderByType(target.providerSetting), tag)
+            },
+            // 在 prepareStep 这一步算好的参数上只改渠道相关的字段，见 rebuildParamsForChannel
+            rebuildParams = { params, target -> rebuildParamsForChannel(turn, params, target) },
+            onSwitch = { from, to, error ->
+                Log.w(
+                    TAG,
+                    "Channel failover: ${from.providerSetting.name}/${from.model.modelId} -> " +
+                        "${to.providerSetting.name}/${to.model.modelId}",
+                    error,
+                )
+                // 只更新状态行；真正的"生成中"状态仍由上层在收到内容时清空
+                processingStatus.value =
+                    "渠道不可用，已切换到 ${to.providerSetting.name} / " +
+                    to.model.displayName.ifBlank { to.model.modelId }
+            },
+        )
     }
 
     /**
@@ -563,6 +634,40 @@ class ChatRequestFactory(
         // 兼容档只补不覆盖：用户/助手/模型的自定义头与请求体优先，同名去重；
         // 原生档（NATIVE / 不支持而降级）时原样返回，一个字节都不改。
         return turn.clientProfile?.applyTo(params) ?: params
+    }
+
+    /**
+     * 同模型多渠道（fork）：把某一步已经算好的参数改成发给[target]渠道的版本。
+     *
+     * 只替换和渠道强相关的字段：model、模型自己的自定义头/请求体，以及按目标 provider 重新解析的兼容档。
+     * [params] 里其它一切都是 `prepareStep` 那一步算出来的（maxTokens、tools、disableToolCalls、
+     * reasoningLevel、temperature、sessionId……），**必须原样保留**：重建一份新的会丢掉步级 token 预算
+     * 和这一步的工具禁用，等于在切换渠道时偷偷改了请求语义。
+     *
+     * 兼容档要重算是因为它是按 provider 类型/模型族判定的，Claude 和 OpenAI 兼容不能共用一份；
+     * 主渠道本来就走 [buildParams] 里解析好的那份，不受这里影响。
+     */
+    private fun rebuildParamsForChannel(
+        turn: ChatTurnContext,
+        params: TextGenerationParams,
+        target: ChannelTarget,
+    ): TextGenerationParams {
+        val channelParams = params.copy(
+            model = target.model,
+            customHeaders = buildList {
+                addAll(turn.assistant.customHeaders)
+                addAll(target.model.customHeaders)
+            },
+            customBody = buildList {
+                addAll(turn.assistant.customBodies)
+                addAll(target.model.customBodies)
+            },
+        )
+        return applyProfile(
+            params = channelParams,
+            setting = target.providerSetting,
+            profile = turn.clientProfilePreference,
+        ).applyTo(channelParams)
     }
 
     /**

@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.data.model
 
 import kotlinx.serialization.Serializable
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.ui.UIMessagePart
 import kotlin.uuid.Uuid
 
@@ -14,8 +15,23 @@ data class ChatDraft(
     val reasoning: String? = null,
     val selectionStart: Int = 0,
     val selectionEnd: Int = 0,
+    /**
+     * 这段对话里选过的思考档位，跟着输入草稿一起存。
+     *
+     * 还没发出第一条消息的新会话没有落库记录，会话自己那份配置只活在内存里；草稿是它唯一
+     * 能活过页面回收的地方，重新打开时据此把档位还回这段会话（见 ChatVM 的 applyDraftReasoning）。
+     * 它不是输入内容，不参与 [sameContent] 的比较。
+     */
+    val reasoningLevel: ReasoningLevel? = null,
 ) {
     val isEmpty: Boolean get() = text.isEmpty() && parts.isEmpty() && editingMessage == null
+
+    /** 空输入也可能有本对话的档位选择；保存状态与可发送内容分开判断。 */
+    val hasPersistableState: Boolean get() = !isEmpty || reasoningLevel != null
+
+    /** 光标不触发写盘，但档位变化必须写盘；发送确认仍用 sameContent。 */
+    fun sameStoredContent(other: ChatDraft): Boolean =
+        sameContent(other) && reasoningLevel == other.reasoningLevel
 
     /**
      * 内容是否相同（不看光标位置）。

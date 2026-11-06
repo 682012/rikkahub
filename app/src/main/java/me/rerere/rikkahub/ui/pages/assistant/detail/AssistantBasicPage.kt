@@ -43,7 +43,6 @@ import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.ui.components.ai.ModelField
 import me.rerere.rikkahub.ui.components.ai.ModelListSheet
-import me.rerere.rikkahub.ui.components.ai.ReasoningButton
 import me.rerere.rikkahub.ui.components.ai.rememberModelListState
 import me.rerere.rikkahub.ui.components.nav.BackButton
 import me.rerere.rikkahub.ui.components.ui.CardGroup
@@ -226,17 +225,7 @@ internal fun AssistantBasicContent(
                     onClick = { modelListState.open() },
                 )
             }
-            item(
-                headlineContent = { Text(stringResource(R.string.assistant_page_thinking_budget)) },
-                trailingContent = {
-                    ReasoningButton(
-                        reasoningLevel = assistant.reasoningLevel,
-                        onUpdateReasoningLevel = { level ->
-                            onUpdate(assistant.copy(reasoningLevel = level))
-                        }
-                    )
-                },
-            )
+            // 思考档位不在这里：它只属于每段对话，默认用模型支持的最高档，在聊天输入框里调整
             switchItem(
                 checked = assistant.streamOutput,
                 onCheckedChange = {

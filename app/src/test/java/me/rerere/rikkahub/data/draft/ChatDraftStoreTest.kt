@@ -43,6 +43,35 @@ class ChatDraftStoreTest {
         }
     }
 
+    @Test
+    fun `a reasoning only draft persists and loads without becoming sendable text`() = runTest {
+        val storage = MemoryDraftStorage()
+        val store = ChatDraftStore(storage, this, debounceMillis = 0)
+        val draft = ChatDraft(reasoningLevel = me.rerere.ai.core.ReasoningLevel.LOW)
+        assertTrue(draft.isEmpty)
+        assertTrue(draft.hasPersistableState)
+        store.saveNow("reasoning-only", draft)
+        advanceUntilIdle()
+        val reloaded = ChatDraftStore(storage, this).load("reasoning-only")
+        assertEquals(draft, reloaded)
+    }
+
+    @Test
+    fun `changing only reasoning rewrites the persisted draft`() = runTest {
+        val storage = MemoryDraftStorage()
+        val store = ChatDraftStore(storage, this, debounceMillis = 0)
+        val first = ChatDraft(text = "same", reasoningLevel = me.rerere.ai.core.ReasoningLevel.LOW)
+        store.saveNow("reasoning-change", first)
+        advanceUntilIdle()
+        val second = first.copy(reasoningLevel = me.rerere.ai.core.ReasoningLevel.HIGH)
+        assertTrue(first.sameContent(second))
+        assertFalse(first.sameStoredContent(second))
+        store.saveNow("reasoning-change", second)
+        advanceUntilIdle()
+        assertEquals(second, storage.files["reasoning-change"])
+        assertEquals(2, storage.writes.size)
+    }
+
     private val key = "conversation:1"
     private fun text(value: String) = ChatDraft(text = value)
 

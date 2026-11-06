@@ -66,6 +66,7 @@ import me.rerere.hugeicons.stroke.ServerStack01
 import me.rerere.hugeicons.stroke.Settings03
 import me.rerere.hugeicons.stroke.Share04
 import me.rerere.hugeicons.stroke.SmartPhone01
+import me.rerere.hugeicons.stroke.Sorting01
 import me.rerere.hugeicons.stroke.Sun01
 import me.rerere.hugeicons.stroke.Tiktok
 import me.rerere.hugeicons.stroke.WavingHand01
@@ -230,6 +231,12 @@ fun SettingPage(vm: SettingVM = koinViewModel()) {
                         leadingContent = { CardGroupIcon(HugeIcons.Brain02, containerColor = containerColor, contentColor = contentColor) },
                         supportingContent = { Text(stringResource(R.string.setting_page_providers_desc)) },
                         headlineContent = { Text(stringResource(R.string.setting_page_providers)) },
+                    )
+                    item(
+                        onClick = { navController.navigate(Screen.SettingChannelFailover) },
+                        leadingContent = { CardGroupIcon(HugeIcons.Sorting01, containerColor = containerColor, contentColor = contentColor) },
+                        supportingContent = { Text("同一个模型在多个提供商里时，按你排的顺序调用；当前渠道不可用自动切下一个") },
+                        headlineContent = { Text("渠道优先级与故障切换") },
                     )
                     item(
                         onClick = { navController.navigate(Screen.SettingSearch) },

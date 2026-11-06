@@ -92,6 +92,8 @@ data class Settings(
     val workspaceRuntime: WorkspaceRuntimeSettings = WorkspaceRuntimeSettings(),
     val subagent: SubagentSettings = SubagentSettings(),
     val autoCompress: AutoCompressSettings = AutoCompressSettings(),
+    // fork: 同模型多渠道优先级与故障切换，见 ChannelFailoverSettings.kt；默认关闭
+    val channelFailover: ChannelFailoverSettings = ChannelFailoverSettings(),
     val backgroundToolSettings: BackgroundToolSettings = BackgroundToolSettings(),
 ) {
     companion object {

@@ -27,6 +27,7 @@ import me.rerere.rikkahub.data.db.fts.MessageFtsManager
 import me.rerere.rikkahub.data.db.fts.MessageSearchSort
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.organization.grouping.GROUP_INLINE_LIMIT
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.utils.JsonInstant
 import java.time.Instant
@@ -84,6 +85,33 @@ class ConversationRepository(
                 }
             }
     }
+
+    /**
+     * 分组（= 文件夹）里的会话，供抽屉列表里展开的组用。
+     *
+     * 限量读取：组特别大时只渲染前 [GROUP_INLINE_LIMIT] 条，剩下的走「查看全部」的分页视图。
+     * 只读 folder_id 归属，不掺 lineage 判断 —— 组和家族是两回事。
+     */
+    fun getGroupConversations(
+        assistantId: Uuid,
+        folderId: Uuid,
+        limit: Int = GROUP_INLINE_LIMIT,
+    ): Flow<List<Conversation>> = conversationDAO
+        .observeGroupConversations(
+            assistantId = assistantId.toString(),
+            folderId = folderId.toString(),
+            limit = limit.coerceIn(1, 500),
+        )
+        .map { rows -> rows.map(::conversationSummaryToConversation) }
+
+    /** 当前助手每个分组里有多少会话，给组标题的角标用。 */
+    fun getGroupCounts(assistantId: Uuid): Flow<Map<Uuid, Int>> = conversationDAO
+        .observeFolderCounts(assistantId.toString())
+        .map { rows ->
+            rows.mapNotNull { row ->
+                runCatching { Uuid.parse(row.folderId) }.getOrNull()?.let { it to row.count }
+            }.toMap()
+        }
 
     /** Organizer queries never read message bodies, even for old/orphaned conversations. */
     fun observeOrganizationSummaries(assistantId: Uuid? = null): Flow<List<Conversation>> =

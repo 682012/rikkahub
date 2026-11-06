@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.model.ChatDraft
 import kotlin.uuid.Uuid
@@ -15,6 +16,14 @@ class ChatInputState {
     val textContent = TextFieldState()
     var messageContent by mutableStateOf(listOf<UIMessagePart>())
     var editingMessage by mutableStateOf<Uuid?>(null)
+
+    /**
+     * 这段对话选过的思考档位，跟着草稿存。
+     *
+     * 只是草稿的一份副本：真正生效的档位在会话的配置上，这里存下来是为了还没发送的新会话
+     * 在页面回收/进程重启后还能回到同一个档位，见 ChatVM 的 applyDraftReasoning。
+     */
+    var reasoningLevel by mutableStateOf<ReasoningLevel?>(null)
 
     /** 编辑中的消息允许改思考内容时不为 null，见 [setContents] */
     var editingReasoning by mutableStateOf<TextFieldState?>(null)
@@ -29,6 +38,8 @@ class ChatInputState {
         editingReasoning = null
         editingParts = null
         editingAttachmentUrls = emptySet()
+        // 换草稿 key 时连同思考档位一起清掉：这份档位属于上一段对话，不能带到新 key 上
+        reasoningLevel = null
     }
 
     fun isEditing() = editingMessage != null
@@ -122,6 +133,7 @@ class ChatInputState {
         reasoning = editingReasoning?.text?.toString(),
         selectionStart = textContent.selection.start,
         selectionEnd = textContent.selection.end,
+        reasoningLevel = reasoningLevel,
     )
 
     /**
@@ -138,6 +150,7 @@ class ChatInputState {
             ?.let { TextFieldState(it) }
         messageContent = draft.parts
         editingAttachmentUrls = originals.orEmpty().mapNotNull { it.attachmentUrlOrNull() }.toSet()
+        reasoningLevel = draft.reasoningLevel
         val text = draft.text
         textContent.edit {
             replace(0, length, text)

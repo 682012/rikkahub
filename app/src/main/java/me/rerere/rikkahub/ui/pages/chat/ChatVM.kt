@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.yield
+import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.Model
 import me.rerere.ai.ui.UIMessage
 import me.rerere.ai.ui.UIMessagePart
@@ -60,6 +61,7 @@ import me.rerere.rikkahub.data.model.NodeFavoriteTarget
 import me.rerere.rikkahub.data.model.chatDraftKey
 import me.rerere.rikkahub.data.model.getAssistantOf
 import me.rerere.rikkahub.data.model.getChatModelOf
+import me.rerere.rikkahub.data.model.reasoningLevelOf
 import me.rerere.rikkahub.data.model.runtime
 import me.rerere.rikkahub.data.repository.FavoriteRepository
 import me.rerere.rikkahub.service.ChatError
@@ -249,7 +251,7 @@ class ChatVM(
         val previousInput = inputState.snapshotDraft()
         // Commit ownership before suspending, but never carry old assistant text into a new key.
         if (previousKey != null && previousKey != key && !isDraftKeyMigration(previousKey, key)) {
-            if (wasReady || !previousInput.isEmpty) draftStore.saveNow(previousKey, previousInput)
+            if (wasReady || previousInput.hasPersistableState) draftStore.saveNow(previousKey, previousInput)
             inputState.clearInput()
         }
         synchronized(draftLock) { draftKey = key }
@@ -272,6 +274,8 @@ class ChatVM(
                 restoreDraft(key, replaceInput = false)
             }
         }
+        // 草稿里记着的思考档位跟着输入框一起恢复：还没落库的新会话靠它记住上次的选择
+        applyDraftReasoning(inputState.reasoningLevel)
         _draftReady.value = true
         snapshotFlow { inputState.snapshotDraft() }
             .distinctUntilChanged()
@@ -287,7 +291,7 @@ class ChatVM(
      */
     private suspend fun restoreDraft(key: String, replaceInput: Boolean) {
         val baseline = inputState.snapshotDraft()
-        val stored = draftStore.load(key)?.takeIf { !it.isEmpty }
+        val stored = draftStore.load(key)?.takeIf { it.hasPersistableState }
         // 读盘期间用户已经动了输入（或分享内容先到了）：以当前输入为准，迟到的草稿不能覆盖它
         if (inputState.snapshotDraft() != baseline) return
         // 读盘期间又切了 key：这份草稿不属于当前的输入框了
@@ -308,13 +312,27 @@ class ChatVM(
     }
 
     /**
+     * 把草稿里记着的思考档位放回这段会话。
+     *
+     * 只在这段对话自己还没选过档位时用草稿里的值（会话上已有的选择以会话为准），
+     * 而且和默认值相同就不写：仅仅打开一次页面不会把默认档位钉死在会话上。
+     */
+    private suspend fun applyDraftReasoning(level: ReasoningLevel?) {
+        if (level == null) return
+        val current = conversation.value
+        if (current.config?.reasoningLevel != null) return
+        if (level == settings.value.reasoningLevelOf(current)) return
+        chatService.updateChatAssistant(_conversationId) { it.copy(reasoningLevel = level) }
+    }
+
+    /**
      * 把现在的输入立刻记下来并落盘（页面暂停/离开用）。
      * 只是内存入队 + 马上写，不挂起，Compose 生命周期回调里可以放心调。
      */
     fun persistDraftNow() {
         val key = synchronized(draftLock) { draftKey } ?: return
         val draft = inputState.snapshotDraft()
-        if (_draftReady.value || !draft.isEmpty) draftStore.saveNow(key, draft)
+        if (_draftReady.value || draft.hasPersistableState) draftStore.saveNow(key, draft)
     }
 
     // 用户设置
@@ -412,6 +430,10 @@ class ChatVM(
 
     // 聊天页对助手的修改：新会话直接改助手，会话开始后只改当前会话
     fun updateAssistant(assistant: Assistant) {
+        // 思考档位只属于这段对话：同时记进草稿，页面离开或进程重启后还能恢复同一个档位
+        if (assistant.reasoningLevel != this.assistant.value.reasoningLevel) {
+            inputState.reasoningLevel = assistant.reasoningLevel
+        }
         viewModelScope.launch {
             chatService.updateChatAssistant(_conversationId) { assistant }
         }

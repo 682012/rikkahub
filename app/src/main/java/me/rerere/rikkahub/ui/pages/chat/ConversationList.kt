@@ -7,6 +7,7 @@ import me.rerere.hugeicons.stroke.Layers01
 import me.rerere.hugeicons.stroke.Pin
 import me.rerere.hugeicons.stroke.PinOff
 import me.rerere.hugeicons.stroke.Refresh01
+import me.rerere.hugeicons.stroke.CheckList
 import me.rerere.hugeicons.stroke.Delete01
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.LocalIndication
@@ -23,8 +24,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -53,7 +56,10 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.ConversationSortOrder
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.organization.grouping.GroupSummary
 import me.rerere.rikkahub.ui.theme.extendColors
 import me.rerere.rikkahub.utils.mirrorForRtl
 import me.rerere.rikkahub.utils.toLocalString
@@ -92,10 +98,23 @@ fun ColumnScope.ConversationList(
     onMoveToFolder: (Conversation) -> Unit = {},
     // 折叠后同族还有别的会话时，行尾的数字角标点进来；null 表示这个场景不折叠（比如搜索结果）
     onOpenFamily: ((Conversation) -> Unit)? = null,
+    // ---- 手动分组：列表顶部的可展开组 ----
+    // 为空表示不显示组（组内视角、家族视角、搜索结果都不显示）
+    groups: List<GroupSummary> = emptyList(),
+    groupConversations: (Uuid) -> Flow<List<Conversation>> = { flowOf(emptyList()) },
+    onToggleGroup: (Uuid) -> Unit = {},
+    onOpenGroup: (Uuid) -> Unit = {},
+    onRenameGroup: (Uuid) -> Unit = {},
+    onDissolveGroup: (Uuid) -> Unit = {},
+    // ---- 多选 ----
+    selectionMode: Boolean = false,
+    selectedIds: Set<Uuid> = emptySet(),
+    onStartSelection: (Conversation) -> Unit = {},
+    onToggleSelection: (Conversation) -> Unit = {},
 ) {
     var hasScrolledToCurrent by remember(current.id) { mutableStateOf(false) }
-    // 列表顶部若放了 header，会话项在 LazyColumn 中的位置要往后挪一位
-    val headerCount = if (header != null) 1 else 0
+    // 列表顶部若放了 header 和分组，会话项在 LazyColumn 中的位置要整体往后挪
+    val headerCount = (if (header != null) 1 else 0) + groups.size
 
     LaunchedEffect(current.id, conversations.itemCount, hasScrolledToCurrent) {
         if (hasScrolledToCurrent) return@LaunchedEffect
@@ -123,7 +142,26 @@ fun ColumnScope.ConversationList(
             }
         }
 
-        if (conversations.itemCount == 0) {
+        // 手动分组的可展开组：在「未归组」视角下先列出来，展开后直接看到组内的独立会话
+        items(groups, key = { "group_${it.id}" }, contentType = { "group" }) { group ->
+            ConversationGroupSection(
+                summary = group,
+                conversations = groupConversations,
+                current = current,
+                selectionMode = selectionMode,
+                selectedIds = selectedIds,
+                onToggleGroup = onToggleGroup,
+                onOpenGroup = onOpenGroup,
+                onRenameGroup = onRenameGroup,
+                onDissolveGroup = onDissolveGroup,
+                onClick = onClick,
+                onToggleSelection = onToggleSelection,
+                onStartSelection = onStartSelection,
+                modifier = Modifier.animateItem(),
+            )
+        }
+
+        if (conversations.itemCount == 0 && groups.isEmpty()) {
             item {
                 Surface(
                     modifier = Modifier
@@ -179,6 +217,10 @@ fun ColumnScope.ConversationList(
                         onMoveToAssistant = onMoveToAssistant,
                         onMoveToFolder = onMoveToFolder,
                         onOpenFamily = onOpenFamily?.takeIf { familyBadgeVisible(item.conversation.familySize) },
+                        selectionMode = selectionMode,
+                        isSelected = item.conversation.id in selectedIds,
+                        onStartSelection = onStartSelection,
+                        onToggleSelection = onToggleSelection,
                         modifier = Modifier.animateItem()
                     )
                 }
@@ -284,14 +326,19 @@ private fun ConversationItem(
     onMoveToAssistant: (Conversation) -> Unit = {},
     onMoveToFolder: (Conversation) -> Unit = {},
     onOpenFamily: ((Conversation) -> Unit)? = null,
+    // 多选：进入多选模式后点一行是选中/取消，长按菜单里也能主动进多选
+    selectionMode: Boolean = false,
+    isSelected: Boolean = false,
+    onStartSelection: (Conversation) -> Unit = {},
+    onToggleSelection: (Conversation) -> Unit = {},
     onClick: (Conversation) -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val focusManager = LocalFocusManager.current
-    val backgroundColor = if (selected) {
-        MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp)
-    } else {
-        Color.Transparent
+    val backgroundColor = when {
+        isSelected -> MaterialTheme.colorScheme.secondaryContainer
+        selected -> MaterialTheme.colorScheme.surfaceColorAtElevation(8.dp)
+        else -> Color.Transparent
     }
     var showDropdownMenu by remember {
         mutableStateOf(false)
@@ -302,7 +349,9 @@ private fun ConversationItem(
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = LocalIndication.current,
-                onClick = { onClick(conversation) },
+                onClick = {
+                    if (selectionMode) onToggleSelection(conversation) else onClick(conversation)
+                },
                 onLongClick = {
                     // Also clear chat input focus when the drawer is permanently visible.
                     focusManager.clearFocus(force = true)
@@ -317,6 +366,14 @@ private fun ConversationItem(
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            if (selectionMode) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggleSelection(conversation) },
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.size(4.dp))
+            }
             Text(
                 text = conversation.title.ifBlank { stringResource(id = R.string.chat_page_new_message) },
                 maxLines = 1,
@@ -411,6 +468,19 @@ private fun ConversationItem(
                     },
                     leadingIcon = {
                         Icon(HugeIcons.Folder01, null)
+                    }
+                )
+
+                DropdownMenuItem(
+                    text = {
+                        Text(stringResource(R.string.chat_page_group_select))
+                    },
+                    onClick = {
+                        onStartSelection(conversation)
+                        showDropdownMenu = false
+                    },
+                    leadingIcon = {
+                        Icon(HugeIcons.CheckList, null)
                     }
                 )
 

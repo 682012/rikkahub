@@ -82,6 +82,7 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.Folder
+import me.rerere.rikkahub.data.organization.grouping.shouldShowGroups
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.ui.components.ai.AssistantPicker
 import me.rerere.rikkahub.ui.components.ui.BackupReminderCard
@@ -123,7 +124,22 @@ fun ChatDrawerContent(
     val folders by drawerVm.folders.collectAsStateWithLifecycle()
     val selectedFolderId by drawerVm.selectedFolderId.collectAsStateWithLifecycle()
     val selectedLineageId by drawerVm.selectedLineageId.collectAsStateWithLifecycle()
+    val groups by drawerVm.groups.collectAsStateWithLifecycle()
+    val selectionMode by drawerVm.selectionMode.collectAsStateWithLifecycle()
+    val selectedConversationIds by drawerVm.selectedConversationIds.collectAsStateWithLifecycle()
+    val groupActionMessage by drawerVm.groupActionMessage.collectAsStateWithLifecycle()
     val memoryDreaming by drawerVm.memoryDreaming.collectAsStateWithLifecycle()
+
+    // 批量归组的反馈：成功几条、哪几条没搬成。必须有这一句，否则失败时清空选中等于假装成功
+    LaunchedEffect(groupActionMessage) {
+        groupActionMessage?.let { message ->
+            toaster.show(
+                message.text,
+                type = if (message.isError) ToastType.Warning else ToastType.Normal,
+            )
+            drawerVm.consumeGroupActionMessage()
+        }
+    }
     val conversationListState = rememberLazyListState(
         initialFirstVisibleItemIndex = drawerVm.scrollIndex,
         initialFirstVisibleItemScrollOffset = drawerVm.scrollOffset,
@@ -174,8 +190,12 @@ fun ChatDrawerContent(
     var conversationToMoveFolder by remember { mutableStateOf<Conversation?>(null) }
     val folderSheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
     var showCreateFolderDialog by remember { mutableStateOf(false) }
+    var showGroupMoveSheet by remember { mutableStateOf(false) }
+    val groupMoveSheetState = rememberBottomSheetState(initialValue = SheetValue.Hidden)
     var folderToRename by remember { mutableStateOf<Folder?>(null) }
     var folderToDelete by remember { mutableStateOf<Folder?>(null) }
+    // 同一个删除确认框，从组头进来时文案用「解散分组」，从文件夹栏进来还是「删除文件夹」
+    var folderDeleteAsGroup by remember { mutableStateOf(false) }
 
     // Menu popup 状态
     var showMenuPopup by remember { mutableStateOf(false) }
@@ -290,7 +310,10 @@ fun ChatDrawerContent(
                     onSelect = { drawerVm.selectFolder(it) },
                     onCreate = { showCreateFolderDialog = true },
                     onRename = { folderToRename = it },
-                    onDelete = { folderToDelete = it },
+                    onDelete = {
+                        folderDeleteAsGroup = false
+                        folderToDelete = it
+                    },
                     modifier = Modifier.weight(1f),
                 )
 
@@ -336,6 +359,16 @@ fun ChatDrawerContent(
                 LineageScopeBar(onBack = { drawerVm.selectLineage(null) })
             }
 
+            // 多选操作条：只在多选时出现，动作全部走 ViewModel（逐条同步内存态再落库）
+            if (selectionMode) {
+                GroupSelectionBar(
+                    selectedCount = selectedConversationIds.size,
+                    onMoveToGroup = { showGroupMoveSheet = true },
+                    onRemoveFromGroup = { drawerVm.moveSelectionToFolder(null) },
+                    onCancel = { drawerVm.clearSelection() },
+                )
+            }
+
             ConversationList(
                 current = current,
                 conversations = conversations,
@@ -345,6 +378,24 @@ fun ChatDrawerContent(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
+                // 手动分组：只在最外层显示，进组/进家族后是组内视角，不再叠组头
+                groups = if (shouldShowGroups(selectedFolderId, selectedLineageId)) groups else emptyList(),
+                groupConversations = drawerVm::groupConversations,
+                onToggleGroup = { drawerVm.toggleGroupExpanded(it) },
+                onOpenGroup = { folderId -> drawerVm.selectFolder(folderId) },
+                onRenameGroup = { folderId ->
+                    folders.firstOrNull { it.id == folderId }?.let { folderToRename = it }
+                },
+                onDissolveGroup = { folderId ->
+                    folders.firstOrNull { it.id == folderId }?.let {
+                        folderDeleteAsGroup = true
+                        folderToDelete = it
+                    }
+                },
+                selectionMode = selectionMode,
+                selectedIds = selectedConversationIds,
+                onStartSelection = { drawerVm.startSelection(it.id) },
+                onToggleSelection = { drawerVm.toggleSelection(it.id) },
                 onOpenFamily = { conversation ->
                     // 只从当前抽屉助手的行取根，别的助手的同 root 会话不往这里带
                     familyScopeTarget(conversation, current.assistantId)?.let { root ->
@@ -634,25 +685,127 @@ fun ChatDrawerContent(
         }
     }
 
-    // 新建文件夹对话框
+    // 多选移入分组 Bottom Sheet：列出现有分组 + 一个「新建分组」入口
+    if (showGroupMoveSheet) {
+        val doMove: (Uuid?) -> Unit = { folderId ->
+            drawerVm.moveSelectionToFolder(folderId)
+            scope.launch {
+                groupMoveSheetState.hide()
+                showGroupMoveSheet = false
+                conversations.refresh()
+            }
+        }
+        ModalBottomSheet(
+            onDismissRequest = { showGroupMoveSheet = false },
+            sheetState = groupMoveSheetState,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 400.dp)
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.chat_page_group_move_in),
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+
+                Surface(
+                    onClick = {
+                        scope.launch { groupMoveSheetState.hide() }
+                        showGroupMoveSheet = false
+                        // 建组确认后会自动把已选会话移进去
+                        showCreateFolderDialog = true
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(HugeIcons.FolderAdd, null)
+                        Text(
+                            text = stringResource(R.string.chat_page_group_new),
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                }
+
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(folders) { folder ->
+                        Surface(
+                            onClick = { doMove(folder.id) },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = MaterialTheme.shapes.medium,
+                            color = MaterialTheme.colorScheme.surface,
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                Icon(HugeIcons.Folder01, null)
+                                Text(
+                                    text = folder.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 新建文件夹对话框（多选状态下就是「用已选会话新建分组」）
     if (showCreateFolderDialog) {
         var name by remember { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { showCreateFolderDialog = false },
-            title = { Text(stringResource(R.string.chat_page_create_folder)) },
+            title = {
+                Text(
+                    stringResource(
+                        if (selectionMode) R.string.chat_page_group_new else R.string.chat_page_create_folder
+                    )
+                )
+            },
             text = {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    placeholder = { Text(stringResource(R.string.chat_page_folder_name)) }
+                    placeholder = {
+                        Text(
+                            stringResource(
+                                if (selectionMode) R.string.chat_page_group_name else R.string.chat_page_folder_name
+                            )
+                        )
+                    }
                 )
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        drawerVm.createFolder(name)
+                        if (selectionMode) {
+                            // 用多选中的会话建组：建完直接移进去并展开
+                            drawerVm.createGroupFromSelection(name)
+                        } else {
+                            drawerVm.createFolder(name)
+                        }
                         showCreateFolderDialog = false
                     },
                     enabled = name.isNotBlank()
@@ -701,7 +854,13 @@ fun ChatDrawerContent(
     folderToDelete?.let { folder ->
         AlertDialog(
             onDismissRequest = { folderToDelete = null },
-            title = { Text(stringResource(R.string.chat_page_delete_folder)) },
+            title = {
+                Text(
+                    stringResource(
+                        if (folderDeleteAsGroup) R.string.chat_page_group_dissolve else R.string.chat_page_delete_folder
+                    )
+                )
+            },
             text = { Text(stringResource(R.string.chat_page_delete_folder_confirm, folder.name)) },
             confirmButton = {
                 TextButton(

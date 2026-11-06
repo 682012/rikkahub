@@ -55,7 +55,11 @@ class ConversationConfigTest {
     fun `unstarted conversation follows the assistant`() {
         val conversation = conversation()
 
-        assertSame(assistant, settings().getAssistantOf(conversation))
+        // 除了思考档位（只属于会话，默认取模型支持的最高档），其余字段都跟着助手
+        assertEquals(
+            assistant.copy(reasoningLevel = ReasoningLevel.AUTO),
+            settings().getAssistantOf(conversation),
+        )
         assertEquals(modelA, settings().getChatModelOf(conversation))
     }
 
@@ -66,7 +70,6 @@ class ConversationConfigTest {
         assertEquals(
             ConversationConfig(
                 chatModelId = modelA.id,
-                reasoningLevel = ReasoningLevel.HIGH,
                 enableWebSearch = true,
                 builtInSearch = true,
                 mcpServers = setOf(mcpServer),
@@ -107,7 +110,7 @@ class ConversationConfigTest {
 
         val resolved = settings(changed).getAssistantOf(bound)
 
-        assertEquals(assistant.copy(systemPrompt = "changed"), resolved)
+        assertEquals(assistant.copy(systemPrompt = "changed", reasoningLevel = ReasoningLevel.AUTO), resolved)
         assertEquals(modelA, settings(changed).getChatModelOf(bound))
     }
 
@@ -164,10 +167,33 @@ class ConversationConfigTest {
     @Test
     fun `chat page update goes to the assistant before the conversation starts`() {
         val conversation = conversation()
-        val updated = assistant.copy(reasoningLevel = ReasoningLevel.LOW)
+        // 聊天页拿到的永远是会话视角的助手，档位就是当前生效值
+        val updated = settings().getAssistantOf(conversation).copy(quickMessageIds = setOf(Uuid.random()))
 
         assertSame(conversation, conversation.withAssistantUpdate(updated, settings()))
-        assertSame(updated, updated.withoutConversationFields(conversation, assistant))
+        // 其余字段照旧写回助手，思考档位不跟着回去
+        assertEquals(
+            updated.copy(reasoningLevel = assistant.reasoningLevel),
+            updated.withoutConversationFields(conversation, assistant),
+        )
+    }
+
+    @Test
+    fun `chat page reasoning stays on the conversation and never on the assistant`() {
+        val conversation = conversation()
+        val updated = settings().getAssistantOf(conversation).copy(reasoningLevel = ReasoningLevel.LOW)
+
+        val started = conversation.withAssistantUpdate(updated, settings())
+        val stored = updated.withoutConversationFields(conversation, assistant)
+
+        // 只在当前这段对话上固定，还没落库也留着（首次落库时一起写入）
+        assertEquals(ReasoningLevel.LOW, started.config?.reasoningLevel)
+        assertEquals(modelA.id, started.config?.chatModelId)
+        assertEquals(ReasoningLevel.LOW, settings().getAssistantOf(started).reasoningLevel)
+        // 助手的档位一个字都不动，别的对话也照旧
+        assertEquals(assistant, stored)
+        assertEquals(ReasoningLevel.HIGH, stored.reasoningLevel)
+        assertEquals(ReasoningLevel.AUTO, settings().getAssistantOf(conversation).reasoningLevel)
     }
 
     @Test
@@ -344,7 +370,6 @@ class ConversationConfigTest {
         assertEquals(
             ConversationConfig(
                 chatModelId = modelB.id,
-                reasoningLevel = ReasoningLevel.LOW,
                 enableWebSearch = true,
                 builtInSearch = false,
             ),
@@ -374,7 +399,7 @@ class ConversationConfigTest {
     fun `migrated conversation resolves to the target assistant and model`() {
         val migrated = conversation().bindConfig(settings()).migrateToAssistant(target, targetSettings())
 
-        assertEquals(target, targetSettings().getAssistantOf(migrated))
+        assertEquals(target.copy(reasoningLevel = ReasoningLevel.AUTO), targetSettings().getAssistantOf(migrated))
         assertEquals(modelB, targetSettings().getChatModelOf(migrated))
         // 迁移后已经按目标助手固定过，普通绑定不再改动它
         assertSame(migrated, migrated.bindConfig(targetSettings()))
