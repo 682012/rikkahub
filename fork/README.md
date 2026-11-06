@@ -1,20 +1,23 @@
 # 个人分支：构建、发布与维护
 
-本页只讲**怎么把这个分支构建出来、怎么发、出问题怎么回退**。用户功能与安装说明在 [仓库首页](../README.md) 与 [功能对比](FEATURES.md)，当前版本的变化见 [r21 说明](RELEASE-r21.md)。
+本页只讲**怎么把这个分支构建出来、怎么发、出问题怎么回退**。用户功能与安装说明在 [仓库首页](../README.md) 与 [功能对比](FEATURES.md)，当前版本的变化见 [m1 说明](RELEASE-m1.md)。
 
 ## 当前状态
 
 | 项目 | 值 |
 |---|---|
-| 版本 | `3.1.1-r21` / `3000068` |
-| 维护分支 | `fork/3.1.1` |
+| 版本 | `3.1.1-m1` / `3000070` |
+| 维护分支 | `fork/3.1.1`（本轮开发分支 `feature/meridian-m1`） |
 | 包名 | `me.rerere.rikkahub.fork`（Debug 变体 `me.rerere.rikkahub.fork.debug`） |
-| 应用名 / 图标 / 签名 | 与 r10 及更早的本分支版本一致，未改 |
+| 应用名 / 图标 / 签名 | 与 r21 及更早的本分支版本一致，未改 |
 | 官方基线 | `3.1.1` / `ad2c4430`，已合入上游 master `5ad19405` |
-| 数据库 | schema 35（r21 在会话表新增 `lineage_id` / `folder_assignment_locked`，显式 34→35 迁移，旧行 COALESCE 兜底；沿用 r3 起的本分支编号，不与官方编号混用） |
-| 发布标签 / 资产名 | `v3.1.1-r21` / `rikkahub-3.1.1-r21.apk` |
+| 运行时提交 | `705152840b78ed2e730834271d5cfa5ffc825882`，基线 r22 `712baad2982e9b27e6ba8806bf381938081fc5d6` |
+| 数据库 | schema 36（r21 起 34→35 加会话家族列，本轮 35→36；均为显式迁移，旧行兜底；沿用 r3 起的本分支编号，不与官方编号混用） |
+| 发布标签 / 资产名 | `v3.1.1-m1` / `rikkahub-3.1.1-m1.apk` |
 
 已发布的历史版本各自保留 tag 与资产，不覆盖、不复用版本号。正式下载入口为 [Latest](https://github.com/682012/rikkahub/releases/latest)，固定版本按 tag 取包。
+
+下载侧只有**一个通用 APK**：m1 已合并 r21 的已发布改动、r22 阶段改动与本轮功能，不拆包、不需要依次安装；r21 的 Release/tag/资产保留用于回滚，r22 从未单独发布成包。
 
 ## 构建环境
 
@@ -66,7 +69,15 @@ GitHub 的 `Fork Verify` 验证流程使用 `KEY_BASE64`、`SIGNING_CONFIG` 与�
 6. 维护分支的 CI 手动触发（`Fork Verify` 只在推送 `ci/**` 或手动运行时构建签名包、跑 JVM 与 API 34 模拟器测试），不自动发 Release；推文档不会顺带发 nightly。
 7. 可见版本号用「上游版本 + 短后缀」（`3.1.1-r10`、`3.1.1-r11`），versionCode 独立递增，不再套早期的 `3000000 + fork.N` 公式。
 
-## r21 的验证入口
+## m1 的验证入口
+
+正式构建同样走 Windows 云节点 `release`（R8 + lintVital），幂等 job `idem-0c72cda63733c87329b243ea`，`sourceId b1ae6585244e06d2054f24766952b9147c7bc36539091895d25a4705393ee21c`，`./gradlew :app:assembleGithubRelease` 一次成功，26m54s（1,614,083 ms），exit 0。产物 `rikkahub-3.1.1-m1.apk` 46,325,122 字节（44.18 MiB），SHA-256 `cc71498019a8db0eb4078499d7c4f7a7cde6d0c8813dfb4238dc18a1b0545bf4`；另产出 mapping 233,748,435 字节（`1cfc00fa…0e45d`）。验包核对：包名 `me.rerere.rikkahub.fork`、`3.1.1-m1` / `3000070`、证书 `cb897a36…15bf89`、`arm64-v8a` + `x86_64`、ZIP CRC、445 个条目、云端与本地 SHA-256 与字节数一致，`apksigner` / `aapt` 版本已记录。
+
+定向 Kotlin/JUnit **174 项全部通过**，按源码直编，不含历史套件：输入优化 56、输入优化重写 12、插话收件箱 23、设备边界 26、压缩 13、MCP 幂等 15、权限 29。r21 的 167 项绑定旧冻结提交，**不计入本轮**，也不与 174 相加。
+
+**没有自动安装手机、没有真机 UI 点验**；正式发布状态以 Release 页为准：会话选项的触控与观感、权限页跳转与真实 OEM 授权、真实模型的输入优化/独立审查用量与计费都未端到端验证。构建完成后的文档改动属于 docs-only，运行时源码不变，**不需要重新编译**，也不改变上面的哈希。
+
+## r21 的验证入口（历史）
 
 本版只运行本次改动相关的定向检查，不重跑历史全套。正式构建使用 Windows 云节点 `release`（R8 + lintVital），唯一幂等 job `idem-5df62db4b9dd07b77ca82ef4`，`sourceId 986fcce3e2701f5e0cadfc0f1c794e6ec443355aa6b72c02abc259651dca2839`，`./gradlew :app:assembleGithubRelease` 一次通过，Gradle 32m34s，Room/KSP、整包 Kotlin、R8 与 lintVital 全部完成，mapping 1,546,908 行。产物 `rikkahub-3.1.1-r21.apk` 45,842,374 字节（43.72 MiB），SHA-256 `623e7ebde54f604e95df25d8c6ddd04874937a71ec51291a306c1b3042b167c9`；包名、版本名/码、原 r20 证书、arm64-v8a + x86_64、ZIP CRC 与云端/本地哈希均核过。构建时冻结清单 2623 个文件逐 hash 比对零漂移；发布阶段只补文档、校验记录与 Room 导出 schema，运行时代码不变，真实 Room 导出的 schema 35（identityHash `1f1167d7b7175efa7f8fde4946443215`）随源码归档。
 
@@ -116,7 +127,7 @@ ZIP 迁移只覆盖 `/workspace` 文件区，不含 Rootfs、数据库与整机�
 
 ## 历史与相关文档
 
-- 当前版本：[r21 说明](RELEASE-r21.md) · [正式包与验收记录](https://github.com/682012/rikkahub/releases/latest)
+- 当前版本：[m1 说明](RELEASE-m1.md) · [r21 说明（历史）](RELEASE-r21.md) · [正式包与验收记录](https://github.com/682012/rikkahub/releases/latest)
 - 功能计数与源码位置：[FEATURES.md](FEATURES.md)；逐版历史：[CHANGES.md](CHANGES.md)
 - r1–r10 的发布说明：`RELEASE-r1.md` … `RELEASE-r10.md`；更早的 fork.38–fork.43 见 `RELEASE-fork38.md` … `RELEASE-fork43.md`
 - 专项记录：[草稿持久化](AGENT-DRAFTS.md) · [工具效率](AGENT-EFFICIENCY-r11.md) · [架构](AGENT-ARCHITECTURE.md) · [工作区权限](WORKSPACE-ACCESS.md) · [网页会话](WEB-ACCOUNTS.md) · [历史维护现场](HANDOFF.md)

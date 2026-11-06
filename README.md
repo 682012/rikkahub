@@ -4,20 +4,48 @@
 
 与官方团队没有隶属关系；上游版权与 AGPL-3.0 许可保持不变；不提供官方或面向终端用户的技术支持。
 
-当前版本 **3.1.1-r21 / 3000068** · 包名 `me.rerere.rikkahub.fork`。这一版是**大更新**：Agent 主循环与子代理、会话/记忆/队列按助手隔离、断线自动恢复、每助手经验学习、会话家族折叠与话题归库、工具代码实时草稿、时间与字符统计、工作区网页渲染，外加可选的轨道风格、启动动效和小宠物磁贴。应用名、图标、六只角色原图、人设与签名不变。
+当前版本 **Meridian `3.1.1-m1` / `3000070`** · 包名 `me.rerere.rikkahub.fork`。
+
+> ### 只有一个包：m1 是合并整合版
+>
+> **m1 把已发布的 r21 改动、r22 阶段的改动和本轮新功能合成同一个 APK**，所以版本号从 r21 直接跳到 m1。
+> **不需要分成两个包，也不需要依次安装**——直接覆盖安装 `rikkahub-3.1.1-m1.apk` 这一个通用包即可。
+> r21 的 Release / tag / 资产原样保留（回滚与历史对照用）；r22 只是本地回滚基线，从未单独发布过安装包。
+
+这一版新增**对话内可控的输入优化、回复审查、客户端协议档、运行中插话、本地知识库**，加上**工具执行短指引**和**高级权限与设备能力中心**；r21 的 Agent 主循环、助手隔离、断线恢复、经验学习、家族折叠、自动归库、工具草稿、时间与字符统计、工作区网页渲染，以及轨道风格、启动动效和小宠物磁贴全部保留。应用名、图标、六只角色原图、人设与签名不变。
 
 ## 下载与安装
 
-**[下载最新正式 APK](https://github.com/682012/rikkahub/releases/latest)** · [r21 更新说明](fork/RELEASE-r21.md) · [历史版本](https://github.com/682012/rikkahub/releases)
+**[下载最新正式 APK](https://github.com/682012/rikkahub/releases/latest)** · [m1 更新说明](fork/RELEASE-m1.md) · [r21 说明（历史）](fork/RELEASE-r21.md) · [历史版本](https://github.com/682012/rikkahub/releases)
 
 源码分支与下载渠道分开：只有完成正式 R8 构建和验包的版本才标为 Latest；实际发布状态、安装包与校验值以 Release 页面为准。
 
-- 下载通用 APK 即可安装，支持 ARM64 手机与 x86_64；正式包启用 R8 压缩与优化，和此前供开发使用的 fast 包区分。
+- 通用 APK 名为 `rikkahub-3.1.1-m1.apk`（tag `v3.1.1-m1`），46,325,122 字节，SHA-256 `cc71498019a8db0eb4078499d7c4f7a7cde6d0c8813dfb4238dc18a1b0545bf4`，包含 `arm64-v8a` 与 `x86_64`，手机直接装这一个就行；正式包启用 R8 压缩与优化，和此前供开发使用的 fast 包区分。
+- 从 r21 或更早版本升级直接覆盖；r21 的包与记录保留在各自 tag 下，需要回退时按旧 tag 取包。
 - 本分支包名与官方不同，**不能覆盖安装官方版**；同包名、同签名的本分支旧版可以按常规覆盖升级。
 - 升级前备份聊天与设置，不要为了升级先卸载（卸载会连应用数据一起丢）。从早期 `fork.*` 版本过来请直接下载安装，旧更新器不认识 `r` 系列版本号。
 - 下载安装不需要构建环境；聊天模型与服务账号仍由你自己配置，不提供共享 API 额度。
 
-## r21：Agent 架构大更新（当前版本）
+## m1：对话内的控制、协议档与设备权限（当前版本）
+
+这一版把「模型收到什么、怎么回、能不能动手」交给对话自己决定，同时把 r21 的 Agent 架构原样带着走。
+
+- **AI 输入优化**（会话选项，默认关闭）：原文照常显示和保存，只改发给模型的副本，可切换查看原文与优化版；优化失败或取消仍用原话继续。开启后可能额外发起模型请求，**单独计费**；缓存命中或不适用的输入不额外调用。
+- **回复审查**（会话选项：关闭 / 同模型自检 / 独立审查，默认关闭）：同模型自检不另发请求，独立审查会**另发请求并单独计费**。审查意见只是模型意见，不代表代码已编译、运行或验证。
+- **客户端协议兼容档**（会话选项：原生 / 自动 / Codex / Claude Code / Pi，默认原生）：提示与工具用法、兼容请求头一并处理；自动选择**不发探测请求**、一轮内稳定。不伪造账号凭证、不获得官方客户端权限、不绕过服务验证。
+- **运行中插话**（会话选项：排队 / 安全下一步插入，默认排队）：不打断已发出的请求，不重放正在跑的工具；审批中、带附件、不满足长度条件时继续排队。
+- **本地知识库**（会话选项 → 本地知识库，默认关闭）：粘贴或文件导入、检索、查看、编辑、删除，按助手隔离并保留来源；开启后命中的片段随当轮请求发给当前对话模型，**增加该轮 token 与费用**，但不单独发起请求。
+- **工具执行短指引**：按当前真实工具生成，强调定向定位、复用已有脚本、只读调用并行和必要验证；不裁剪工具、不改权限、不额外发请求。
+- **高级权限与设备能力**（设置 → 权限中心，默认关闭）：Shizuku、`WRITE_SECURE_SETTINGS` / `DUMP` / `READ_LOGS` / `CHANGE_CONFIGURATION` 的授予与撤销、系统特殊访问、真实状态回读、绑定助手与独立写开关；六个 `android_*` 工具接入聊天、本机 MCP 与本地自动化。写操作要幂等 key，未知副作用不重放。
+- **稳定性**：修掉加载占位/会话回收期间聊天记录短暂变空的窗口；内容未就绪时不会把草稿或消息记到错误助手。
+
+**高权限不是 root**：拿不到系统签名专属权限，不能读其他 App 私有数据、不能截取 secure 屏幕、不能绕过 SELinux；开发权限只能用 ADB/Shizuku 自己授予，装 APK 不会自动获得，OEM 是否放行 `pm grant` 要看本机实际结果。
+
+**启动动画**：默认 RING——三瓣轨道咬合，280ms，基准半径 40dp，瓣描边 1.7dp；DOTS 与 AURORA 可选，也可关闭或换成自定义素材。入口：设置 → 偏好设置 → 主题 → 启动动效。
+
+正式包 `3.1.1-m1 / 3000070` 已用 R8 + lintVital 构建并验包（46,325,122 字节，SHA-256 `cc71498019a8db0eb4078499d7c4f7a7cde6d0c8813dfb4238dc18a1b0545bf4`，证书与前版一致，同签名可覆盖 r21）；本轮**174 项定向检查通过**，历史 167 项属于 r21 的冻结提交，不计入本轮。**未自动安装、未做真机界面点验**，设备侧 UI、真实 OEM 授权、真实模型辅助请求用量与计费都没端到端验证。完整说明见 [m1 说明](fork/RELEASE-m1.md)。
+
+## r21：Agent 架构大更新（已并入 m1）
 
 这次集中更新「Agent 怎么跑、会话归谁、断了怎么接、代码写到哪」，原有配置和 r20 功能继续保留。
 
@@ -104,6 +132,9 @@
 
 | 想改什么 | 位置 |
 |---|---|
+| 输入优化、回复审查、协议档、运行中插话 | 聊天输入栏上方 → 会话选项（按会话保存） |
+| 本地知识库与管理资料 | 会话选项 → 本地知识库 |
+| Shizuku、开发权限、系统特殊访问、绑定助手 | 设置 → 权限中心 → 高级权限与设备能力 |
 | 长正文默认展开 / 收起 | 偏好设置 → 界面偏好设置 → 长正文默认状态 |
 | 自动归库、闲置小时、家族折叠 | 会话抽屉 → 自动归库 |
 | 每助手经验（查看 / 新增 / 确认） | 助手 → 记忆 → 经验 |
@@ -143,6 +174,10 @@
 
 ## 能力边界（先看这几条）
 
+- **m1 的成绩单只算这一轮**：174 项定向检查通过、正式 R8 + lintVital 构建与验包通过（46,325,122 字节，SHA-256 `cc714980…545bf4`）。r21 的 167 项属于更早的冻结提交，**不能相加**。本轮**没有自动安装到手机、没有真机界面点验**：会话选项的触控与视觉、权限页跳转、真实 OEM 授权结果、真实模型的输入优化/独立审查用量与计费，都还没端到端验证。
+- **输入优化和独立审查会多花钱**：两者默认关闭；开启后每次分别多一次模型请求并单独记账，同模型自检不另发请求。审查意见不等于代码已经编译或运行过。
+- **高权限不是 root**：只能管理 Shizuku、`WRITE_SECURE_SETTINGS` / `DUMP` / `READ_LOGS` / `CHANGE_CONFIGURATION` 与系统特殊访问；拿不到系统签名专属权限，读不了其他 App 私有数据、截不了 secure 屏幕、绕不过 SELinux。权限要用 ADB/Shizuku 自己授予，OEM 是否放行要看本机。
+- **知识库会外发片段**：默认关闭；开启后命中的片段随当轮请求发给当前对话模型，按助手隔离、引用带来源，但受模型上下文与 token 费用影响。
 - **r21 已出正式包，但没上真机**：`:app:assembleGithubRelease` 一次通过，32m34s，含 Room/KSP、整包 Kotlin、R8 与 lintVital；包名、版本名/码、原 r20 证书、arm64-v8a + x86_64、ZIP CRC、云端与本地哈希全部核对。本版定向 JVM 检查 167 项通过；历史 375 项绑定的是旧冻结提交，不能算作这一版的通过数。**没有**自动安装、**没有**真机界面点验：通知点击、系统 WorkManager 调度与恢复、SAF、MediaCodec 导出、快捷磁贴绑定都还没在运行期验收，网页只在 Chromium 里渲染过。
 - **经验学习不是训练**：只统计本助手的轮数与工具成败，生成可查看、可否决的建议；不改模型权重、不下载模型、不新增权限，也不保证越用越快。
 - **自动归库会外发摘要**：默认关闭；开启或手动整理一次，都会把闲置会话的标题与首尾摘录发给你配置的快速模型并消耗额度。它只改归属，不改内容、不删会话，撤销按批进行。
@@ -158,7 +193,7 @@
 
 ## 文档导航
 
-- 当前版本：[r21 说明与边界](fork/RELEASE-r21.md) · [上一版 r20](fork/RELEASE-r20.md) · [正式包与机器可读验收](https://github.com/682012/rikkahub/releases/latest)
+- 当前版本：[m1 说明与边界](fork/RELEASE-m1.md) · [r21 说明（历史）](fork/RELEASE-r21.md) · [正式包与机器可读验收](https://github.com/682012/rikkahub/releases/latest)
 - r21 维护记录：[Agent 能力、入口与限制](docs/r21-agent-core/CAPABILITIES-r21.md) · [验证范围](docs/r21-agent-core/VALIDATION.md)
 - 六角色素材历史：[r12 立绘与动态](fork/COMPANIONS-r12.md) · [r15 即兴互动](fork/COMPANIONS-r15.md)
 - 横向对比：[完整功能对比](fork/FEATURES.md) · [版本历史](fork/CHANGES.md)
@@ -172,6 +207,8 @@
 上游项目与官方下载渠道：[rikkahub/rikkahub](https://github.com/rikkahub/rikkahub)。本分支保留上游版权声明与 **AGPL-3.0** 许可（见 [LICENSE](LICENSE)）；上游的赞助、贡献者与支持渠道不属于本分支。
 
 ### English summary
+
+**Meridian 3.1.1-m1** is the current release and ships as **one universal APK** (46,325,122 bytes, SHA-256 `cc714980…545bf4`, `arm64-v8a` + `x86_64`, versionCode 3000070, tag `v3.1.1-m1`, asset `rikkahub-3.1.1-m1.apk`). It merges the published r21 changes, the r22-stage changes and this round's work, so there is **no second package** and no need to install anything in sequence — just install it over r21. r21 keeps its own Release/tag/assets; r22 was only a local rollback baseline and was never published as a package. New this round, all configurable per conversation from the chat "conversation options" sheet and all off by default: AI input optimization (extra model request per send, billed separately, original text always kept), reply review (off / same-model self-check with no extra request / independent review with an extra billed request — review opinions are not proof that code compiles or runs), client protocol profiles (native / auto / Codex / Claude Code / Pi, auto never sends probe requests and never fakes credentials or official permissions), steer-while-running (queue or safe next-step insertion, never interrupts an in-flight request), and a local, assistant-scoped knowledge base whose matched snippets are sent to the chat model when enabled. Tool-execution guidance is generated from the real tool set, and a new device privilege center manages Shizuku, `WRITE_SECURE_SETTINGS`/`DUMP`/`READ_LOGS`/`CHANGE_CONFIGURATION`, special access pages, assistant binding and a separate write switch; it is **not root** and cannot obtain signature-level permissions. Startup motion defaults to RING (three lobes, 280ms, 40dp radius, 1.7dp stroke) with DOTS/AURORA optional. Formal R8 + lintVital build and package verification passed; **174 targeted checks pass this round** (the r21 167 belong to a frozen commit and are not added in). Not installed on a phone; device UI, real OEM grants and real model billing for the auxiliary requests are **not** end-to-end verified.
 
 **r21** is a large update: rewritten agent loop (indexed tool declarations, cached argument canonicalization, periodic no-progress detection, request-side dedupe that keeps the UI intact, inherited step budget), assistant-scoped conversations/memory/pending queue with explicit migration only, durable queue with whitelist auto-recovery that never replays unknown side effects, per-assistant learning that only counts and suggests (no weight training, no new permissions), conversation-family collapsing, optional idle-chat auto-filing into folders (off by default, sends short summaries to your configured fast model, batch-undoable), live tool-argument drafts that are never executed half-written, current-device time per model step, code-point body character counts, in-memory workspace HTML loading with CSP, an optional ORBIT chat style, RING/DOTS/OFF startup motion, and a pet quick-settings tile. Formal R8/lintVital APK built and package-verified; 167 targeted JVM checks pass, the older 375 pass belongs to a frozen baseline. Not installed; no on-device UI run.
 
