@@ -5,6 +5,13 @@ plugins {
 android {
     namespace = "me.rerere.terminal"
 
+    defaultConfig {
+        // Match the app's shipped ABIs; keep both phone and emulator support.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
+    }
+
     externalNativeBuild {
         cmake {
             path = file("src/main/cpp/CMakeLists.txt")

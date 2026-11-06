@@ -7,6 +7,10 @@ android {
     namespace = "me.rerere.workspace"
 
     defaultConfig {
+        // Match the app's shipped ABIs; do not compile unused 32-bit libraries.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "x86_64")
+        }
         externalNativeBuild {
             cmake {
                 cppFlags += ""
