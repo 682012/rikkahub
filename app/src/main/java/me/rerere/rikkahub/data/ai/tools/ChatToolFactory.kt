@@ -66,6 +66,8 @@ class ChatToolFactory(
         File(context.filesDir, BACKGROUND_TOOLS_DIR),
         lease = me.rerere.rikkahub.data.ai.tools.background.AndroidBackgroundForegroundLease(context),
     ),
+    private val deviceBridge: me.rerere.rikkahub.data.devicecontrol.DeviceControlBridge? = null,
+    private val localMcpSettings: me.rerere.rikkahub.data.mcpserver.LocalMcpSettingsStore? = null,
 ) {
     suspend fun createTools(
         settings: Settings,
@@ -93,6 +95,7 @@ class ChatToolFactory(
                 addAll(createSearchTools(settings))
             }
             addAll(localTools.getTools(assistant.localTools))
+            addAll(createDeviceControlTools(deviceBridge, localMcpSettings, assistant.id))
             if (assistant.enableRecentChatsReference) {
                 addAll(createConversationTools(conversationRepository, assistant.id))
             }

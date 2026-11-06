@@ -1,14 +1,12 @@
 package me.rerere.rikkahub.service
 
 import kotlinx.coroutines.CancellationException
-import me.rerere.ai.agent.RecoveryPolicy
-import me.rerere.ai.agent.failureFacts
-import me.rerere.ai.agent.httpStatusOf
-import me.rerere.ai.agent.retryableFailure
-import me.rerere.ai.provider.WebProtocolException
-import me.rerere.ai.provider.WebSessionException
-import me.rerere.ai.util.HttpException
+import me.rerere.ai.agent.RetryErrorCategory
+import me.rerere.ai.agent.RetryPolicy
+import me.rerere.ai.agent.RetryScope
+import me.rerere.ai.agent.retryCategoryOf
 import me.rerere.rikkahub.data.ai.mcp.McpToolCallOutcomeUnknownException
+import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.workspace.WorkspacePrivilegeException
 import java.io.FileNotFoundException
 import java.util.concurrent.ConcurrentHashMap
@@ -73,6 +71,7 @@ object ChatAutoRecovery {
      * @param canResume [ChatReconnectCheckpoint.canResume]：没有「已开始但没结果」的工具才为 true
      * @param hasCommittedSideEffects 本轮已经执行过工具、写过文件或生成过图片
      * @param httpStatus 拿得到的状态码；拿不到就传 null，传输层判断不受影响
+     * @param scope 用户选的重试范围；默认 [RetryScope.CLASSIFIED]，即老行为
      * @return null 表示可以自动恢复；非 null 表示必须放弃自动恢复
      */
     fun blockReason(
@@ -82,6 +81,7 @@ object ChatAutoRecovery {
         canResume: Boolean = true,
         hasCommittedSideEffects: Boolean = false,
         httpStatus: Int? = null,
+        scope: RetryScope = RetryScope.CLASSIFIED,
     ): ChatRecoveryBlocker? {
         if (cancelled || error is CancellationException) {
             return ChatRecoveryBlocker.USER_STOPPED
@@ -89,31 +89,23 @@ object ChatAutoRecovery {
         if (awaitingApproval) return ChatRecoveryBlocker.APPROVAL_PENDING
         // 工具已经开始但没结果，或本轮本来就有副作用：重放会把副作用做第二遍
         if (hasCommittedSideEffects || !canResume) return ChatRecoveryBlocker.UNKNOWN_SIDE_EFFECT
-        // A real response code wins over an optional caller hint; never infer it from message text.
-        val status = httpStatusOf(error) ?: httpStatus
+        // 安全边界：这些不是"模型请求错误"，任何模式都不自动重试，用户勾了"任何错误"也不开
         when (error) {
-            is WebSessionException -> return ChatRecoveryBlocker.AUTH
-            is WebProtocolException -> return ChatRecoveryBlocker.REQUEST_FORMAT
-            is HttpException -> if (status == null) return ChatRecoveryBlocker.REQUEST_FORMAT
             is WorkspacePrivilegeException -> return ChatRecoveryBlocker.PERMISSION
             is McpToolCallOutcomeUnknownException -> return ChatRecoveryBlocker.UNKNOWN_SIDE_EFFECT
             is InboxPersistenceException, is FileNotFoundException -> return ChatRecoveryBlocker.STORAGE
         }
-        when {
-            status == 401 || status == 403 -> return ChatRecoveryBlocker.AUTH
-            status == 402 -> return ChatRecoveryBlocker.QUOTA
-            status != null && status in 400..499 && status != 408 && status != 429 ->
-                return ChatRecoveryBlocker.REQUEST_FORMAT
+        // 和 withRetry 用同一个折算：真实类型 + 真实状态码，绝不从消息文本猜数字
+        val category = retryCategoryOf(error, httpStatus)
+        if (scope.allows(category)) return null
+        return when (category) {
+            RetryErrorCategory.AUTH -> ChatRecoveryBlocker.AUTH
+            RetryErrorCategory.QUOTA -> ChatRecoveryBlocker.QUOTA
+            RetryErrorCategory.REQUEST_FORMAT -> ChatRecoveryBlocker.REQUEST_FORMAT
+            RetryErrorCategory.NETWORK, RetryErrorCategory.SERVER,
+            RetryErrorCategory.EMPTY_RESPONSE -> ChatRecoveryBlocker.OTHER
+            RetryErrorCategory.UNKNOWN -> ChatRecoveryBlocker.OTHER
         }
-        // A 429 quota error is terminal even though an ordinary rate limit is transient.
-        if (error is HttpException && status == 429 && !retryableFailure(error)) {
-            return ChatRecoveryBlocker.QUOTA
-        }
-        // 剩下的按 ai 模块同一套规则判：408/429/5xx、半截流、离线、换网都还能再试
-        val kind = RecoveryPolicy.classify(
-            failureFacts(error, cancelled = cancelled).copy(httpStatus = status)
-        )
-        return if (RecoveryPolicy.isRetryable(kind)) null else ChatRecoveryBlocker.OTHER
     }
 
     /** [blockReason] 的布尔形式，给只关心能不能接的调用点用 */
@@ -124,6 +116,7 @@ object ChatAutoRecovery {
         canResume: Boolean = true,
         hasCommittedSideEffects: Boolean = false,
         httpStatus: Int? = null,
+        scope: RetryScope = RetryScope.CLASSIFIED,
     ): Boolean = blockReason(
         error = error,
         cancelled = cancelled,
@@ -131,7 +124,56 @@ object ChatAutoRecovery {
         canResume = canResume,
         hasCommittedSideEffects = hasCommittedSideEffects,
         httpStatus = httpStatus,
+        scope = scope,
     ) == null
+
+    /**
+     * 一轮对话里最多自动拉起几次（外层）。
+     *
+     * - 有限模式：就是用户设的次数（[RetryPolicy.maxRetries]），和界面"重试 N 次"一致；
+     * - 「一直重试到手动停止」：没有次数上限，只有取消生成、关掉总开关、命中安全边界（鉴权/额度/权限/
+     *   未知副作用……）或 ticket 10 分钟有效期才会停。以前的 20 次硬上限和"直到停止"是矛盾的，已删掉。
+     *
+     * 内外两层的总请求数是 **(N+1) + N = 2N+1**，线性；整轮内多个模型步骤另外共用一份预算
+     * （[RetryPolicy.sharedBudget]），不会随工具步数再乘一次。
+     */
+    fun turnAttemptLimit(policy: RetryPolicy): Int = if (policy.unlimitedRetries) {
+        Int.MAX_VALUE
+    } else {
+        policy.maxRetries.coerceIn(0, 100)
+    }
+
+    /** 自动重试是不是已经关掉（总开关关闭，或次数为 0 且没开"一直重试"）。 */
+    fun retryDisabled(policy: RetryPolicy): Boolean = !policy.unlimitedRetries && policy.maxRetries <= 0
+
+    /** 整轮自动恢复的次数是否已经用完（无限模式永远没用完）。 */
+    fun turnExhausted(policy: RetryPolicy, turnAttempts: Int): Boolean =
+        turnAttempts >= turnAttemptLimit(policy)
+
+    /**
+     * 这一轮**内层**（单次请求、整轮内所有模型步骤）还允许重试几次。
+     *
+     * 第一轮按用户设置给满；自动恢复拉起的轮次一律为 0 —— 那一轮本身就是为了接上上一次失败，
+     * 内层再连环重试就是"外层无限 × 内层 N 次"的叠加。整轮的次数由外层 [turnAttemptLimit] 管，
+     * 两边加起来是 2N+1 次请求，不是 N(N+1)/2 那种平方（也不是"平方减半"）。
+     */
+    fun requestRetryAllowance(policy: RetryPolicy, turnAttempts: Int): Int =
+        if (turnAttempts <= 0) policy.maxRetries else 0
+
+    /**
+     * 给这一轮生成用的设置快照：自动恢复轮把**内层**重试彻底关掉（次数 0，同时取消"一直重试"，
+     * 否则 maxRetries=0 会被无限标记重新打开）。第一轮原样返回。
+     *
+     * 只影响这一轮快照里的 `networkSetting.maxRetries/retryUnlimited`：总开关、范围、等待时长一个不动，
+     * 落库值也不动。`Settings.retryPolicy()` 用这份快照时，本轮每次模型请求都只发一次；
+     * 外层恢复读的是 `settingsStore` 的实时值，次数与界面显示仍是用户设置的那个数。
+     */
+    fun settingsForTurnRecovery(settings: Settings, turnAttempts: Int): Settings {
+        if (turnAttempts <= 0) return settings
+        val network = settings.networkSetting
+        if (network.maxRetries == 0 && !network.retryUnlimited) return settings
+        return settings.copy(networkSetting = network.copy(maxRetries = 0, retryUnlimited = false))
+    }
 }
 
 /**
@@ -167,7 +209,8 @@ class ChatRecoveryLedger(
     fun noteFailure(conversationId: Uuid, limit: Int = maxAttempts): Boolean {
         val entry = entries.computeIfAbsent(conversationId) { Entry() }
         return synchronized(entry) {
-            if (entry.attempts >= limit.coerceIn(0, 100)) {
+            // 上限由调用方按重试策略算好（无限模式给 Int.MAX_VALUE），这里只拒绝负数
+            if (entry.attempts >= limit.coerceAtLeast(0)) {
                 false
             } else {
                 entry.attempts++

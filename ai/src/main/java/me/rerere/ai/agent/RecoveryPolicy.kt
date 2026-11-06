@@ -27,6 +27,14 @@ enum class FailureKind {
     /** 服务端暂时性错误（408 / 429 / 5xx）。按次数重试，但不要排队等网络。 */
     SERVER,
 
+    /**
+     * 用户显式打开「任何错误也重试」之后才可重试的失败：401/403、402/额度、400/422/格式、未知异常。
+     *
+     * 默认分类下这些还是 [TERMINAL]；[RetryScope] 放行时才归到这一类，好让预算按次数记账、
+     * 界面能说清楚"在重试的是你勾选的那一类错误"。它和 [TERMINAL] 的区别只在 `isRetryable`。
+     */
+    OPT_IN,
+
     /** 4xx、鉴权、内容被拒。重发也一样，直接失败。 */
     TERMINAL,
 }
@@ -71,21 +79,49 @@ object RecoveryPolicy {
      */
     const val OFFLINE_WAIT_LIMIT: Int = 10
 
-    fun classify(facts: FailureFacts): FailureKind = when {
-        facts.cancelled -> FailureKind.USER_STOPPED
-        facts.notSent -> FailureKind.OFFLINE
-        facts.routeRetired -> FailureKind.ROUTE_RETIRED
-        // 额度用尽的 429 必须先于下面的 SERVER 判定：它带着 429 的码，但重发不会好
-        facts.quotaExhausted -> FailureKind.TERMINAL
-        facts.httpStatus == 408 || facts.httpStatus == 429 || (facts.httpStatus ?: 0) >= 500 ->
-            FailureKind.SERVER
-        facts.httpStatus != null -> FailureKind.TERMINAL
-        facts.truncatedStream -> FailureKind.TRUNCATED
-        facts.transport -> FailureKind.TRANSPORT
-        else -> FailureKind.TERMINAL
+    fun classify(facts: FailureFacts, scope: RetryScope = RetryScope.CLASSIFIED): FailureKind {
+        if (facts.cancelled) return FailureKind.USER_STOPPED
+        if (facts.notSent) return FailureKind.OFFLINE
+        if (facts.routeRetired) return FailureKind.ROUTE_RETIRED
+        // 额度用尽的 429 必须先于下面的 SERVER 判定：它带着 429 的码，但默认重发不会好
+        if (facts.quotaExhausted) {
+            return if (scope.allows(RetryErrorCategory.QUOTA)) FailureKind.OPT_IN else FailureKind.TERMINAL
+        }
+        val status = facts.httpStatus
+        if (status == 408 || status == 429 || (status != null && status >= 500)) {
+            return if (scope.allows(RetryErrorCategory.SERVER)) FailureKind.SERVER else FailureKind.TERMINAL
+        }
+        // 其余真实 4xx（401/403/402/400/422……）默认终止，用户勾了对应类别才归到 OPT_IN
+        if (status != null) {
+            return if (scope.allows(categoryOf(facts))) FailureKind.OPT_IN else FailureKind.TERMINAL
+        }
+        if (facts.truncatedStream) {
+            return if (scope.allows(RetryErrorCategory.EMPTY_RESPONSE)) FailureKind.TRUNCATED
+            else FailureKind.TERMINAL
+        }
+        if (facts.transport) {
+            return if (scope.allows(RetryErrorCategory.NETWORK)) FailureKind.TRANSPORT
+            else FailureKind.TERMINAL
+        }
+        return if (scope.allows(categoryOf(facts))) FailureKind.OPT_IN else FailureKind.TERMINAL
     }
 
-    /** 这一类失败还值不值得再试。用户停止和 4xx 一律不试。 */
+    /**
+     * 从同一份事实里读出用户可选类别，界面和 [classify] 都用它，不另写一套 is/else。
+     */
+    fun categoryOf(facts: FailureFacts): RetryErrorCategory = when {
+        facts.quotaExhausted -> RetryErrorCategory.QUOTA
+        facts.httpStatus == 401 || facts.httpStatus == 403 -> RetryErrorCategory.AUTH
+        facts.httpStatus == 402 -> RetryErrorCategory.QUOTA
+        facts.httpStatus == 408 || facts.httpStatus == 429 ||
+            (facts.httpStatus != null && facts.httpStatus >= 500) -> RetryErrorCategory.SERVER
+        facts.httpStatus != null -> RetryErrorCategory.REQUEST_FORMAT
+        facts.truncatedStream -> RetryErrorCategory.EMPTY_RESPONSE
+        facts.transport -> RetryErrorCategory.NETWORK
+        else -> RetryErrorCategory.UNKNOWN
+    }
+
+    /** 这一类失败还值不值得再试。用户停止和默认终止的失败一律不试。 */
     fun isRetryable(kind: FailureKind): Boolean = when (kind) {
         FailureKind.USER_STOPPED, FailureKind.TERMINAL -> false
         else -> true
@@ -112,7 +148,19 @@ object RecoveryPolicy {
         FailureKind.TRUNCATED -> "连接中断，回复没有收完"
         FailureKind.TRANSPORT -> "网络错误"
         FailureKind.SERVER -> "服务端暂时不可用"
+        FailureKind.OPT_IN -> "你选择了这类错误也重试"
         FailureKind.TERMINAL -> "请求被拒绝"
+    }
+
+    /** 某一类用户可选错误的说法，重试状态里用（例：等 30 秒后重试「鉴权失败」）。 */
+    fun describe(category: RetryErrorCategory): String = when (category) {
+        RetryErrorCategory.NETWORK -> "网络错误"
+        RetryErrorCategory.SERVER -> "服务端暂时不可用"
+        RetryErrorCategory.AUTH -> "鉴权失败"
+        RetryErrorCategory.QUOTA -> "额度或余额不足"
+        RetryErrorCategory.REQUEST_FORMAT -> "请求格式或响应格式错误"
+        RetryErrorCategory.EMPTY_RESPONSE -> "空响应或回复中断"
+        RetryErrorCategory.UNKNOWN -> "未知错误"
     }
 }
 
@@ -122,7 +170,16 @@ object RecoveryPolicy {
  * 抽出来的原因：[withRetry] 的循环没法在纯 JVM 里断言预算，而预算算错正是
  * 「断网超过几次就永久不再重连」的根因，必须能被单测直接问。
  */
-class RetryBudget(val maxRetries: Int) {
+class RetryBudget(
+    val maxRetries: Int,
+    /** 用户选的重试范围；默认老行为。 */
+    val scope: RetryScope = RetryScope.CLASSIFIED,
+    /**
+     * 用户勾了「一直重试到停止」后为 true：[maxRetries] 不再限制真正失败的重试次数。
+     * 离线等待与换网作废仍各有独立上限，否则一条永远连不上的流会被无限重放。
+     */
+    val unlimited: Boolean = false,
+) {
     /** 已经用掉的重试次数，只统计真正失败过的尝试。 */
     var retries: Int = 0
         private set
@@ -165,8 +222,8 @@ class RetryBudget(val maxRetries: Int) {
             retired <= RecoveryPolicy.ROUTE_RETIRED_LIMIT
         }
 
-        FailureKind.TRANSPORT, FailureKind.SERVER, FailureKind.TRUNCATED -> {
-            if (retries >= maxRetries) return false
+        FailureKind.TRANSPORT, FailureKind.SERVER, FailureKind.TRUNCATED, FailureKind.OPT_IN -> {
+            if (!unlimited && (maxRetries <= 0 || retries >= maxRetries)) return false
             retries++
             true
         }

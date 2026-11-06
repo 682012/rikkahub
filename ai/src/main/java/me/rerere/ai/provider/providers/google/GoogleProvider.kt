@@ -918,14 +918,16 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
         }
         val promptTokens = jsonObject["promptTokenCount"]?.jsonPrimitiveOrNull?.intOrNull ?: 0
         val thoughtTokens = jsonObject["thoughtsTokenCount"]?.jsonPrimitiveOrNull?.intOrNull ?: 0
-        val cachedTokens = jsonObject["cachedContentTokenCount"]?.jsonPrimitiveOrNull?.intOrNull ?: 0
+        val cachedContentTokens = jsonObject["cachedContentTokenCount"]?.jsonPrimitiveOrNull?.intOrNull
         val candidatesTokens = jsonObject["candidatesTokenCount"]?.jsonPrimitiveOrNull?.intOrNull ?: 0
         val totalTokens = jsonObject["totalTokenCount"]?.jsonPrimitiveOrNull?.intOrNull ?: 0
         return TokenUsage(
             promptTokens = promptTokens,
             completionTokens = candidatesTokens + thoughtTokens,
             totalTokens = totalTokens,
-            cachedTokens = cachedTokens
+            cachedTokens = cachedContentTokens ?: 0,
+            // 没有 cachedContentTokenCount 说明这次响应没报缓存，0 不能当 0% 命中
+            cachedReported = cachedContentTokens != null,
         )
     }
 }

@@ -51,6 +51,18 @@ data class AutoCompressSettings(
     val modelId: Uuid? = null,
 )
 
+/**
+ * 子代理模型分配策略。
+ *
+ * - [ORDERED]：每个任务都从池首（默认模型）起步，失败后按池顺序往后换。
+ * - [BALANCED]：同时创建的任务按游标轮转分到池里的不同渠道，避免全部打主模型。
+ */
+@Serializable
+enum class SubagentModelStrategy {
+    ORDERED,
+    BALANCED,
+}
+
 @Serializable
 data class SubagentSettings(
     val enabled: Boolean = false,
@@ -70,6 +82,24 @@ data class SubagentSettings(
     val modelIds: List<Uuid> = emptyList(),
     val defaultModelId: Uuid? = null,
     val fallbackModelId: Uuid? = null,
+    /**
+     * 模型池的派单策略。默认 [SubagentModelStrategy.ORDERED]，与 r21 的"先主后备"一致；
+     * 选 [SubagentModelStrategy.BALANCED] 时同时创建的任务会分散到池里的多个渠道。
+     */
+    val modelStrategy: SubagentModelStrategy = SubagentModelStrategy.ORDERED,
+    /**
+     * 遇到问题自动换下一个模型：provider 报错或空输出时，从已完成的工具/模型 checkpoint 续跑下一个
+     * 渠道，不重跑已经成功的工具。超时是整任务预算，不会因为换渠道而重置；
+     * 未知副作用、需要审批、主动取消一律不重放。
+     */
+    val autoFailover: Boolean = true,
+    /** 单个任务最多尝试几个模型（含第一个）；<=0 表示不限，但不超过模型池大小。 */
+    val maxModelAttempts: Int = 3,
+    /**
+     * 每个模型同时运行的子代理数上限。0 表示不额外限制，只受 [maxConcurrent] 约束。
+     * 均衡分配时用它避免把多个任务压到同一个渠道上。
+     */
+    val perModelConcurrency: Int = 0,
     val includeWorkspace: Boolean = true,
     val includeSearch: Boolean = false,
     val includeMcp: Boolean = false,

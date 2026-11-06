@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r22_autofile_mode_title">How chats are sorted</string>
+    <string name="r22_autofile_mode_ai">Quick model</string>
+    <string name="r22_autofile_mode_ai_desc">Sends a length-limited summary to your configured quick model and spends API quota.</string>
+    <string name="r22_autofile_mode_local">On-device rules</string>
+    <string name="r22_autofile_mode_local_desc">Titles, tags and word overlap only. No network, no model, no quota.</string>
+    <string name="r22_autofile_mode_select">Select</string>
+    <string name="r22_autofile_mode_ai_note">Model suggestions are not guaranteed correct; each batch can be undone.</string>
+    <string name="r22_autofile_mode_local_note">Deterministic and explainable: every move shows the words it matched. It is not AI and makes no accuracy promise.</string>
+    <string name="r22_autofile_mode_ai_short">Model</string>
+    <string name="r22_autofile_mode_local_short">Local rules</string>
+    <string name="r22_autofile_background_on">Scheduled by Android WorkManager about every 12 hours, even when this screen is closed. Timing is best effort and the system may delay or stop it.</string>
+    <string name="r22_autofile_background_off">No background schedule while this is off.</string>
+    <string name="r22_autofile_history_title">Filing history</string>
+    <string name="r22_autofile_history_loading">Loading history…</string>
+    <string name="r22_autofile_history_empty">No batches yet.</string>
+    <string name="r22_autofile_history_counts">%1$d moved · %2$d failed</string>
+    <string name="r22_autofile_history_undoable">Can still be undone</string>
+    <string name="r22_autofile_detail_title">Batch details</string>
+    <string name="r22_autofile_detail_empty">This batch has no recorded moves.</string>
+    <string name="r22_autofile_detail_open">Open</string>
+    <string name="r22_autofile_detail_folder">Folder: %1$s · %2$s</string>
+    <string name="r22_autofile_detail_reason">Why: %1$s</string>
+    <string name="r22_autofile_status_done">Done</string>
+    <string name="r22_autofile_status_partial">Partially done</string>
+    <string name="r22_autofile_status_interrupted">Interrupted</string>
+    <string name="r22_autofile_status_undone">Undone</string>
+    <string name="r22_autofile_status_planned">Planned</string>
+    <string name="r22_autofile_move_applied">Moved</string>
+    <string name="r22_autofile_move_skipped">Skipped</string>
+    <string name="r22_autofile_move_failed">Failed</string>
+    <string name="r22_autofile_move_undone">Restored</string>
+    <string name="r22_autofile_move_planned">Not finished</string>
+</resources>

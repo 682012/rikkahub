@@ -3,11 +3,14 @@ package me.rerere.rikkahub.data.ai
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.collect
 import me.rerere.rikkahub.data.ai.learning.AssistantLearningRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import me.rerere.ai.agent.AgentHooks
 import me.rerere.ai.agent.AgentRequest
+import me.rerere.ai.agent.RetryBudget
 import me.rerere.ai.agent.RetryDelay
+import me.rerere.ai.agent.RetryGate
 import me.rerere.ai.agent.RetryPolicy
 import me.rerere.ai.agent.StepRequest
 import me.rerere.ai.agent.withRetry
@@ -203,7 +206,9 @@ class ChatRequestFactory(
             messages = messages,
             tools = turn.tools,
             stream = turn.assistant.streamOutput,
-            retry = turn.settings.retryPolicy().copy(networkHandover = providerManager.networkHandover),
+            retry = turn.settings.retryPolicy()
+                .copy(networkHandover = providerManager.networkHandover)
+                .withTurnRetryBudget(),
         )
         val hooks = object : AgentHooks {
             override suspend fun prepareStep(messages: List<UIMessage>): StepRequest {
@@ -244,11 +249,13 @@ class ChatRequestFactory(
         turn: ChatTurnContext,
         messages: List<UIMessage>,
         compressPrompt: String,
+        /** 传了就按流式接收并逐块上报真实进度；不传则维持原来的非流式请求 */
+        onProgress: (suspend (CompressionChunkProgress) -> Unit)? = null,
     ): String {
         // Native OpenAI/Claude can retain declarations but force tool_choice=none. Other protocols
         // still drop definitions. Never trade summary correctness for cache hits.
         val preserveDefinitions = turn.providerSetting.canDisableToolCallsWithDefinitions
-        suspend fun generate(keepDefinitions: Boolean): UIMessage {
+        suspend fun generate(keepDefinitions: Boolean): UIMessage? {
             val step = if (CompactionRequestMessages.requiresAdaptation(messages)) {
                 buildCompactionStep(turn, messages, compressPrompt, includeTools = keepDefinitions)
             } else {
@@ -262,22 +269,58 @@ class ChatRequestFactory(
                 )
             }
             val params = step.params
+            val provider = usageRecorder.wrap(
+                providerManager.getProviderByType(turn.providerSetting),
+                UsageTag(UsageSource.COMPRESSION, turn.assistant.id, turn.conversationId),
+            )
+            val requestParams = params.copy(
+                maxTokens = null,
+                disableToolCalls = keepDefinitions,
+                model = if (keepDefinitions) params.model else params.model.copy(tools = emptySet()),
+            )
             return withRetry(
                 policy = turn.settings.retryPolicy().copy(networkHandover = providerManager.networkHandover),
                 onRetry = { Log.w(TAG, "Compression request failed, retrying in ${it.delay}", it.cause) },
             ) {
-                usageRecorder.wrap(
-                    providerManager.getProviderByType(turn.providerSetting),
-                    UsageTag(UsageSource.COMPRESSION, turn.assistant.id, turn.conversationId),
-                ).generateText(
-                    providerSetting = turn.providerSetting,
-                    messages = step.messages,
-                    params = params.copy(
-                        maxTokens = null,
-                        disableToolCalls = keepDefinitions,
-                        model = if (keepDefinitions) params.model else params.model.copy(tools = emptySet()),
-                    ),
-                ).message
+                if (onProgress == null) {
+                    provider.generateText(
+                        providerSetting = turn.providerSetting,
+                        messages = step.messages,
+                        params = requestParams,
+                    ).message
+                } else {
+                    // 后台压缩要看到真实进度：同一个请求按流式接收，字数和分块数都来自实际返回，
+                    // 用量仍由 usageRecorder 按 COMPRESSION 记账，取消也照旧传到这条流上。
+                    val text = StringBuilder()
+                    var chunks = 0
+                    var sawToolCall = false
+                    provider.streamText(
+                        providerSetting = turn.providerSetting,
+                        messages = step.messages,
+                        params = requestParams,
+                    ).collect { chunk ->
+                        chunks++
+                        when (chunk) {
+                            is me.rerere.ai.ui.StreamChunk.TextDelta -> text.append(chunk.text)
+                            is me.rerere.ai.ui.StreamChunk.ToolCallStart,
+                            is me.rerere.ai.ui.StreamChunk.ToolCallDelta,
+                            is me.rerere.ai.ui.StreamChunk.ServerToolStart,
+                            is me.rerere.ai.ui.StreamChunk.ServerToolEnd -> sawToolCall = true
+
+                            else -> Unit
+                        }
+                        onProgress(CompressionChunkProgress(delta = if (chunk is me.rerere.ai.ui.StreamChunk.TextDelta) chunk.text else "", chunks = chunks))
+                    }
+                    // 流式路径看不到 generateText 那份完整 UIMessage：抢着调工具时正文不可信，按工具回应处理
+                    if (sawToolCall || text.isBlank()) {
+                        null
+                    } else {
+                        UIMessage(
+                            role = MessageRole.ASSISTANT,
+                            parts = listOf(UIMessagePart.Text(text.toString())),
+                        )
+                    }
+                }
             }
         }
         var fallbackUsed = false
@@ -289,8 +332,8 @@ class ChatRequestFactory(
         }
         // Some compatible relays ignore tool_choice. Preserve the previous working text-only route
         // rather than accept a tool response as a summary or disable automatic compression.
-        val summary = response.compressionSummaryOrNull()
-            ?: (if (preserveDefinitions && !fallbackUsed) generate(false).compressionSummaryOrNull() else null)
+        val summary = response?.compressionSummaryOrNull()
+            ?: (if (preserveDefinitions && !fallbackUsed) generate(false)?.compressionSummaryOrNull() else null)
             ?: error(context.getString(R.string.chat_page_compress_tool_call_response))
         return summary.ifBlank { error("Failed to generate compressed summary") }
     }
@@ -419,6 +462,17 @@ class ChatRequestFactory(
 }
 
 /**
+ * 压缩摘要流式生成中的一个分块。
+ *
+ * [delta] 是这块里的正文（用量、结束这类事件为空），[chunks] 是本次请求累计收到的分块数。
+ * 字数由调用方按 Unicode 字符累计，这里不重复实现。
+ */
+data class CompressionChunkProgress(
+    val delta: String,
+    val chunks: Int,
+)
+
+/**
  * 取出压缩请求回复里的摘要正文。
  *
  * 指令要求不调用工具，模型仍可能发起调用。这时附带的文本只是"我先看看文件"之类的说明，
@@ -473,10 +527,24 @@ internal fun Settings.retryPolicy() =
         RetryPolicy.NONE
     }
 
+/**
+ * 把用户设置翻译成请求层的重试策略。
+ *
+ * 三件事必须从这里一起出去，否则界面说一套、请求层做一套：
+ * - 次数与等待：保留原有 `maxRetries` / `retryDelay*`；
+ * - 范围：[RetryScope] 同时喂给 `retryOn`（要不要再发）和 `RetryBudget`（按哪一类记账）；
+ * - 无限：`retryUnlimited` 让预算不再按次数封顶，但用户取消、关闭总开关仍然立刻生效。
+ */
 internal fun NetworkSetting.toRetryPolicy(): RetryPolicy {
     val delay = normalizedRetryDelay()
+    val scope = retryScope()
     return RetryPolicy(
         maxRetries = maxRetries.coerceIn(0, 100),
+        retryOn = { error -> scope.allows(error) },
+        scope = scope,
+        unlimitedRetries = retryUnlimited,
+        // 实时总开关：关掉之后已经排上的退避重试立刻放弃，不等这一轮的设置快照过期
+        retryGate = RetryGate { RetrySwitch.isEnabled() },
         delayMode = when (delay.mode) {
             RetryDelayMode.FIXED -> RetryDelay.Fixed(delay.fixedSeconds.seconds)
             RetryDelayMode.RANGE -> RetryDelay.RandomRange(
@@ -487,8 +555,19 @@ internal fun NetworkSetting.toRetryPolicy(): RetryPolicy {
     )
 }
 
-/** Only an explicit tool-choice compatibility error enables the single text-only fallback. */
-internal fun compressionToolChoiceUnsupported(error: Throwable): Boolean {
+/**
+ * 给一轮对话挂一份共享的重试预算。
+ *
+ * AgentLoop 的每个模型步骤都会调一次 `withRetry(request.retry)`；不共享时"每步 N 次"会随工具步数
+ * 放大成 N × 步数。用户设置的次数应该是**整轮**的次数：这里建一份，整轮所有步骤都从同一份里扣。
+ *
+ * 自动恢复轮已经在 `ChatAutoRecovery.settingsForTurnRecovery` 里把内层次数收到 0，
+ * 这里仍会建一份 0 次预算，效果就是每步只发一次；整轮次数留给外层自动恢复，两层不叠加。
+ */
+internal fun RetryPolicy.withTurnRetryBudget(): RetryPolicy =
+    copy(sharedBudget = RetryBudget(maxRetries, scope, unlimitedRetries))
+
+/** Only an explicit tool-choice compatibility error enables the single text-only fallback. */internal fun compressionToolChoiceUnsupported(error: Throwable): Boolean {
     if (error !is me.rerere.ai.util.HttpException) return false
     val text = error.message.orEmpty().lowercase()
     if (listOf("api key", "unauthorized", "permission", "rate limit").any { it in text }) return false

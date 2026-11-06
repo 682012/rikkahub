@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r22_mcp_title">本机 MCP 服务</string>
+    <string name="r22_mcp_risk">外部客户端连上后，能读你授权的会话数据，也能在你打开写/模型/设备/自动化后真的动手。只监听 127.0.0.1，令牌等同密码，别贴到公开地方。</string>
+
+    <string name="r22_mcp_status_title">运行状态</string>
+    <string name="r22_mcp_status_label">服务</string>
+    <string name="r22_mcp_status_stopped">已停止</string>
+    <string name="r22_mcp_status_starting">启动中</string>
+    <string name="r22_mcp_status_running">运行中</string>
+    <string name="r22_mcp_status_stopping">停止中</string>
+    <string name="r22_mcp_status_error">启动失败</string>
+    <string name="r22_mcp_status_running_fmt">%1$s</string>
+    <string name="r22_mcp_status_error_fmt">服务未运行：%1$s</string>
+    <string name="r22_mcp_endpoint">端点</string>
+    <string name="r22_mcp_endpoint_empty">尚未监听</string>
+
+    <string name="r22_mcp_enable">启用本机 MCP</string>
+    <string name="r22_mcp_enable_note">打开后启动前台服务并在 127.0.0.1 上监听；关掉就立刻停服。开关只表示你的意图，真实结果看上面的运行状态。</string>
+
+    <string name="r22_mcp_port">端口</string>
+    <string name="r22_mcp_port_hint">1024–65535，默认 8766</string>
+    <string name="r22_mcp_port_apply">应用</string>
+    <string name="r22_mcp_port_invalid">端口要在 1024–65535 之间</string>
+
+    <string name="r22_mcp_assistant">暴露给外部客户端的助手</string>
+    <string name="r22_mcp_assistant_none">未选择（不暴露内置会话）</string>
+    <string name="r22_mcp_assistant_note">必须在这里明确选一个助手，外部客户端才会看到内置会话/消息工具。不选不等于"所有助手"。</string>
+    <string name="r22_mcp_assistant_required">还没选助手</string>
+    <string name="r22_mcp_select_assistant">选择助手</string>
+
+    <string name="r22_mcp_perm_title">授权范围</string>
+    <string name="r22_mcp_allow_read">读取</string>
+    <string name="r22_mcp_allow_read_note">读会话列表、消息、归档与任务状态（只读）</string>
+    <string name="r22_mcp_allow_mutations">写入</string>
+    <string name="r22_mcp_allow_mutations_note">改标题、发消息、归档、删除等会改 App 数据的操作</string>
+    <string name="r22_mcp_allow_model">模型请求</string>
+    <string name="r22_mcp_allow_model_note">让外部客户端触发真正的模型生成（会消耗你的额度）</string>
+    <string name="r22_mcp_allow_device">设备操作</string>
+    <string name="r22_mcp_allow_device_note">跨 App 点击/输入，需要你另外在系统里启用无障碍服务并授权</string>
+    <string name="r22_mcp_allow_automation">本地自动化</string>
+    <string name="r22_mcp_allow_automation_note">运行你已保存的本地自动化配方，不会自己新建或改配方</string>
+
+    <string name="r22_mcp_token_title">访问令牌</string>
+    <string name="r22_mcp_token_masked">已设置（不会在这里或通知里显示完整值）</string>
+    <string name="r22_mcp_token_note">客户端用 Authorization: Bearer 令牌 访问。复制配置需要你主动点按钮；换令牌会让旧客户端立刻失效。</string>
+    <string name="r22_mcp_copy_config">复制客户端配置</string>
+    <string name="r22_mcp_copy_done">已复制到剪贴板</string>
+    <string name="r22_mcp_rotate_token">更换令牌</string>
+    <string name="r22_mcp_rotate_done">令牌已更换，请更新客户端配置</string>
+
+    <string name="r22_mcp_notification_channel">本机 MCP 服务</string>
+    <string name="r22_mcp_notification_channel_desc">本机 MCP 服务运行时的常驻通知</string>
+    <string name="r22_mcp_notification_title">本机 MCP 服务运行中</string>
+    <string name="r22_mcp_notification_stop">停止</string>
+    <string name="r22_mcp_notification_starting">正在启动…</string>
+    <string name="r22_mcp_notification_running">%1$s</string>
+    <string name="r22_mcp_notification_error">启动失败：%1$s</string>
+    <string name="r22_mcp_error_foreground_denied">系统拒绝启动前台服务，请检查通知/后台权限</string>
+</resources>

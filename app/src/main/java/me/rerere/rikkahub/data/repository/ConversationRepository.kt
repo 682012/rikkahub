@@ -55,6 +55,12 @@ class ConversationRepository(
 
     suspend fun getConversationAssistantId(id: String): String? = conversationDAO.getAssistantId(id)
 
+    /** Batch-history titles only: bounded queries, scoped in SQL, without loading chat bodies. */
+    suspend fun getConversationTitles(assistantId: Uuid, ids: List<Uuid>): Map<Uuid, String> =
+        ids.distinct().chunked(400).flatMap { chunk ->
+            conversationDAO.getTitlesByIds(assistantId.toString(), chunk.map { it.toString() })
+        }.associate { Uuid.parse(it.id) to it.title }
+
     suspend fun hasFileReference(fileUrl: String): Boolean =
         messageNodeDAO.hasFileReference(JsonInstant.encodeToString(fileUrl))
 

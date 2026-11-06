@@ -39,6 +39,9 @@ class RoomConversationAutoFileGateway(
     override suspend fun loadExcerptForAssistant(assistantId: Uuid, conversationId: Uuid, headChars: Int, tailChars: Int): String =
         conversationRepository.getAutoFileExcerpt(conversationId, assistantId, headChars, tailChars)
 
+    override suspend fun loadConversationTitles(assistantId: Uuid, conversationIds: List<Uuid>): Map<Uuid, String> =
+        conversationRepository.getConversationTitles(assistantId, conversationIds)
+
     override suspend fun loadFolders(assistantId: Uuid): List<AutoFileFolderRef> =
         folderRepository.getFoldersOfAssistant(assistantId).first().map { AutoFileFolderRef(it.id, it.name) }
 

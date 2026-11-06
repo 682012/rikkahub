@@ -586,11 +586,13 @@ internal fun JsonElement?.toInteractionsAnnotations(): List<UIMessageAnnotation>
 internal fun parseInteractionsUsage(usage: JsonObject?): TokenUsage? {
     if (usage == null) return null
     fun count(key: String) = usage[key]?.jsonPrimitiveOrNull?.intOrNull ?: 0
+    val cachedTokens = usage["total_cached_tokens"]?.jsonPrimitiveOrNull?.intOrNull
     return TokenUsage(
         promptTokens = count("total_input_tokens"),
         // total_output_tokens 不包含思考 token
         completionTokens = count("total_output_tokens") + count("total_thought_tokens"),
         totalTokens = count("total_tokens"),
-        cachedTokens = count("total_cached_tokens"),
+        cachedTokens = cachedTokens ?: 0,
+        cachedReported = cachedTokens != null,
     )
 }

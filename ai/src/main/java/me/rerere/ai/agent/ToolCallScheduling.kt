@@ -47,6 +47,40 @@ internal class CanonicalArgumentsCache(private val maxEntries: Int = 256) {
 internal fun ToolExecutionMode.allowsParallelExecution() = this != ToolExecutionMode.SERIAL
 
 /**
+ * 把一个可并行窗口里的调用按「工具名 + 规范化参数」分好组：同一组只执行一次，结果发给组内每个调用。
+ *
+ * 规范化参数（parse + key 排序 + 重新序列化）是这个窗口里最贵的一步，写入整个文件这种参数尤其贵。
+ * 而分组键是 `名字 + 参数`，所以**名字在这个窗口里只出现一次的调用根本不可能和别的调用撞组**，
+ * 不需要算出它的规范化参数：直接给它一个独立的位置键。只有同名出现两次以上时才规范化参数。
+ *
+ * 顺序不受影响：键的首次出现顺序仍然是调用顺序（独立键按位置递增），组内成员顺序也保持原样。
+ * 传进来的 `deduplicated` 为 false 的调用（普通 PARALLEL）一律各自成组，和以前一致。
+ */
+internal fun <T> groupParallelCalls(
+    calls: List<T>,
+    nameOf: (T) -> String,
+    deduplicated: (T) -> Boolean,
+    canonicalKey: (T) -> String,
+): List<List<T>> {
+    if (calls.isEmpty()) return emptyList()
+    if (calls.size == 1) return listOf(calls)
+    val nameCounts = HashMap<String, Int>(calls.size * 2)
+    calls.forEach { call -> if (deduplicated(call)) nameCounts.merge(nameOf(call), 1, Int::plus) }
+    val grouped = LinkedHashMap<String, MutableList<T>>(calls.size * 2)
+    calls.forEachIndexed { index, call ->
+        val name = nameOf(call)
+        val key = if (deduplicated(call) && (nameCounts[name] ?: 0) > 1) {
+            "$name\n${canonicalKey(call)}"
+        } else {
+            // 位置唯一：和任何规范化结果都不可能相等，前缀也不同
+            "unique:$index"
+        }
+        grouped.getOrPut(key) { ArrayList<T>(1) }.add(call)
+    }
+    return ArrayList(grouped.values)
+}
+
+/**
  * 把本步新增的 part 接到已有内容后面之前，先保证新工具调用的 id 在这条助手消息里唯一。
  *
  * 不同模型、不同 step 之间 toolCallId 可能重复，有的模型干脆返回空 id；工具结果按 id 写回，

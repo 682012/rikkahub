@@ -5,23 +5,6 @@ import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MessageNode
 import kotlin.uuid.Uuid
 
-/**
- * 一次手动压缩在某个会话上的状态，供聊天页显示。任务本身在 [ChatService] 的 AppScope 里跑，
- * 这个状态只反映最近一次任务，不持有协程。
- */
-data class CompressionState(
-    val taskId: Uuid,
-    /** null 表示还在压缩 */
-    val outcome: CompressionOutcome?,
-    /** 失败/丢弃的原因，成功时为 null */
-    val message: String? = null,
-    val keepRecentMessages: Int = 0,
-    val startedAt: Long = 0L,
-    val finishedAt: Long? = null,
-) {
-    val isRunning: Boolean get() = outcome == null
-}
-
 /** 快照里一个节点的身份：节点 id、选中的分支下标、分支上那条消息的 id */
 internal data class CompressionNodeRef(
     val nodeId: Uuid,

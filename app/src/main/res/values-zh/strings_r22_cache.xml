@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r22_cache_scope_all">全部（主对话＋子代理＋辅助）</string>
+    <string name="r22_cache_scope_chat">主对话</string>
+    <string name="r22_cache_scope_subagent">子代理</string>
+    <string name="r22_cache_scope_aux">辅助</string>
+    <string name="r22_cache_invalid_report">上游报告异常：%1$s tokens</string>
+    <string name="r22_cache_rate">%1$s tokens（占 %3$s 输入的 %2$s）</string>
+    <string name="r22_cache_unreported">上游未报告缓存：%1$s tokens；命中率未知，不是 0%%</string>
+    <string name="r22_cache_excluded">另有 %1$s 输入来自 %2$s 次未报告缓存的请求，已排除在比例之外</string>
+    <string name="r22_cache_note">缓存属于输入，不重复相加；未报告缓存不等于未命中</string>
+    <string name="r22_cache_sources_title">按来源</string>
+    <string name="r22_cache_sources_note">子代理和标题/摘要/快速模型请求用的是同一个会话 ID，只有切到该范围或"全部"才会计入合计</string>
+    <string name="r22_cache_source_chat">主对话</string>
+    <string name="r22_cache_source_subagent">子代理</string>
+    <string name="r22_cache_source_aux">辅助 · %1$s</string>
+    <string name="r22_cache_source_row">%1$d 次 · 输入 %2$s · 输出 %3$s</string>
+    <string name="r22_cache_stats_excluded">命中率已排除 %1$s tokens（%2$d 次请求）：上游没报缓存字段，属于未知，不是 0%%。</string>
+</resources>

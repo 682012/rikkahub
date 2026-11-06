@@ -179,14 +179,15 @@ internal class GoogleStreamDecoder(
         if (usage == null) return null
         val promptTokens = usage["promptTokenCount"]?.jsonPrimitiveOrNull?.intOrNull ?: 0
         val thoughtTokens = usage["thoughtsTokenCount"]?.jsonPrimitiveOrNull?.intOrNull ?: 0
-        val cachedTokens = usage["cachedContentTokenCount"]?.jsonPrimitiveOrNull?.intOrNull ?: 0
+        val cachedContentTokens = usage["cachedContentTokenCount"]?.jsonPrimitiveOrNull?.intOrNull
         val candidateTokens = usage["candidatesTokenCount"]?.jsonPrimitiveOrNull?.intOrNull ?: 0
         val totalTokens = usage["totalTokenCount"]?.jsonPrimitiveOrNull?.intOrNull ?: 0
         return TokenUsage(
             promptTokens = promptTokens,
             completionTokens = candidateTokens + thoughtTokens,
             totalTokens = totalTokens,
-            cachedTokens = cachedTokens,
+            cachedTokens = cachedContentTokens ?: 0,
+            cachedReported = cachedContentTokens != null,
         )
     }
 

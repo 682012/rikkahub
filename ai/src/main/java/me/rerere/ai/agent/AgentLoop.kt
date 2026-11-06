@@ -274,6 +274,9 @@ internal class AgentLoop(
         val blocked = blockedRepeatCalls(tools.filter { it.isExecuted }, pending, canonicalArguments) {
             findTool(it)?.repeatable == true
         }
+        // 每个待执行调用能不能并行只判定一次：原来的窗口扫描会把窗口第一个元素算两遍，
+        // 而每次判定都要查工具定义、审批状态和回放保护
+        val parallel = BooleanArray(pending.size) { canRunInParallel(pending[it], blocked) }
         var index = 0
         while (index < pending.size) {
             val first = pending[index]
@@ -282,13 +285,13 @@ internal class AgentLoop(
                 index++
                 continue
             }
-            if (!canRunInParallel(first, blocked)) {
+            if (!parallel[index]) {
                 executeOne(first)
                 index++
                 continue
             }
             val from = index
-            while (index < pending.size && canRunInParallel(pending[index], blocked)) index++
+            while (index < pending.size && parallel[index]) index++
             executeParallel(pending.subList(from, index))
         }
         val current = checkNotNull(message)
@@ -335,17 +338,18 @@ internal class AgentLoop(
     }
 
     private suspend fun executeParallel(calls: List<UIMessagePart.Tool>) = coroutineScope {
-        val groups = LinkedHashMap<String, MutableList<UIMessagePart.Tool>>()
-        calls.forEachIndexed { index, call ->
-            val args = if (findTool(call.toolName)?.executionMode == ToolExecutionMode.PARALLEL_DEDUPLICATED) {
-                canonicalArguments.canonical(call.input)
-            } else null
-            val key = if (args == null) "unique:$index" else "${call.toolName}\n$args"
-            groups.getOrPut(key) { mutableListOf() }.add(call)
-        }
+        // 同名的调用才可能撞成同一组；名字在这个窗口里只出现一次时不必规范化它的参数（见 groupParallelCalls）
+        val groups = groupParallelCalls(
+            calls = calls,
+            nameOf = { it.toolName },
+            deduplicated = { findTool(it.toolName)?.executionMode == ToolExecutionMode.PARALLEL_DEDUPLICATED },
+            canonicalKey = { canonicalArguments.canonical(it.input).toString() },
+        )
+        // 容量上限本来就是这个窗口能产生的事件数（每组 Started + Completed/Cancelled），
+        // 任务数还有 Semaphore(8) 兜着；取消路径上的 trySend 需要它不阻塞，所以保持无界
         val progress = Channel<ToolProgress>(Channel.UNLIMITED)
         val permits = Semaphore(8)
-        groups.values.forEach { group ->
+        groups.forEach { group ->
             launch {
                 permits.withPermit {
                     val acknowledged = CompletableDeferred<Unit>()
@@ -364,18 +368,45 @@ internal class AgentLoop(
         repeat(groups.size * 2) {
             when (val event = progress.receive()) {
                 is ToolProgress.Started -> {
-                    event.calls.forEach { call ->
-                        updateTool(call.toolCallId) { it.copy(startedAt = Clock.System.now(), finishedAt = null) }
-                    }
+                    val startedAt = Clock.System.now()
+                    updateTools(event.calls) { it.copy(startedAt = startedAt, finishedAt = null) }
                     event.acknowledged.complete(Unit)
                 }
-                is ToolProgress.Completed -> event.calls.forEach { call ->
-                    updateTool(call.toolCallId) { it.copy(output = event.output, finishedAt = Clock.System.now()) }
+                is ToolProgress.Completed -> {
+                    val finishedAt = Clock.System.now()
+                    updateTools(event.calls) { it.copy(output = event.output, finishedAt = finishedAt) }
                 }
                 is ToolProgress.Cancelled -> throw event.error
             }
         }
         progress.close()
+    }
+
+    /**
+     * 同一个进度事件里的调用合成一次消息更新。
+     *
+     * 每次 [update] 都要复制整条 parts 并向调用方发一个 [AgentEvent.MessageUpdated]；调用方
+     * （ChatService）在工具状态发生变化时还会立刻落库一次。逐个调用更新等于把同一份复制、同一个事件
+     * 和同一次落库做 N 遍，而它们本来就发生在同一瞬间。
+     *
+     * 语义不变：`Started` 仍然是先写 `startedAt` 再放行执行（startedAt checkpoint 在效果之前落地），
+     * `Completed` 仍然一次性写回全部结果；没有被真正改动的调用不会触发多余的更新。
+     */
+    private suspend fun updateTools(
+        calls: List<UIMessagePart.Tool>,
+        transform: (UIMessagePart.Tool) -> UIMessagePart.Tool,
+    ) {
+        if (calls.isEmpty()) return
+        val ids = calls.mapTo(HashSet(calls.size * 2)) { it.toolCallId }
+        val current = checkNotNull(message)
+        var changed = false
+        val parts = current.parts.map { part ->
+            if (part !is UIMessagePart.Tool || part.toolCallId !in ids) return@map part
+            val updated = transform(part)
+            if (updated != part) changed = true
+            updated
+        }
+        if (changed) update(current.copy(parts = parts))
     }
 
     private suspend fun reportIncompleteInput(tool: UIMessagePart.Tool) {

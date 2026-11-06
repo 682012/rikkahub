@@ -60,6 +60,7 @@ import me.rerere.rikkahub.data.model.getChatModelOf
 import me.rerere.rikkahub.data.repository.FavoriteRepository
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.service.ChatService
+import me.rerere.rikkahub.service.CompressionState
 import me.rerere.rikkahub.ui.hooks.writeStringPreference
 import me.rerere.rikkahub.ui.hooks.ChatInputState
 import me.rerere.rikkahub.utils.UiState
@@ -104,6 +105,15 @@ class ChatVM(
     val conversationJob: StateFlow<Job?> =
         chatService
             .getGenerationJobStateFlow(_conversationId)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /**
+     * 当前会话的压缩状态：手动后台压缩和自动压缩都写同一份，离开页面再回来时从这里接着显示，
+     * 不依赖某个弹窗或任务对象还活着。
+     */
+    val compressionState: StateFlow<CompressionState?> =
+        chatService.compressionStates
+            .map { states -> states[_conversationId] }
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val processingStatus: StateFlow<String?> =
@@ -485,6 +495,11 @@ class ChatVM(
 
     fun handleCompressContext(additionalPrompt: String, keepRecentMessages: Int): Job {
         return chatService.startBackgroundCompression(_conversationId, additionalPrompt, keepRecentMessages)
+    }
+
+    /** 取消本会话正在跑的后台压缩；自动压缩跟着生成走，由停止生成处理 */
+    fun handleCancelCompression() {
+        chatService.cancelBackgroundCompression(_conversationId)
     }
 
     suspend fun forkMessage(message: UIMessage): Conversation {

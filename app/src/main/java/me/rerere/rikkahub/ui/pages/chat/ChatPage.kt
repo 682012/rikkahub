@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
@@ -69,6 +70,7 @@ import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.ui.components.ai.ChatAttachmentPickerActions
 import me.rerere.rikkahub.ui.components.ai.ChatInput
+import me.rerere.rikkahub.ui.components.ai.CompressionProgressCard
 import me.rerere.rikkahub.ui.components.ai.FilesPicker
 import me.rerere.rikkahub.ui.components.ai.SearchMode
 import me.rerere.rikkahub.ui.components.ai.completion.WorkspaceCompletionProvider
@@ -370,6 +372,8 @@ private fun ChatPageContent(
     var previewMode by rememberSaveable { mutableStateOf(false) }
     val hazeState = rememberHazeState()
     var showFilesSheet by remember { mutableStateOf(false) }
+    // 压缩状态挂在 ChatService 上：切页、锁屏回来仍显示当前阶段，不靠弹窗自己的任务对象
+    val compressionState by vm.compressionState.collectAsStateWithLifecycle()
     // r17: 按已保存规则直接发送，不再逐次弹窗。标记随消息固定，重试不会受后来改设置影响。
     fun submitCurrentInput(answer: Boolean) {
         val currentParts = clearSequentialImageFlags(inputState.getContents())
@@ -459,7 +463,17 @@ private fun ChatPageContent(
             bottomBar = {
                 val messageQueue by vm.messageQueue.collectAsStateWithLifecycle()
                 val voiceState by vm.voiceSession.state.collectAsStateWithLifecycle()
-                ChatInput(
+                Column {
+                    // 运行中的手动/自动压缩：真实阶段 + 已用秒数 + 已生成字数，可取消
+                    compressionState?.takeIf { it.isRunning }?.let { running ->
+                        CompressionProgressCard(
+                            state = running,
+                            compact = true,
+                            onCancel = { vm.handleCancelCompression() },
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                        )
+                    }
+                    ChatInput(
                     onStartVoiceMode = onStartVoiceMode,
                     voiceState = voiceState,
                     onStopVoiceMode = vm.voiceSession::stop,
@@ -494,7 +508,8 @@ private fun ChatPageContent(
                     onMoreClick = {
                         showFilesSheet = true
                     },
-                )
+                    )
+                }
             },
             containerColor = Color.Transparent,
         ) { innerPadding ->
@@ -597,6 +612,8 @@ private fun ChatFilesPickerSheet(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     var showCompressDialog by remember { mutableStateOf(false) }
+    // 弹窗只是显示层：任务在 ChatService 里跑，关掉再开仍能接着显示真实进度
+    val compressionState by vm.compressionState.collectAsStateWithLifecycle()
 
     fun dismissAll() {
         showCompressDialog = false
@@ -631,6 +648,8 @@ private fun ChatFilesPickerSheet(
             },
             showCompressDialog = showCompressDialog,
             onShowCompressDialogChange = { showCompressDialog = it },
+            compressionState = compressionState,
+            onCancelCompression = { vm.handleCancelCompression() },
             onDismiss = { dismissAll() },
             onTakePic = attachmentPickerActions.onTakePicture,
             onPickImage = attachmentPickerActions.onPickImage,

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r22_startup_title">启动动效</string>
+    <string name="r22_startup_desc">只在冷启动时画一小段，底下的聊天页照常可以点、可以滑；分享、通知、链接进来不画。</string>
+    <string name="r22_startup_reduced">系统动画已关闭，冷启动不会绘制任何动效。</string>
+    <string name="r22_startup_style_ring">轨道环</string>
+    <string name="r22_startup_style_dots">光点聚合</string>
+    <string name="r22_startup_style_aurora">柔光</string>
+    <string name="r22_startup_style_off">关闭</string>
+    <string name="r22_startup_media_title">使用本地素材</string>
+    <string name="r22_startup_media_desc_empty">可导入图片、GIF、动图 WebP 或小视频，会复制进应用私有目录。</string>
+    <string name="r22_startup_media_desc_image">已导入图片，可在下面调整时长和大小。</string>
+    <string name="r22_startup_media_desc_video">已导入视频，静音播放一次后淡出。</string>
+    <string name="r22_startup_media_busy">正在复制文件…</string>
+    <string name="r22_startup_media_import">导入</string>
+    <string name="r22_startup_media_replay">重播</string>
+    <string name="r22_startup_media_clear">清除</string>
+    <string name="r22_startup_duration_title">时长</string>
+    <string name="r22_startup_duration_desc">%1$d 毫秒，不会挡住下面的内容。</string>
+    <string name="r22_startup_scale_title">大小</string>
+    <string name="r22_startup_scale_desc">屏幕的 %1$d%%</string>
+    <string name="r22_startup_fit_title">适配方式</string>
+    <string name="r22_startup_fit_contain">完整显示</string>
+    <string name="r22_startup_fit_cover">铺满裁切</string>
+    <string name="r22_startup_preview_title">预览</string>
+    <string name="r22_startup_preview_desc">和冷启动画的是同一段。点一下重播。</string>
+    <string name="r22_startup_preview_off">已关闭，冷启动不会绘制。</string>
+    <string name="r22_startup_preview_tap">点击重播</string>
+    <string name="r22_startup_fail_unsupported">不支持这个文件类型，请用 PNG、JPEG、WebP、GIF 或较小的 MP4/WebM。</string>
+    <string name="r22_startup_fail_too_large">文件太大（图片上限 12MB，视频上限 8MB）。</string>
+    <string name="r22_startup_fail_empty">这个文件是空的。</string>
+    <string name="r22_startup_fail_io">复制失败，设置没有改动。</string>
+</resources>

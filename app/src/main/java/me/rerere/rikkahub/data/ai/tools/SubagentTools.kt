@@ -18,8 +18,11 @@ import me.rerere.rikkahub.data.ai.subagent.SUBAGENT_RESULT_MAX_LIMIT
 import me.rerere.rikkahub.data.ai.subagent.SUBAGENT_WAIT_MIN_PAGE
 import me.rerere.rikkahub.data.ai.subagent.SUBAGENT_WAIT_PAGE_BUDGET
 import me.rerere.rikkahub.data.ai.subagent.SubagentResultPage
+import me.rerere.rikkahub.data.ai.subagent.SubagentTeamMember
+import me.rerere.rikkahub.data.ai.subagent.assignSubagentTeamModels
 import me.rerere.rikkahub.data.ai.subagent.SubagentRunner
 import me.rerere.rikkahub.data.ai.subagent.SubagentTask
+import me.rerere.rikkahub.data.ai.subagent.resolveSubagentModelPool
 import me.rerere.rikkahub.data.ai.subagent.resolveWaitTaskIds
 import me.rerere.rikkahub.data.ai.subagent.subagentWaitPageLimit
 import me.rerere.rikkahub.data.datastore.SubagentSettings
@@ -38,19 +41,33 @@ fun createSubagentTools(
     conversationId: Uuid?,
 ): List<Tool> {
     // Never enumerate every provider model: large accounts can have thousands of UUIDs.
-    val modelPool = settings.modelIds
-    val modelHint = when {
-        modelPool.isEmpty() -> "省略 model_id 使用默认模型。"
-        modelPool.size <= 8 -> "可选 model_id: " + modelPool.joinToString(", ") { it.toString() }
-        else -> "设置中配置了 ${modelPool.size} 个可选模型；省略 model_id 使用默认模型，具体 ID 请在设置页查看。"
+    // 有序白名单：default 在前，其余按设置顺序；modelIds 为空时保持 r21 的 default ?: 父会话模型。
+    val modelPool = resolveSubagentModelPool(
+        modelIds = settings.modelIds,
+        defaultModelId = settings.defaultModelId,
+        fallbackModelId = settings.fallbackModelId,
+        parentModelId = parentModelId,
+    )
+    val modelHint = buildString {
+        when {
+            modelPool.isEmpty() -> append("省略 model_id 使用默认模型。")
+            modelPool.size <= 8 -> append("可选 model_id（有序模型池）: " +
+                modelPool.joinToString(", ") { it.toString() })
+            else -> append("设置里配置了 ${modelPool.size} 个可选模型；省略 model_id 由池按策略分配，具体 ID 请在设置页查看。")
+        }
+        append(" 派生策略: ${settings.modelStrategy.name}；")
+        append(
+            if (settings.autoFailover) {
+                "遇到报错或空输出会自动换下一个模型，并从已完成的 checkpoint 续跑（不会重跑已成功的工具）；超时是整个任务的预算。"
+            } else {
+                "自动换渠道已关闭：模型报错或空输出时任务直接失败。"
+            }
+        )
     }
 
+    /** 显式 model_id 必须在白名单里；省略时返回 null，由 runner 按策略从池里分配。 */
     fun resolveModelId(raw: String?): Uuid? {
-        if (raw.isNullOrBlank()) {
-            val preferred = settings.defaultModelId ?: parentModelId
-            require(modelPool.isEmpty() || preferred in modelPool) { "Default model is outside the allowed subagent model pool" }
-            return preferred
-        }
+        if (raw.isNullOrBlank()) return null
         val id = runCatching { Uuid.parse(raw.trim()) }.getOrNull()
             ?: error("Invalid model_id: $raw")
         require(modelPool.isEmpty() || id in modelPool) { "model_id is not in the allowed subagent model pool" }
@@ -95,6 +112,9 @@ fun createSubagentTools(
             put("taskId", task.id)
             put("status", task.status.name)
             put("modelId", task.modelId?.toString() ?: "")
+            put("attempts", task.attempts)
+            put("triedModelIds", JsonArray(task.triedModelIds.map { JsonPrimitive(it.toString()) }))
+            put("switchNote", task.switchNote ?: "")
             put("steps", task.steps)
             put("error", task.error ?: "")
             put("resultAvailable", page.totalChars > 0)
@@ -190,6 +210,9 @@ fun createSubagentTools(
                         put("taskId", task.id)
                         put("status", task.status.name)
                         put("modelId", task.modelId?.toString() ?: "")
+                        put("strategy", settings.modelStrategy.name)
+                        put("autoFailover", settings.autoFailover)
+                        put("plannedModelPool", JsonArray(modelPool.map { JsonPrimitive(it.toString()) }))
                     }.toString()
                 )
             )
@@ -309,7 +332,8 @@ fun createSubagentTools(
         executionMode = ToolExecutionMode.SERIAL,
         execute = {
             val items = runner.list().filter { it.conversationId == conversationId }.joinToString("\n") { t ->
-                "${t.id}\t${t.status.name}\t${t.modelId}\t${runner.resultChars(t.id)}\t${t.prompt.take(60)}"
+                "${t.id}\t${t.status.name}\t${t.modelId}\t${runner.resultChars(t.id)}\t" +
+                    "attempts=${t.attempts}${t.switchNote?.let { " ($it)" } ?: ""}\t${t.prompt.take(60)}"
             }
             listOf(UIMessagePart.Text(items.ifBlank { "no subagent tasks" }))
         },
@@ -337,7 +361,111 @@ fun createSubagentTools(
         },
     )
 
-    return listOf(run, wait, result, list, cancel)
+    /**
+     * 一次指定「角色 + prompt + 模型」的批量入口：真正同时启动多个**互不相同**的任务。
+     *
+     * 和"同一个任务在多个渠道并发竞速"不同：team 的每个成员是一件独立的活，副作用不会被执行两遍；
+     * 想要同一个任务的多渠道竞速，应该显式调两次 subagent_run，而且那种用法本身就会重复副作用。
+     */
+    val team = Tool(
+        name = "subagent_team",
+        description = buildString {
+            append("Start several independent subagent tasks in one call, each with its own role, prompt and optional model. ")
+            append("Every member is started immediately and runs at the same time as the others; members must be different work items so no side effect is executed twice. ")
+            append("Models come from the configured subagent pool: an explicit model_id wins, otherwise members are spread across the pool by the ${settings.modelStrategy.name} strategy, so a team of 2-3 members lands on 2-3 different channels instead of all hitting the main model. ")
+            append("Returns one {taskId, role, modelId} per member; collect them with subagent_wait(task_ids=[...]) or subagent_result. ")
+            append(modelHint)
+        },
+        parameters = {
+            InputSchema.Obj(
+                properties = buildJsonObject {
+                    put("tasks", buildJsonObject {
+                        put("type", "array")
+                        put("description", "Team members; each one becomes one independent subagent task")
+                        put("items", buildJsonObject {
+                            put("type", "object")
+                            put("properties", buildJsonObject {
+                                put("role", buildJsonObject {
+                                    put("type", "string")
+                                    put("description", "Short role label, e.g. researcher / implementer / reviewer")
+                                })
+                                put("prompt", buildJsonObject {
+                                    put("type", "string")
+                                    put("description", "Complete, self-contained task description for this member")
+                                })
+                                put("model_id", buildJsonObject {
+                                    put("type", "string")
+                                    put("description", "Optional model id from the allowed pool; omit to let the pool spread members")
+                                })
+                            })
+                            put("required", JsonArray(listOf(JsonPrimitive("prompt"))))
+                        })
+                    })
+                    put("max_steps", buildJsonObject {
+                        put("type", "integer")
+                        put("description", "Max model steps per member, default ${settings.maxSteps}")
+                    })
+                    put("timeout_sec", buildJsonObject {
+                        put("type", "integer")
+                        put("description", "Per-task timeout budget in seconds, default ${settings.timeoutSec}, 0 means no limit")
+                    })
+                },
+                required = listOf("tasks"),
+            )
+        },
+        needsApproval = { false },
+        // 每个成员都必须真的启动：批量不是去重。
+        executionMode = ToolExecutionMode.PARALLEL,
+        execute = {
+            val params = it.jsonObject
+            val rawTasks = (params["tasks"] as? JsonArray) ?: error("tasks is required")
+            val members = rawTasks.mapNotNull { element ->
+                val obj = element as? JsonObject ?: return@mapNotNull null
+                val prompt = obj.string("prompt")?.trim().orEmpty()
+                if (prompt.isEmpty()) return@mapNotNull null
+                SubagentTeamMember(
+                    role = obj.string("role") ?: "",
+                    prompt = prompt,
+                    modelId = resolveModelId(obj.string("model_id")),
+                )
+            }
+            // 白名单 + 策略在这里一次算完：成员显式 model_id 优先，其余按池轮转。
+            val assigned = assignSubagentTeamModels(members, modelPool, settings.modelStrategy)
+            val maxSteps = params.string("max_steps")?.toIntOrNull() ?: settings.maxSteps
+            val timeoutSec = params.string("timeout_sec")?.toIntOrNull() ?: settings.timeoutSec
+            val started = assigned.map { member ->
+                val task = runner.start(
+                    prompt = member.prompt,
+                    tools = childTools,
+                    modelId = member.modelId,
+                    conversationId = conversationId,
+                    maxSteps = maxSteps,
+                    timeoutSec = timeoutSec,
+                )
+                buildJsonObject {
+                    put("taskId", task.id)
+                    put("role", member.role)
+                    put("modelId", task.modelId?.toString() ?: "")
+                    put("status", task.status.name)
+                }
+            }
+            listOf(
+                UIMessagePart.Text(
+                    buildJsonObject {
+                        put("teamSize", started.size)
+                        put("tasks", JsonArray(started))
+                        put(
+                            "readHint",
+                            "All members are already running. Collect them with subagent_wait(task_ids=[...]) " +
+                                "(they are awaited concurrently under one shared timeout).",
+                        )
+                    }.toString()
+                )
+            )
+        },
+    )
+
+    return listOf(run, team, wait, result, list, cancel)
 }
 
 private fun JsonObject.string(name: String): String? =

@@ -157,6 +157,27 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                     bottom = innerPadding.calculateBottomPadding() + 16.dp,
                 )
             ) {
+                item(key = "local_mcp") {
+                    me.rerere.rikkahub.ui.components.setting.LocalMcpSettingsCard()
+                }
+                item(key = "local_automation") {
+                    var expanded by remember { mutableStateOf(false) }
+                    Column {
+                        TextButton(onClick = { expanded = !expanded }) {
+                            Text(stringResource(R.string.r22_device_title))
+                        }
+                        if (expanded) me.rerere.rikkahub.ui.components.setting.LocalAutomationSettings()
+                    }
+                }
+                if (mcpConfigs.isEmpty()) {
+                    item(key = "empty_external_mcp") {
+                        Text(
+                            text = stringResource(R.string.setting_mcp_page_no_mcp_servers_found),
+                            modifier = Modifier.padding(vertical = 16.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
                 items(mcpConfigs, key = { it.id }) { mcpConfig ->
                     McpServerItem(
                         item = mcpConfig,
@@ -175,19 +196,6 @@ fun SettingMcpPage(vm: SettingVM = koinViewModel()) {
                 }
             }
 
-            if (mcpConfigs.isEmpty()) {
-                Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Text(text = stringResource(R.string.setting_mcp_page_no_mcp_servers_found))
-                    Text(
-                        text = stringResource(R.string.setting_mcp_page_add_one_to_get_started),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
-            }
         }
     }
     if (showImportDialog) {

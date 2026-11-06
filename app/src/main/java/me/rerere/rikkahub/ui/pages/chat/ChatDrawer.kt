@@ -773,6 +773,11 @@ fun ChatDrawerContent(
     if (showAutoFilePanel) {
         ConversationAutoFilePanel(
             assistantId = current.assistantId,
+            onOpenConversation = { conversationId ->
+                showAutoFilePanel = false
+                conversations.refresh()
+                navigateToChatPage(navController, conversationId)
+            },
             onDismiss = {
                 showAutoFilePanel = false
                 // 面板里可能搬过、撤销过会话，关掉时刷一次，别让列表停在旧归属

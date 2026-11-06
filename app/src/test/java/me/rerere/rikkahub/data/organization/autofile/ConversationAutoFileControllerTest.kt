@@ -168,9 +168,11 @@ class ConversationAutoFileControllerTest {
 
     private class FakeScheduler : ConversationAutoFileScheduler {
         val scheduled = LinkedHashMap<Uuid, Boolean>()
+        val modes = LinkedHashMap<Uuid, AutoFileMode>()
 
-        override fun schedule(assistantId: Uuid, enabled: Boolean) {
+        override fun schedule(assistantId: Uuid, enabled: Boolean, mode: AutoFileMode) {
             scheduled[assistantId] = enabled
+            modes[assistantId] = mode
         }
     }
 
@@ -538,17 +540,20 @@ class ConversationAutoFileControllerTest {
 
         controller.organizeScheduled(assistantId)
 
-        // 第一条搬完就关掉：后面的不再新建文件夹、不再搬。
+        // 关开关 = 叫停在途批次（不是让它跑完）：第一条已经搬完，后面的立刻停，
+        // 不再新建文件夹、不再搬。半批不冒充「本轮已搬 N」，但必须留下可撤销的 interrupted 记录。
         val state = controller.observe(assistantId).value
-        assertEquals(1, state.moved)
+        assertFalse(state.running)
+        assertEquals(0, state.moved)
         assertEquals(1, gateway.folders.size)
         assertEquals(1, conversations.count { it.folderId != null })
         assertNotNull(state.error)
-        assertTrue(state.error!!.contains("停止"))
+        assertTrue(state.error!!.contains("已取消"))
+        assertTrue(state.canUndo)
         val stored = ConversationAutoFileJournal(storeRoot) { now }.latest(assistantId)
         assertNotNull(stored)
-        assertEquals(AutoFileBatchStatus.DONE, stored!!.status)
-        assertTrue(stored.moves.none { it.status == AutoFileMoveStatus.PLANNED })
+        assertEquals(AutoFileBatchStatus.INTERRUPTED, stored!!.status)
+        assertEquals(1, stored.movedCount)
     }
 
     @Test

@@ -42,7 +42,10 @@ class UsageSheetIntegrationTest {
             rule.waitUntil(10000) { rule.onAllNodesWithTag("usage-total").fetchSemanticsNodes().isNotEmpty() }
             rule.onNodeWithTag("usage-total").assertTextEquals("120")
             insert("SUBAGENT", 300, 80)
-            rule.waitUntil(10000) { rule.onAllNodesWithText("500").fetchSemanticsNodes().isNotEmpty() }
+            // 默认口径是主对话：子代理虽然共用同一个 conversation_id，也不会自己混进合计
+            rule.waitUntil(10000) { rule.onAllNodesWithTag("usage-source-SUBAGENT").fetchSemanticsNodes().isNotEmpty() }
+            rule.onNodeWithTag("usage-total").assertTextEquals("120")
+            rule.onNodeWithTag("usage-scope-ALL").performClick()
             rule.onNodeWithTag("usage-total").assertTextEquals("500")
             rule.onNodeWithTag("usage-scope-CHAT").performClick()
             rule.onNodeWithTag("usage-total").assertTextEquals("120")

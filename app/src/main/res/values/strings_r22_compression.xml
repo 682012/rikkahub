@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="r22_compression_phase_preparing">Preparing…</string>
+  <string name="r22_compression_phase_waiting_model">Waiting for the model</string>
+  <string name="r22_compression_phase_generating">Writing the summary</string>
+  <string name="r22_compression_phase_writing">Saving the checkpoint</string>
+  <string name="r22_compression_done_succeeded">Compression finished</string>
+  <string name="r22_compression_done_failed">Compression failed</string>
+  <string name="r22_compression_done_discarded">Conversation changed, summary discarded</string>
+  <string name="r22_compression_done_cancelled">Compression cancelled</string>
+  <string name="r22_compression_elapsed_seconds">%1$d s elapsed</string>
+  <string name="r22_compression_generated_chars">%1$d characters generated</string>
+  <string name="r22_compression_no_total_hint">Live counts only — no total, so no percentage.</string>
+  <string name="r22_compression_cancel">Cancel compression</string>
+  <string name="r22_compression_preview_show">Preview summary</string>
+  <string name="r22_compression_preview_hide">Hide preview</string>
+  <string name="r22_compression_auto_label">Auto compression</string>
+</resources>

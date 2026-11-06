@@ -36,6 +36,7 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.ui.UIMessage
 import me.rerere.rikkahub.data.ai.backgroundTextGenerationParams
 import me.rerere.rikkahub.data.ai.retryPolicy
+import me.rerere.rikkahub.data.ai.withTurnRetryBudget
 import me.rerere.rikkahub.data.ai.UsageRecorder
 import me.rerere.rikkahub.data.ai.UsageSource
 import me.rerere.rikkahub.data.ai.UsageTag
@@ -43,7 +44,6 @@ import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
-import me.rerere.rikkahub.data.datastore.getCurrentChatModel
 import me.rerere.rikkahub.service.ChatGenerationForegroundService
 import org.koin.java.KoinJavaComponent.getKoin
 import java.io.File
@@ -54,6 +54,9 @@ import kotlin.uuid.Uuid
 private const val TAG = "SubagentRunner"
 private const val HARD_MAX_CONCURRENT = 8
 private const val HARD_MAX_STEPS = 120
+
+/** 剩余预算低于这个值就不再发起新请求（一次请求至少要 1 秒才可能有用）。 */
+internal const val MIN_ATTEMPT_BUDGET_MS = 1_000L
 
 /**
  * 子代理并发的内存兜底（见 [effectiveSubagentConcurrency]）。
@@ -95,6 +98,10 @@ class SubagentRunner(
     private val persistenceLock = Any()
     private val jobs = ConcurrentHashMap<String, Job>()
     private val permits = SubagentPermitPool()
+    /** r22：均衡分配用的渠道游标（按父会话分开轮转）。 */
+    private val modelRotation = SubagentChannelRouter()
+    /** r22：每模型并发许可（[SubagentSettings.perModelConcurrency]）。 */
+    private val modelPermits = SubagentModelPermits()
     private val state = MutableStateFlow<List<SubagentTask>>(emptyList())
 
     /** 已经发过终态通知的 task；集合是"同一 task 只通知一次"的凭据。 */
@@ -187,44 +194,192 @@ class SubagentRunner(
                 if (conversationId != null) {
                     foregroundStarted = ChatGenerationForegroundService.acquire(context, generationId, conversationId)
                 }
-                // Only retry before receiving a model response: replaying a tool-capable run can duplicate effects.
-                var receivedResponse = false
-                suspend fun attempt(chosen: Uuid?): Pair<AgentEvent.Finished?, Uuid> = runOnce(
-                    id, settings, chosen, prompt, tools, maxSteps, timeoutSec, systemPrompt, cfg.sessionId,
-                    onProgress = { receivedResponse = true },
-                    conversationId = conversationId,
+                // r22：有序模型池 + 自动换渠道。超时是**整个任务**的预算，不按渠道重置。
+                val pool = resolveSubagentModelPool(
+                    modelIds = cfg.modelIds,
+                    defaultModelId = cfg.defaultModelId,
+                    fallbackModelId = cfg.fallbackModelId,
+                    parentModelId = modelId,
                 )
-                val primaryId = modelId ?: cfg.defaultModelId
-                val (finished, usedModelId) = try {
-                    attempt(primaryId)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    val fallback = cfg.fallbackModelId
-                    if (!receivedResponse && fallback != null && fallback != primaryId) {
-                        appendLog(id, "[fallback] ${e.message}")
-                        attempt(fallback)
-                    } else throw e
+                val firstPick = modelId?.takeIf { pool.isEmpty() || it in pool }
+                    ?: modelRotation.pick(
+                        pool = pool,
+                        strategy = cfg.modelStrategy,
+                        key = conversationId?.toString() ?: id,
+                        active = { modelPermits.activeCount(it) },
+                        perModelLimit = cfg.perModelConcurrency,
+                    )
+                    ?: modelId
+                val order = planSubagentAttempts(pool, firstPick, cfg.maxModelAttempts)
+                    .ifEmpty { listOfNotNull(firstPick) }
+                if (order.isEmpty()) error("No model available for subagent")
+                val budget = SubagentTimeBudget(timeoutSec)
+                val checkpoint = SubagentRunCheckpoint()
+                val tried = mutableListOf<Uuid>()
+                var finished: AgentEvent.Finished? = null
+                var usedModelId: Uuid? = null
+                var lastError: Exception? = null
+                var outcome: SubagentAttemptOutcome = SubagentAttemptOutcome.ERROR
+                var switchNote: String? = null
+                var timedOut = false
+                for ((index, candidate) in order.withIndex()) {
+                    if (budget.expired) {
+                        timedOut = true
+                        break
+                    }
+                    currentCoroutineContext().ensureActive()
+                    tried += candidate
+                    update(id) {
+                        it.copy(
+                            attempts = tried.size,
+                            triedModelIds = tried.toList(),
+                            modelId = candidate,
+                            switchNote = switchNote,
+                        )
+                    }
+                    appendLog(id, "[attempt ${index + 1}/${order.size}] model=$candidate")
+                    // 渠道等待（每模型并发满了要排队）必须在整任务预算内完成：
+                    // 否则一个已经开始、预算已花完的任务会永远挂在排队上（既不超时也不失败）。
+                    val permitHeld = if (cfg.perModelConcurrency > 0) {
+                        modelPermits.acquireWithinBudget(budget, candidate, cfg.perModelConcurrency)
+                    } else {
+                        false
+                    }
+                    if (!permitHeld && cfg.perModelConcurrency > 0) {
+                        appendLog(id, "[stop] channel wait for $candidate spent the whole task budget")
+                        // 这一次没有真的跑：从尝试记录里撤掉，任务记录只统计真正发过请求的渠道。
+                        tried.remove(candidate)
+                        timedOut = true
+                        break
+                    }
+                    try {
+                        val result = runOnce(
+                            id = id,
+                            settings = settings,
+                            modelId = candidate,
+                            prompt = prompt,
+                            tools = tools,
+                            // 跨渠道不重置步数预算：续跑已经用掉的步数仍算在用户设置的 max_steps 里。
+                            maxSteps = subagentRemainingSteps(maxSteps, checkpoint.message?.stepCount ?: 0),
+                            systemPrompt = systemPrompt,
+                            sessionId = cfg.sessionId,
+                            conversationId = conversationId,
+                            budget = budget,
+                            checkpoint = checkpoint,
+                        )
+                        if (result == null) {
+                            outcome = SubagentAttemptOutcome.TIMEOUT
+                        } else {
+                            val text = result.message.toText()
+                            outcome = when {
+                                result.reason is AgentFinishReason.AwaitingApproval -> SubagentAttemptOutcome.AWAITING_APPROVAL
+                                result.reason is AgentFinishReason.StepLimitReached -> SubagentAttemptOutcome.STEP_LIMIT
+                                text.isBlank() -> SubagentAttemptOutcome.EMPTY_OUTPUT
+                                else -> SubagentAttemptOutcome.COMPLETED
+                            }
+                            finished = result
+                            usedModelId = candidate
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        lastError = e
+                        outcome = SubagentAttemptOutcome.ERROR
+                        appendLog(id, "[attempt ${index + 1}] model=$candidate failed: ${e.message}")
+                    } finally {
+                        // 只归还确实拿到的许可：perModelConcurrency 在运行期被改成 0 也不会泄漏计数。
+                        if (permitHeld) {
+                            withContext(NonCancellable) { modelPermits.release(candidate) }
+                        }
+                    }
+                    // 正常收尾的三种结局都停下（空输出/报错才考虑换渠道）。
+                    if (outcome in setOf(
+                            SubagentAttemptOutcome.COMPLETED,
+                            SubagentAttemptOutcome.STEP_LIMIT,
+                            SubagentAttemptOutcome.AWAITING_APPROVAL,
+                        )
+                    ) {
+                        break
+                    }
+                    if (outcome == SubagentAttemptOutcome.TIMEOUT) {
+                        timedOut = true
+                        break
+                    }
+                    // 换渠道的三个前提：开关允许、能从已完成 checkpoint 续跑（不重放成功过的工具）、
+                    // 还有候选且预算没花完。
+                    val canSwitch = subagentShouldSwitchModel(outcome, cfg.autoFailover) &&
+                        subagentCanSwitchWithCheckpoint(checkpoint.hasProgress, checkpoint.canResume) &&
+                        index < order.lastIndex &&
+                        !budget.expired
+                    if (!canSwitch) {
+                        appendLog(
+                            id,
+                            "[stop] ${outcome.name}: failover=${cfg.autoFailover} " +
+                                "progress=${checkpoint.hasProgress} resumable=${checkpoint.canResume} " +
+                                "budgetLeft=${budget.remainingMs()}",
+                        )
+                        break
+                    }
+                    switchNote = "$candidate -> ${order[index + 1]} (${outcome.name.lowercase()})"
+                    appendLog(id, "[switch] $switchNote")
+                    // 换渠道前把这一次尝试的产出完整存成 attempt-N.md：result.md 会被下一次尝试
+                    // 覆盖，旧 partial 不能只靠 events.log 里的一行摘要（副作用任务中途断掉时，
+                    // 已经生成出来的内容必须还能读到）。
+                    preserveAttemptOutput(id, index)
+                    finished = null
+                    usedModelId = null
                 }
                 currentCoroutineContext().ensureActive()
-                if (finished == null) {
-                    update(id) { it.copy(status = SubagentStatus.TIMEOUT,
-                        finishedAt = System.currentTimeMillis(), error = "Subagent timed out after ${timeoutSec}s") }
-                } else {
-                    val reason = finished.reason
-                    val error = when (reason) {
-                        is AgentFinishReason.AwaitingApproval -> "Tool approval is required. Run this operation in the parent conversation; child approval/resume is not supported."
-                        AgentFinishReason.StepLimitReached -> "Maximum model steps reached; result may be incomplete."
-                        AgentFinishReason.Completed -> null
+                val terminal = finished
+                if (terminal == null) {
+                    if (timedOut) {
+                        update(id) {
+                            it.copy(
+                                status = SubagentStatus.TIMEOUT,
+                                finishedAt = System.currentTimeMillis(),
+                                switchNote = switchNote,
+                                attempts = tried.size,
+                                triedModelIds = tried.toList(),
+                                error = "Subagent timed out after ${timeoutSec}s (whole-task budget shared by " +
+                                    "${tried.size} model attempt(s): ${tried.joinToString(" -> ")})",
+                            )
+                        }
+                    } else {
+                        update(id) {
+                            it.copy(
+                                status = SubagentStatus.FAILED,
+                                finishedAt = System.currentTimeMillis(),
+                                switchNote = switchNote,
+                                attempts = tried.size,
+                                triedModelIds = tried.toList(),
+                                error = buildString {
+                                    append(lastError?.message ?: "No model produced a result")
+                                    if (switchNote != null) append(" (tried ${tried.joinToString(" -> ")})")
+                                },
+                            )
+                        }
                     }
-                    val text = finished.message.toText()
-                    resultFile(id).writeText(text)
+                } else {
+                    val reason = terminal.reason
+                    val text = terminal.message.toText()
+                    val error = when {
+                        reason is AgentFinishReason.AwaitingApproval -> "Tool approval is required. Run this operation in the parent conversation; child approval/resume is not supported."
+                        reason is AgentFinishReason.StepLimitReached -> "Maximum model steps reached; result may be incomplete."
+                        text.isBlank() -> "Model produced empty output after ${tried.size} model attempt(s)" +
+                            (switchNote?.let { " ($it)" } ?: "")
+                        else -> null
+                    }
+                    if (text.isNotBlank() || !resultFile(id).exists()) {
+                        resultFile(id).writeText(text)
+                    }
                     update(id) { it.copy(
                         status = if (error == null) SubagentStatus.COMPLETED else SubagentStatus.FAILED,
                         finishedAt = System.currentTimeMillis(), result = text, error = error,
-                        usage = finished.message.usage, steps = finished.message.stepCount ?: 0, modelId = usedModelId,
+                        usage = terminal.message.usage, steps = terminal.message.stepCount ?: 0,
+                        modelId = usedModelId, attempts = tried.size, triedModelIds = tried.toList(),
+                        switchNote = switchNote,
                     ) }
-                    appendLog(id, "[done] ${reason::class.simpleName}, ${text.length} chars")
+                    appendLog(id, "[done] ${reason::class.simpleName}, ${text.length} chars, model=$usedModelId")
                 }
             } catch (e: CancellationException) {
                 update(id) { it.copy(status = SubagentStatus.CANCELLED,
@@ -294,20 +449,20 @@ class SubagentRunner(
     private suspend fun runOnce(
         id: String,
         settings: Settings,
-        modelId: Uuid?,
+        modelId: Uuid,
         prompt: String,
         tools: List<Tool>,
         maxSteps: Int,
-        timeoutSec: Int,
         systemPrompt: String?,
         sessionId: Uuid,
-        onProgress: () -> Unit,
         conversationId: Uuid?,
-    ): Pair<AgentEvent.Finished?, Uuid> {
+        budget: SubagentTimeBudget,
+        checkpoint: SubagentRunCheckpoint,
+    ): AgentEvent.Finished? {
         val cfg = settings.subagent
-        val model = settings.findModelById(modelId, cfg.defaultModelId)
-            ?: settings.getCurrentChatModel()
-            ?: error("No model available for subagent")
+        // 候选一定来自配置好的白名单池：解析不到就是配置/数据问题，绝不从"全局当前助手"里借一个跨助手模型。
+        val model = settings.findModelById(modelId)
+            ?: error("Subagent model $modelId is not configured anymore")
         val providerSetting = model.findProvider(settings.providers)
             ?: error("Provider not found for model ${model.displayName}")
         val parentPrompt = systemPrompt ?: DEFAULT_SUBAGENT_PROMPT
@@ -325,6 +480,7 @@ class SubagentRunner(
         }
         // 重试策略与主对话共用设置里的"网络 → 自动重试"，不再硬编码 RetryPolicy.NETWORK；
         // 请求构造见 buildSubagentRequest（同包，可单测）。
+        // seed：上一次尝试的可续跑检查点，换渠道时带着已经执行成功的工具结果继续，不重放。
         val request = buildSubagentRequest(
             provider = usageRecorder.wrap(
                 providerManager.getProviderByType(providerSetting),
@@ -336,33 +492,44 @@ class SubagentRunner(
             maxSteps = maxSteps,
             settings = settings,
             networkHandover = providerManager.networkHandover,
+            seed = checkpoint.resumeSeed(),
         )
-        val timeoutMs = if (timeoutSec <= 0) 0L else timeoutSec * 1000L
+        val remaining = budget.remainingMs()
+        // 剩余预算连一次请求都撑不住时不再发起：以前只判 <= 0，剩下 3ms 也会真的打一次请求，
+        // 立刻被判 TIMEOUT，白花一次渠道调用。整任务预算的下限见 SubagentTimeBudget。
+        if (remaining != Long.MAX_VALUE && remaining < MIN_ATTEMPT_BUDGET_MS) return null
         var latest: UIMessage? = null
         suspend fun collect(): AgentEvent.Finished? {
             var result: AgentEvent.Finished? = null
             runAgent(request, hooks).collect { event ->
                 when (event) {
                     is AgentEvent.MessageUpdated -> {
-                        onProgress()
                         latest = event.message
+                        // 只把已完成的模型步/工具生命周期记成检查点（与主对话重连同一口径）。
+                        checkpoint.observe(event.message)
                     }
-                    is AgentEvent.Finished -> { latest = event.message; result = event }
+                    is AgentEvent.Finished -> {
+                        latest = event.message
+                        checkpoint.observe(event.message)
+                        result = event
+                    }
                     else -> Unit
                 }
             }
             return result
         }
         try {
-            val finished = if (timeoutMs == 0L) collect() else withTimeoutOrNull(timeoutMs) { collect() }
-            return finished to model.id
+            return if (remaining == Long.MAX_VALUE) collect() else withTimeoutOrNull(remaining) { collect() }
         } finally {
             // A cancelled/timed-out run can already have consumed tokens and completed tool calls.
             withContext(NonCancellable) {
                 latest?.let { message ->
                     val text = message.toText()
-                    runCatching { resultFile(id).writeText(text) }
-                    update(id) { it.copy(result = text, usage = message.usage, modelId = model.id,
+                    // 空输出不覆盖上一次尝试已经落盘的部分结果。
+                    if (text.isNotBlank() || !resultFile(id).exists()) {
+                        runCatching { resultFile(id).writeText(text) }
+                    }
+                    update(id) { it.copy(result = text.ifBlank { it.result }, usage = message.usage, modelId = model.id,
                         steps = message.stepCount ?: 0) }
                 }
             }
@@ -520,6 +687,20 @@ class SubagentRunner(
         }
     }
 
+    /**
+     * 把这一次尝试已经写进 `result.md` 的部分结果另存成 `attempt-N.md`。
+     *
+     * 换渠道时 `result.md` 会被下一次尝试覆盖；只把摘要写进 events.log 不足以保留已经生成的内容
+     * （副作用任务被中断时，用户要能读到原来那次生成的全文）。这里整份复制，不截断、不改写。
+     */
+    private fun preserveAttemptOutput(id: String, attemptIndex: Int) {
+        runCatching {
+            val src = resultFile(id)
+            if (!src.isFile || src.length() <= 0L) return
+            src.copyTo(File(dir(id), "attempt-${attemptIndex + 1}.md"), overwrite = true)
+        }
+    }
+
     companion object {
         private const val DEFAULT_SUBAGENT_PROMPT = """
 You are a focused subagent. You were spawned by a main assistant to complete one concrete task.
@@ -551,13 +732,20 @@ internal fun buildSubagentRequest(
     maxSteps: Int,
     settings: Settings,
     networkHandover: me.rerere.common.http.NetworkHandover? = null,
+    seed: UIMessage? = null,
 ): AgentRequest = AgentRequest(
     provider = provider,
     providerSetting = providerSetting,
-    messages = listOf(UIMessage.user(prompt)),
+    // seed 是上一次尝试的可续跑检查点（末尾是助手消息）：runAgent 会从它继续，
+    // 已经执行成功的工具结果原样保留，换渠道不会重跑副作用。
+    messages = listOf(UIMessage.user(prompt)) + listOfNotNull(seed),
     // Web tool protocol needs interactive approval; background subagents cannot grant it.
     tools = if (providerSetting is ProviderSetting.WebAccount) emptyList() else tools,
     stream = false,
     maxSteps = maxSteps.coerceIn(1, HARD_MAX_STEPS),
-    retry = settings.retryPolicy().copy(networkHandover = networkHandover),
+    // 与主对话同一份\"整轮一份\"的重试预算：不共享时 AgentLoop 每一步都会各自重试 maxRetries 次，
+    // 一个持续报错的渠道能靠 40 步 × N 次把整个任务预算耗光（用户设的\"共 N 次\"实际变成 N×步数）。
+    // 共享后同一渠道只有有限次请求，失败即 ERROR → 交给换渠道逻辑去试下一个候选。
+    // 用户显式打开\"不限重试\"时 unlimitedRetries 仍生效，这是用户明确选择，不在这里改写。
+    retry = settings.retryPolicy().withTurnRetryBudget().copy(networkHandover = networkHandover),
 )

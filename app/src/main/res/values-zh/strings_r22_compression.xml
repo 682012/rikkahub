@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="r22_compression_phase_preparing">准备中…</string>
+  <string name="r22_compression_phase_waiting_model">等待模型响应</string>
+  <string name="r22_compression_phase_generating">正在生成摘要</string>
+  <string name="r22_compression_phase_writing">正在写入检查点</string>
+  <string name="r22_compression_done_succeeded">压缩完成</string>
+  <string name="r22_compression_done_failed">压缩失败</string>
+  <string name="r22_compression_done_discarded">对话已改动，摘要已丢弃</string>
+  <string name="r22_compression_done_cancelled">压缩已取消</string>
+  <string name="r22_compression_elapsed_seconds">已用 %1$d 秒</string>
+  <string name="r22_compression_generated_chars">已生成 %1$d 字</string>
+  <string name="r22_compression_no_total_hint">进度按实际返回累计，没有总量就不显示百分比。</string>
+  <string name="r22_compression_cancel">取消压缩</string>
+  <string name="r22_compression_preview_show">查看摘要开头</string>
+  <string name="r22_compression_preview_hide">收起摘要开头</string>
+  <string name="r22_compression_auto_label">自动压缩</string>
+</resources>

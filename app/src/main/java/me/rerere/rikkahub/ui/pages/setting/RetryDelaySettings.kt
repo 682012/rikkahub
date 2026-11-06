@@ -1,7 +1,13 @@
 package me.rerere.rikkahub.ui.pages.setting
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -13,10 +19,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import me.rerere.rikkahub.ui.components.ui.switchItem
+import me.rerere.ai.agent.RetryErrorCategory
+import me.rerere.ai.agent.RetryScope
+import me.rerere.ai.agent.RetryScopeMode
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.NetworkSetting
 import me.rerere.rikkahub.data.datastore.RetryDelayMode
@@ -143,6 +155,136 @@ internal fun retryDelaySummary(setting: NetworkSetting): String {
             )
         }
     }
+}
+
+/**
+ * 网络设置页里的「重试范围」一组项：任何错误都试的大开关、可选类别多选、一直重试到停止。
+ *
+ * 默认什么都不勾 = 老分类（网络、408/429/5xx、半截流）。勾上的类别是**追加**，
+ * 所以"只勾鉴权"不会顺手关掉网络重试。全部勾上等价于打开上面那个"任何错误"开关。
+ */
+internal fun CardGroupScope.retryScopeSettingItems(
+    setting: NetworkSetting,
+    onChange: (NetworkSetting) -> Unit,
+) {
+    val scope = setting.retryScope()
+    switchItem(
+        checked = scope.mode == RetryScopeMode.ANY_ERROR,
+        onCheckedChange = { anyError ->
+            onChange(
+                setting.copy(
+                    retryScopeMode = if (anyError) {
+                        RetryScopeMode.ANY_ERROR
+                    } else if (setting.retryExtraCategories.isEmpty()) {
+                        RetryScopeMode.CLASSIFIED
+                    } else {
+                        RetryScopeMode.CUSTOM
+                    },
+                ),
+            )
+        },
+        supportingContent = { Text(stringResource(R.string.r22_retry_any_desc)) },
+        headlineContent = { Text(stringResource(R.string.r22_retry_any_title)) },
+    )
+    if (scope.mode != RetryScopeMode.ANY_ERROR) {
+        formItem(
+            headlineContent = { Text(stringResource(R.string.r22_retry_categories_title)) },
+            supportingContent = { Text(stringResource(R.string.r22_retry_categories_desc)) },
+        ) {
+            fun toggle(category: RetryErrorCategory, checked: Boolean) {
+                val next = if (checked) {
+                    setting.retryExtraCategories + category
+                } else {
+                    setting.retryExtraCategories - category
+                }
+                onChange(
+                    setting.copy(
+                        retryExtraCategories = next,
+                        retryScopeMode = if (next.isEmpty()) RetryScopeMode.CLASSIFIED else RetryScopeMode.CUSTOM,
+                    ),
+                )
+            }
+            RetryScope.OPTIONAL_CATEGORIES.forEach { category ->
+                val checked = category in setting.retryExtraCategories
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { toggle(category, !checked) }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(checked = checked, onCheckedChange = { toggle(category, it) })
+                    Column(modifier = Modifier.padding(start = 8.dp)) {
+                        Text(retryCategoryTitle(category))
+                        Text(
+                            text = retryCategoryDescription(category),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+            // 全选：和上面的"任何错误"开关是同一个含义，方便从多选直接一步拉满
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        onChange(setting.copy(retryScopeMode = RetryScopeMode.ANY_ERROR))
+                    }
+                    .padding(top = 4.dp, bottom = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(checked = false, onCheckedChange = null)
+                Text(
+                    text = stringResource(R.string.r22_retry_select_all),
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
+    }
+    if (scope.mode == RetryScopeMode.ANY_ERROR || setting.retryExtraCategories.isNotEmpty()) {
+        formItem {
+            Text(
+                text = stringResource(R.string.r22_retry_any_warning),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+    switchItem(
+        checked = setting.retryUnlimited,
+        onCheckedChange = { unlimited -> onChange(setting.copy(retryUnlimited = unlimited)) },
+        supportingContent = { Text(stringResource(R.string.r22_retry_unlimited_desc)) },
+        headlineContent = { Text(stringResource(R.string.r22_retry_unlimited_title)) },
+    )
+    if (setting.retryUnlimited) {
+        formItem {
+            Text(
+                text = stringResource(R.string.r22_retry_unlimited_warning),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+/** 可选类别的名字。和 [RetryErrorCategory] 一一对应，不认识的类别给原文。 */
+@Composable
+private fun retryCategoryTitle(category: RetryErrorCategory): String = when (category) {
+    RetryErrorCategory.AUTH -> stringResource(R.string.r22_retry_cat_auth)
+    RetryErrorCategory.QUOTA -> stringResource(R.string.r22_retry_cat_quota)
+    RetryErrorCategory.REQUEST_FORMAT -> stringResource(R.string.r22_retry_cat_format)
+    RetryErrorCategory.UNKNOWN -> stringResource(R.string.r22_retry_cat_unknown)
+    else -> category.name
+}
+
+@Composable
+private fun retryCategoryDescription(category: RetryErrorCategory): String = when (category) {
+    RetryErrorCategory.AUTH -> stringResource(R.string.r22_retry_cat_auth_desc)
+    RetryErrorCategory.QUOTA -> stringResource(R.string.r22_retry_cat_quota_desc)
+    RetryErrorCategory.REQUEST_FORMAT -> stringResource(R.string.r22_retry_cat_format_desc)
+    RetryErrorCategory.UNKNOWN -> stringResource(R.string.r22_retry_cat_unknown_desc)
+    else -> ""
 }
 
 /**

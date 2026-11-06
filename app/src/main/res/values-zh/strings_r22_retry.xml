@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r22_retry_any_title">任何模型请求错误都自动重试</string>
+    <string name="r22_retry_any_desc">连 401/403 鉴权错误、402 余额错误、请求或响应格式错误、空回复和自定义供应商异常也重试</string>
+    <string name="r22_retry_categories_title">额外重试的错误类型</string>
+    <string name="r22_retry_categories_desc">网络错误、408/429/5xx 和半截流原本就会重试；勾选的类型是在这些之外再追加。</string>
+    <string name="r22_retry_select_all">全选（等同于任何错误都重试）</string>
+    <string name="r22_retry_any_warning">注意：这些错误通常要你先修好密钥、余额、模型或请求格式。重试只会一直重发同一份请求并持续消耗额度，直到你停止。</string>
+    <string name="r22_retry_cat_auth">鉴权错误（401/403）</string>
+    <string name="r22_retry_cat_auth_desc">密钥过期、权限被收回、网页会话失效</string>
+    <string name="r22_retry_cat_quota">额度或余额错误（402）</string>
+    <string name="r22_retry_cat_quota_desc">余额不足或超出套餐限额</string>
+    <string name="r22_retry_cat_format">请求或响应格式错误（400/422）</string>
+    <string name="r22_retry_cat_format_desc">参数不合法、内容被拒、响应无法解析</string>
+    <string name="r22_retry_cat_unknown">未知或自定义供应商异常</string>
+    <string name="r22_retry_cat_unknown_desc">供应商抛出的其它异常，没有真实状态码</string>
+    <string name="r22_retry_unlimited_title">一直重试到手动停止</string>
+    <string name="r22_retry_unlimited_desc">忽略上面的重试次数，按已设置的间隔一直重试</string>
+    <string name="r22_retry_unlimited_warning">可能长时间持续消耗额度。只有取消生成或关闭自动重试才会停；配置本身有问题时永远不会自己好。</string>
+    <string name="r22_retry_status_waiting">等 %2$d 秒后第 %1$d 次重试（%3$s）</string>
+    <string name="r22_retry_gave_up">已重试 %1$d 次仍失败（%2$s）</string>
+</resources>

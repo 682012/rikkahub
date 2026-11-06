@@ -78,6 +78,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.lastContextTokens
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
+import me.rerere.rikkahub.service.CompressionState
 import me.rerere.rikkahub.ui.components.ui.ExtensionSelector
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.context.LocalSettings
@@ -124,6 +125,9 @@ internal fun FilesPicker(
     onPickFile: () -> Unit,
     onSketch: () -> Unit,
     onStartVoiceMode: (() -> Unit)? = null,
+    /** 压缩进度：从 ChatService 的状态流传进来，弹窗关掉再开也能接着显示 */
+    compressionState: CompressionState? = null,
+    onCancelCompression: (() -> Unit)? = null,
 ) {
     val settings = LocalSettings.current
     val provider = chatModel?.findProvider(providers = settings.providers)
@@ -377,10 +381,15 @@ internal fun FilesPicker(
 
     // Compress Context Dialog
     if (showCompressDialog) {
-        CompressContextDialog(onDismiss = {
-            onShowCompressDialogChange(false)
-            onDismiss()
-        }, onConfirm = onCompressContext)
+        CompressContextDialog(
+            onDismiss = {
+                onShowCompressDialogChange(false)
+                onDismiss()
+            },
+            onConfirm = onCompressContext,
+            state = compressionState,
+            onCancel = onCancelCompression,
+        )
     }
 }
 

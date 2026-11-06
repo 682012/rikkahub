@@ -52,6 +52,9 @@ interface ConversationDAO {
     @Query("SELECT title FROM conversationentity WHERE assistant_id = :assistantId")
     suspend fun getTitlesOfAssistant(assistantId: String): List<String>
 
+    @Query("SELECT id, title FROM conversationentity WHERE assistant_id = :assistantId AND id IN (:ids)")
+    suspend fun getTitlesByIds(assistantId: String, ids: List<String>): List<ConversationTitleRow>
+
     @Query(
         "SELECT id, assistant_id as assistantId, title, is_pinned as isPinned, create_at as createAt, update_at as updateAt, folder_id as folderId, lineage_id AS lineageId, folder_assignment_locked AS folderAssignmentLocked, 1 AS familySize FROM conversationentity WHERE assistant_id = :assistantId ORDER BY is_pinned DESC, update_at DESC"
     )

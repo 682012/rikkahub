@@ -81,6 +81,8 @@ import me.rerere.rikkahub.startup.StartupIntroGate
 import me.rerere.rikkahub.startup.StartupIntroPlan
 import me.rerere.rikkahub.startup.StartupIntroPolicy
 import me.rerere.rikkahub.startup.StartupMotion
+import me.rerere.rikkahub.startup.StartupIntroScene
+import me.rerere.rikkahub.startup.StartupIntroSceneResolver
 import me.rerere.rikkahub.startup.StartupPreferences
 import me.rerere.rikkahub.startup.animatorDurationScale
 import me.rerere.rikkahub.ui.activity.SafeModeActivity
@@ -245,6 +247,9 @@ class RouteActivity : ComponentActivity() {
         if (introPlan.splashExitAnimation) {
             applySplashExitAnimation()
         }
+        // 场景只在这里算一次：读的还是那几个字符串偏好，不看文件、不解码，
+        // 所以冷启动第一帧之前不会多出一次 IO。素材是否可用由绘制层在后台判断。
+        val introScene = resolveStartupIntroScene(introPlan)
         setContent {
             RikkahubTheme {
                 setSingletonImageLoaderFactory { context ->
@@ -266,8 +271,15 @@ class RouteActivity : ComponentActivity() {
                         }
                         .build()
                 }
-                AppRoutes(startupIntro = introPlan.overlay)
+                AppRoutes(startupIntro = introScene)
             }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (!CrashHandler.hasCrashed(this)) {
+            me.rerere.rikkahub.data.mcpserver.LocalMcpService.restoreIfEnabled(this)
         }
     }
 
@@ -307,6 +319,19 @@ class RouteActivity : ComponentActivity() {
         if (plan.isEmpty) return StartupIntroPlan.NONE
         // 同一进程只演一次：多实例、Activity 重建都不重播。
         return if (StartupIntroGate.claim()) plan else StartupIntroPlan.NONE
+    }
+
+    /**
+     * 把"画不画 + 画哪种风格"收成一份可以直接交给 UI 的场景（r22）。
+     *
+     * 内建风格直接用；选了自定义素材时读一条路径偏好，文件存在/能解码由绘制层在后台确认，
+     * 确认失败就回落到默认内建风格（[StartupIntroSceneResolver] 里已有这条回落，纯函数有单测）。
+     */
+    private fun resolveStartupIntroScene(plan: StartupIntroPlan): StartupIntroScene? {
+        val motion = plan.overlay ?: return null
+        val custom = if (motion == StartupMotion.CUSTOM) StartupPreferences.readCustom(this) else null
+        return StartupIntroSceneResolver.resolve(motion = motion, custom = custom)
+            .takeIf { !it.isEmpty }
     }
 
     /** 会直接落进某个具体页面/内容的启动，都算"不该被开场挡住的"启动。 */
@@ -488,7 +513,7 @@ class RouteActivity : ComponentActivity() {
 
     @OptIn(ExperimentalComposeUiApi::class)
     @Composable
-    fun AppRoutes(startupIntro: StartupMotion? = null) {
+    fun AppRoutes(startupIntro: StartupIntroScene? = null) {
         val toastState = rememberToasterState()
         val settings by settingsStore.settingsFlow.collectAsStateWithLifecycle()
         val tts = rememberCustomTtsState()
@@ -850,7 +875,7 @@ class RouteActivity : ComponentActivity() {
                         var introVisible by remember { mutableStateOf(true) }
                         if (introVisible) {
                             StartupIntroOverlay(
-                                motion = startupIntro,
+                                scene = startupIntro,
                                 onFinished = { introVisible = false },
                                 modifier = Modifier.fillMaxSize(),
                             )

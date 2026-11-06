@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r22_retry_any_title">Retry on any model request error</string>
+    <string name="r22_retry_any_desc">Also retry 401/403 auth errors, 402 quota errors, malformed requests or responses, empty replies and custom provider errors</string>
+    <string name="r22_retry_categories_title">Additional error types to retry</string>
+    <string name="r22_retry_categories_desc">Network errors, 408/429/5xx and truncated replies are always retried. Checked types are retried in addition to those.</string>
+    <string name="r22_retry_select_all">Select all (same as retrying any error)</string>
+    <string name="r22_retry_any_warning">Heads up: these errors usually need you to fix the API key, balance, model or request format. Retrying keeps sending the same request and keeps using your quota until you stop it.</string>
+    <string name="r22_retry_cat_auth">Authentication errors (401/403)</string>
+    <string name="r22_retry_cat_auth_desc">Expired key, revoked permission, web session expired</string>
+    <string name="r22_retry_cat_quota">Quota or balance errors (402)</string>
+    <string name="r22_retry_cat_quota_desc">Out of credit or over the plan limit</string>
+    <string name="r22_retry_cat_format">Request or response format errors (400/422)</string>
+    <string name="r22_retry_cat_format_desc">Bad parameters, rejected content, unparsable response</string>
+    <string name="r22_retry_cat_unknown">Unknown or custom provider errors</string>
+    <string name="r22_retry_cat_unknown_desc">Anything else a provider throws that has no error code</string>
+    <string name="r22_retry_unlimited_title">Keep retrying until stopped</string>
+    <string name="r22_retry_unlimited_desc">Ignore the retry count above and keep retrying with the configured interval</string>
+    <string name="r22_retry_unlimited_warning">This can keep spending quota for a long time. Only cancelling the generation or turning off auto retry stops it, and a wrong configuration will never fix itself.</string>
+    <string name="r22_retry_status_waiting">Waiting %2$d s for retry %1$d (%3$s)</string>
+    <string name="r22_retry_gave_up">Gave up after %1$d retries (%2$s)</string>
+</resources>

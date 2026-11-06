@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r22_cache_scope_all">全部（主對話＋子代理＋輔助）</string>
+    <string name="r22_cache_scope_chat">主對話</string>
+    <string name="r22_cache_scope_subagent">子代理</string>
+    <string name="r22_cache_scope_aux">輔助</string>
+    <string name="r22_cache_invalid_report">上游回報異常：%1$s tokens</string>
+    <string name="r22_cache_rate">%1$s tokens（佔 %3$s 輸入的 %2$s）</string>
+    <string name="r22_cache_unreported">上游未回報快取：%1$s tokens；命中率未知，不是 0%%</string>
+    <string name="r22_cache_excluded">另有 %1$s 輸入來自 %2$s 次未回報快取的請求，已排除在比例之外</string>
+    <string name="r22_cache_note">快取屬於輸入，不重複相加；未回報快取不等於未命中</string>
+    <string name="r22_cache_sources_title">依來源</string>
+    <string name="r22_cache_sources_note">子代理和標題／摘要／快速模型請求使用同一個會話 ID，只有切到該範圍或「全部」才會計入合計</string>
+    <string name="r22_cache_source_chat">主對話</string>
+    <string name="r22_cache_source_subagent">子代理</string>
+    <string name="r22_cache_source_aux">輔助 · %1$s</string>
+    <string name="r22_cache_source_row">%1$d 次 · 輸入 %2$s · 輸出 %3$s</string>
+    <string name="r22_cache_stats_excluded">命中率已排除 %1$s tokens（%2$d 次請求）：上游沒有回報快取欄位，屬於未知，不是 0%%。</string>
+</resources>

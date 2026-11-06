@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
@@ -32,16 +33,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import me.rerere.ai.provider.ModelType
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.rikkahub.R
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.ui.context.LocalNavController
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceTransferCard
 import me.rerere.rikkahub.ui.pages.extensions.workspace.WorkspaceTransferVM
 import me.rerere.rikkahub.data.datastore.RemoteExecutionSettings
+import me.rerere.rikkahub.data.datastore.SubagentModelStrategy
 import me.rerere.rikkahub.data.datastore.SubagentSettings
+import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.WorkspaceRuntimeSettings
 import me.rerere.rikkahub.ui.components.ai.ModelListSheet
 import me.rerere.rikkahub.ui.components.ai.rememberModelListState
@@ -236,6 +241,63 @@ fun SettingForkPage(vm: SettingVM = koinViewModel()) {
                         NumberField(sub.timeoutSec) { v -> updateSub { it.copy(timeoutSec = v) } }
                     }
                     formItem(
+                        headlineContent = { Text(stringResource(R.string.r22_subagent_model_pool)) },
+                        supportingContent = {
+                            Text(
+                                if (sub.modelIds.isEmpty()) {
+                                    stringResource(R.string.r22_subagent_pool_empty)
+                                } else {
+                                    stringResource(R.string.r22_subagent_model_pool_desc)
+                                }
+                            )
+                        },
+                    ) {
+                        SubagentModelPoolEditor(
+                            selected = sub.modelIds,
+                            providers = settings.providers,
+                            onSelect = { id -> updateSub { it.copy(modelIds = it.modelIds + id) } },
+                            onChange = { ids -> updateSub { it.copy(modelIds = ids) } },
+                        )
+                    }
+                    formItem(
+                        headlineContent = { Text(stringResource(R.string.r22_subagent_strategy)) },
+                        supportingContent = { Text(stringResource(R.string.r22_subagent_strategy_desc)) },
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SubagentModelStrategy.entries.forEach { strategy ->
+                                val label = when (strategy) {
+                                    SubagentModelStrategy.ORDERED -> stringResource(R.string.r22_subagent_strategy_ordered)
+                                    SubagentModelStrategy.BALANCED -> stringResource(R.string.r22_subagent_strategy_balanced)
+                                }
+                                if (sub.modelStrategy == strategy) {
+                                    Button(onClick = { updateSub { it.copy(modelStrategy = strategy) } }) { Text(label) }
+                                } else {
+                                    OutlinedButton(onClick = { updateSub { it.copy(modelStrategy = strategy) } }) { Text(label) }
+                                }
+                            }
+                        }
+                    }
+                    switchItem(
+                        checked = sub.autoFailover,
+                        onCheckedChange = { on -> updateSub { it.copy(autoFailover = on) } },
+                        headlineContent = { Text(stringResource(R.string.r22_subagent_auto_failover)) },
+                        supportingContent = { Text(stringResource(R.string.r22_subagent_auto_failover_desc)) },
+                    )
+                    formItem(
+                        headlineContent = { Text(stringResource(R.string.r22_subagent_max_attempts)) },
+                        supportingContent = { Text(stringResource(R.string.r22_subagent_max_attempts_desc)) },
+                    ) {
+                        NumberField(sub.maxModelAttempts) { v -> updateSub { it.copy(maxModelAttempts = v.coerceIn(0, 16)) } }
+                    }
+                    formItem(
+                        headlineContent = { Text(stringResource(R.string.r22_subagent_per_model_concurrency)) },
+                        supportingContent = { Text(stringResource(R.string.r22_subagent_per_model_concurrency_desc)) },
+                    ) {
+                        NumberField(sub.perModelConcurrency) { v ->
+                            updateSub { it.copy(perModelConcurrency = v.coerceIn(0, 8)) }
+                        }
+                    }
+                    formItem(
                         headlineContent = { Text("默认模型") },
                         supportingContent = { Text("不选则跟随主会话模型。") },
                     ) {
@@ -274,9 +336,14 @@ fun SettingForkPage(vm: SettingVM = koinViewModel()) {
                             item(
                                 headlineContent = { Text(task.prompt.take(60)) },
                                 supportingContent = {
+                                    val modelLabel = task.modelId
+                                        ?.let { id -> settings.providers.findModelById(id)?.displayName ?: id.toString().take(8) }
+                                        ?: "-"
                                     Text(
-                                        "${task.status.name} · ${elapsed}s · " +
-                                            (task.error ?: task.modelId?.toString() ?: "")
+                                        "${task.status.name} · ${modelLabel} · ${elapsed}s · " +
+                                            "${task.attempts} attempts" +
+                                            (task.switchNote?.let { " · $it" } ?: "") +
+                                            (task.error?.let { " · $it" } ?: "")
                                     )
                                 },
                                 trailingContent = {
@@ -308,6 +375,55 @@ fun SettingForkPage(vm: SettingVM = koinViewModel()) {
             }
         }
     }
+}
+
+/**
+ * 有序模型池编辑器：添加/移除/上下移动。
+ *
+ * 故意不把池限制成 2-3 个：用户想配几个渠道就配几个，UI 只负责保持顺序（顺序就是回退顺序）。
+ */
+@Composable
+private fun SubagentModelPoolEditor(
+    selected: List<Uuid>,
+    providers: List<ProviderSetting>,
+    onSelect: (Uuid) -> Unit,
+    onChange: (List<Uuid>) -> Unit,
+) {
+    val state = rememberModelListState(modelId = null, providers = providers, type = ModelType.CHAT)
+    ModelListSheet(state = state, onSelect = { model -> onSelect(model.id) })
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        selected.forEachIndexed { index, id ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = providers.findModelById(id)?.displayName ?: id.toString().take(8),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                if (index > 0) {
+                    TextButton(onClick = { onChange(selected.swap(index, index - 1)) }) {
+                        Text(stringResource(R.string.r22_subagent_move_up))
+                    }
+                }
+                if (index < selected.lastIndex) {
+                    TextButton(onClick = { onChange(selected.swap(index, index + 1)) }) {
+                        Text(stringResource(R.string.r22_subagent_move_down))
+                    }
+                }
+                TextButton(onClick = { onChange(selected.filterNot { it == id }) }) {
+                    Text(stringResource(R.string.r22_subagent_remove))
+                }
+            }
+        }
+        OutlinedButton(onClick = { state.open() }) {
+            Text(stringResource(R.string.r22_subagent_add_model))
+        }
+    }
+}
+
+private fun List<Uuid>.swap(a: Int, b: Int): List<Uuid> = toMutableList().also {
+    val tmp = it[a]
+    it[a] = it[b]
+    it[b] = tmp
 }
 
 private fun Context.findActivity(): Activity? {

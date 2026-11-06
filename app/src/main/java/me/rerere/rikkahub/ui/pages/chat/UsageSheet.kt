@@ -26,7 +26,8 @@ fun UsageSheet(conversation: Conversation, onDismiss: () -> Unit) {
     val dao = remember { getKoin().get<UsageRecordDAO>() }
     val store = remember { getKoin().get<SettingsStore>() }
     val coroutineScope = rememberCoroutineScope()
-    var filter by rememberSaveable { mutableStateOf(UsageScope.ALL) }
+    // 默认只算主对话：子代理/标题/摘要用的是同一个 conversation_id，混进"本对话"就是混算。
+    var filter by rememberSaveable { mutableStateOf(UsageScope.CHAT) }
     var retry by remember { mutableIntStateOf(0) }
     var error by remember(conversation.id, retry) { mutableStateOf(false) }
     val groups by produceState<List<ConversationUsageGroup>?>(null, conversation.id, retry) {
@@ -58,6 +59,7 @@ fun UsageSheet(conversation: Conversation, onDismiss: () -> Unit) {
             settings.displaySetting.useStudioDisplay -> UsageDashboard(
                 summary.totals, summary.models, context, filter, { filter = it }, { setStudio(false) },
                 modifier = Modifier.fillMaxWidth(),
+                sources = summary.bySource,
             )
             else -> ClassicUsage(summarizeConversationUsage(groups.orEmpty(), UsageScope.ALL, names), onStudio = { setStudio(true) })
         }

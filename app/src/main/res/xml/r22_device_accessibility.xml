@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  设备操控无障碍服务的声明。只有用户在「系统设置 → 无障碍」里手动勾选后才会生效；
+  App 不会自动打开，也没有 root 路径。
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/r22_device_service_description"
+    android:notificationTimeout="100"
+    android:summary="@string/r22_device_title" />

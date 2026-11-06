@@ -61,7 +61,10 @@ import me.rerere.rikkahub.utils.JsonInstant
     // 35: fork r21 adds conversationentity.lineage_id / folder_assignment_locked (family collapse + autofile lock).
     // Explicit 34 -> 35 migration only, no AutoMigration: the two columns are read through
     // COALESCE(NULLIF(lineage_id, ''), id), so old rows need no backfill.
-    version = 35,
+    // 36: r22 adds usage_record.cached_reported / cache_creation_tokens, so "upstream reported a real
+    // 0% cache hit" and "upstream never reported the cache field" stop being the same thing.
+    // Both columns are nullable with NULL default = unknown; explicit 35 -> 36 migration, no AutoMigration.
+    version = 36,
     autoMigrations = [
         AutoMigration(from = 1, to = 2),
         AutoMigration(from = 2, to = 3),

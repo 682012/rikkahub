@@ -19,6 +19,9 @@ import me.rerere.rikkahub.data.db.dao.SourceUsage
 import me.rerere.rikkahub.data.db.dao.UsageBucket
 import me.rerere.rikkahub.data.db.dao.UsageRecordDAO
 import me.rerere.rikkahub.data.db.dao.UsageTotals
+import me.rerere.rikkahub.ui.pages.chat.CacheHitRate
+import me.rerere.rikkahub.ui.pages.chat.CacheSample
+import me.rerere.rikkahub.ui.pages.chat.computeCacheHitRate
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
@@ -66,6 +69,13 @@ data class UsageStats(
     val byMonth: Boolean,
     val models: List<ModelUsageItem>,
     val sources: List<SourceUsage>,
+    /**
+     * 缓存命中率：只由 [computeCacheHitRate] 的口径算出，分子分母同 (provider, model)，
+     * 没报过缓存的记录排除在外。`null` 比例 = 未知，页面上不能显示成 0%。
+     */
+    val cache: CacheHitRate = CacheHitRate(),
+    /** 命中率用的来源口径：`UsageSource.CHAT.name` = 只算主对话；null = 显式选择"全部"。 */
+    val cacheSource: String? = UsageSource.CHAT.name,
 )
 
 class StatsVM(
@@ -85,6 +95,14 @@ class StatsVM(
     private val _range = MutableStateFlow(UsageRange.MONTH)
     val range = _range.asStateFlow()
 
+    /**
+     * 全局统计页的缓存命中率默认只看主对话（[UsageSource.CHAT]）。
+     * 子代理和标题/摘要/翻译这些辅助请求默认混进来会让"我的缓存命中率"变成一锅粥，
+     * 想连子代理一起看必须由用户显式切到"全部"。
+     */
+    private val _cacheAllSources = MutableStateFlow(false)
+    val cacheAllSources = _cacheAllSources.asStateFlow()
+
     private var usageJob: Job? = null
 
     init {
@@ -103,6 +121,13 @@ class StatsVM(
         if (range == _range.value) return
         _range.value = range
         loadUsage(range)
+    }
+
+    /** 切换命中率的来源口径：false = 只算主对话（默认），true = 显式包含全部来源。 */
+    fun setCacheAllSources(allSources: Boolean) {
+        if (_cacheAllSources.value == allSources) return
+        _cacheAllSources.value = allSources
+        loadUsage(_range.value)
     }
 
     private suspend fun loadStats() {
@@ -159,6 +184,7 @@ class StatsVM(
                     totalTokens = usage.promptTokens + usage.completionTokens,
                 )
             }
+            val cacheSource = if (_cacheAllSources.value) null else UsageSource.CHAT.name
             _usage.value = UsageStats(
                 range = range,
                 totals = totals,
@@ -166,6 +192,39 @@ class StatsVM(
                 byMonth = byMonth,
                 models = models,
                 sources = usageRecordDAO.getTotalsBySource(since),
+                cache = computeCacheHitRate(
+                    usageRecordDAO.getCacheCoverage(since, cacheSource).flatMap { row ->
+                        val key = "${row.providerId}|${row.modelKey}"
+                        val bad = row.invalidCacheReports > 0
+                        buildList {
+                            if (row.knownRequests > 0 || row.knownPromptTokens > 0 || row.knownCachedTokens > 0) {
+                                add(
+                                    CacheSample(
+                                        modelKey = key,
+                                        promptTokens = row.knownPromptTokens,
+                                        cachedTokens = row.knownCachedTokens,
+                                        requests = row.knownRequests,
+                                        reported = true,
+                                        invalid = bad,
+                                    ),
+                                )
+                            }
+                            if (row.unknownRequests > 0 || row.unknownPromptTokens > 0) {
+                                add(
+                                    CacheSample(
+                                        modelKey = key,
+                                        promptTokens = row.unknownPromptTokens,
+                                        cachedTokens = 0,
+                                        requests = row.unknownRequests,
+                                        reported = false,
+                                        invalid = bad,
+                                    ),
+                                )
+                            }
+                        }
+                    },
+                ),
+                cacheSource = cacheSource,
             )
         }
     }

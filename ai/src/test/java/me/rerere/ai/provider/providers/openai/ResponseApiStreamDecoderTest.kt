@@ -58,7 +58,7 @@ class ResponseApiStreamDecoderTest {
 
         assertTrue(result.completed)
         assertEquals(
-            TokenUsage(promptTokens = 10, completionTokens = 20, cachedTokens = 4, totalTokens = 30),
+            TokenUsage(promptTokens = 10, completionTokens = 20, cachedTokens = 4, totalTokens = 30, cachedReported = true),
             (result.chunks[0] as StreamChunk.Usage).usage,
         )
         assertEquals(

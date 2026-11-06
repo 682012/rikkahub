@@ -43,9 +43,9 @@ class ClaudeStreamDecoderUsageTest {
         )
 
         assertEquals(2, usages.size)
-        assertEquals(TokenUsage(promptTokens = 1200, completionTokens = 1, cachedTokens = 900, totalTokens = 1201), usages[0])
+        assertEquals(TokenUsage(promptTokens = 1200, completionTokens = 1, cachedTokens = 900, totalTokens = 1201, cachedReported = true, cacheCreationTokens = 200), usages[0])
         // message_delta 只上报 output：输入侧不能掉成 0，cached 也不能消失
-        assertEquals(TokenUsage(promptTokens = 1200, completionTokens = 50, cachedTokens = 900, totalTokens = 1250), usages[1])
+        assertEquals(TokenUsage(promptTokens = 1200, completionTokens = 50, cachedTokens = 900, totalTokens = 1250, cachedReported = true, cacheCreationTokens = 200), usages[1])
     }
 
     @Test
@@ -60,13 +60,13 @@ class ClaudeStreamDecoderUsageTest {
             messageDelta("""{"input_tokens":100,"output_tokens":50}""", stopReason = "end_turn"),
         )
 
-        assertEquals(TokenUsage(1200, 1, 900, 1201), usages[0])
-        assertEquals(TokenUsage(1200, 50, 900, 1250), usages[1])
+        assertEquals(TokenUsage(1200, 1, 900, 1201, cachedReported = true, cacheCreationTokens = 200), usages[0])
+        assertEquals(TokenUsage(1200, 50, 900, 1250, cachedReported = true, cacheCreationTokens = 200), usages[1])
 
         // 下游 TokenUsage.merge 的语义（取最新非零值）不改，但拿到完整快照后再合并
         // 也不会出现 cached > prompt 的 900% 命中率
         val merged = usages.first().merge(usages.last())
-        assertEquals(TokenUsage(1200, 50, 900, 1250), merged)
+        assertEquals(TokenUsage(1200, 50, 900, 1250, cachedReported = true, cacheCreationTokens = 200), merged)
         assertTrue("cached 不能超过 prompt: $merged", merged.cachedTokens <= merged.promptTokens)
     }
 
@@ -92,8 +92,8 @@ class ClaudeStreamDecoderUsageTest {
             messageDelta("""{"cache_read_input_tokens":0,"output_tokens":6}""", stopReason = "end_turn"),
         )
 
-        assertEquals(TokenUsage(1000, 5, 900, 1005), usages[0])
-        assertEquals(TokenUsage(100, 6, 0, 106), usages[1])
+        assertEquals(TokenUsage(1000, 5, 900, 1005, cachedReported = true), usages[0])
+        assertEquals(TokenUsage(100, 6, 0, 106, cachedReported = true), usages[1])
     }
 
     @Test
@@ -117,7 +117,7 @@ class ClaudeStreamDecoderUsageTest {
         val firstUsages = first.usages(
             messageStart("""{"input_tokens":100,"cache_read_input_tokens":900,"cache_creation_input_tokens":200,"output_tokens":1}"""),
         )
-        assertEquals(TokenUsage(1200, 1, 900, 1201), firstUsages.single())
+        assertEquals(TokenUsage(1200, 1, 900, 1201, cachedReported = true, cacheCreationTokens = 200), firstUsages.single())
 
         // 下一次请求是新解码器：不能继承上一次的 input/cache
         val second = ClaudeStreamDecoder()
@@ -159,6 +159,6 @@ class ClaudeStreamDecoderUsageTest {
             messageStart("""{"input_tokens":10,"cache_read_input_tokens":2}"""),
             messageDelta("""{"server_tool_use":{"web_search_requests":1}}""", stopReason = "end_turn"),
         )
-        assertEquals(TokenUsage(12, 0, 2, 12), known.single())
+        assertEquals(TokenUsage(12, 0, 2, 12, cachedReported = true), known.single())
     }
 }

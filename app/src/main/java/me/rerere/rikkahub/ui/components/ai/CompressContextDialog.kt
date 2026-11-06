@@ -35,6 +35,7 @@ import me.rerere.hugeicons.HugeIcons
 import me.rerere.hugeicons.stroke.Add01
 import me.rerere.hugeicons.stroke.Remove01
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.service.CompressionState
 import me.rerere.rikkahub.ui.context.LocalSettings
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionInfo
 import me.rerere.rikkahub.ui.components.ui.permission.PermissionManager
@@ -50,7 +51,11 @@ import me.rerere.rikkahub.ui.components.ui.permission.rememberPermissionState
 @Composable
 fun CompressContextDialog(
     onDismiss: () -> Unit,
-    onConfirm: (additionalPrompt: String, keepRecentMessages: Int) -> Job
+    onConfirm: (additionalPrompt: String, keepRecentMessages: Int) -> Job,
+    /** ChatService 里当前会话的压缩状态：阶段/耗时/已生成字数是真实值，关掉弹窗再打开也能接着看 */
+    state: CompressionState? = null,
+    /** 取消这个会话的后台压缩；自动压缩不归这里管 */
+    onCancel: (() -> Unit)? = null,
 ) {
     // Notifications are optional. Older Android versions and the OFF switch need no request.
     val notifyOnCompletion = LocalSettings.current.displaySetting.enableNotificationOnCompression
@@ -65,7 +70,8 @@ fun CompressContextDialog(
     // 默认全部压缩，请求前缀与对话一致，缓存命中最好
     var keepRecentMessages by remember { mutableIntStateOf(0) }
     var currentJob by remember { mutableStateOf<Job?>(null) }
-    val isLoading = currentJob?.isActive == true
+    // 任务可能在别的页面就已经开始：状态流里还在跑，同样算加载中，不会让用户误按确认再发一次请求
+    val isLoading = currentJob?.isActive == true || state?.isRunning == true
 
     // 任务结束（成功、失败、被取消）后自动收起；本窗口关闭不会 cancel，任务照常在后台跑
     LaunchedEffect(currentJob) {
@@ -85,16 +91,24 @@ fun CompressContextDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 if (isLoading) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        ContainedLoadingIndicator(
-                            modifier = Modifier.size(32.dp)
+                    if (state != null) {
+                        CompressionProgressCard(
+                            state = state,
+                            onCancel = onCancel ?: { currentJob?.cancel(); Unit },
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(stringResource(R.string.r11_compression_dialog_running))
+                    } else {
+                        // 状态流还没到（刚点确认的那一帧）：先显示和以前一样的等待提示
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ContainedLoadingIndicator(
+                                modifier = Modifier.size(32.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(stringResource(R.string.r11_compression_dialog_running))
+                        }
                     }
                     Text(
                         text = stringResource(R.string.r11_compression_dialog_running_hint),
@@ -161,8 +175,9 @@ fun CompressContextDialog(
         },
         confirmButton = {
             if (isLoading) {
-                // 只有用户自己发起的任务才提供取消；重复点击拿到的本来就是同一个任务
+                // 取消走 ChatService：任务在别的页面开始时 currentJob 是 null，也要能真的停下来
                 TextButton(onClick = {
+                    onCancel?.invoke()
                     currentJob?.cancel()
                     onDismiss()
                 }) {

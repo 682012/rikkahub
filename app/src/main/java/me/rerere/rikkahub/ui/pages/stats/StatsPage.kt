@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LargeFlexibleTopAppBar
 import androidx.compose.material3.MaterialTheme
@@ -36,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -142,7 +144,11 @@ fun StatsPage(vm: StatsVM = koinViewModel()) {
                         }
                     } else {
                         item {
-                            UsageTotalsGrid(usage = usage, modifier = Modifier.padding(horizontal = 8.dp))
+                            UsageTotalsGrid(
+                                usage = usage,
+                                onCacheAllSourcesChange = vm::setCacheAllSources,
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                            )
                         }
                         item {
                             UsageTrendCard(usage = usage, modifier = Modifier.padding(horizontal = 8.dp))
@@ -417,8 +423,14 @@ private fun EmptyUsageCard(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun UsageTotalsGrid(usage: UsageStats, modifier: Modifier = Modifier) {
+private fun UsageTotalsGrid(
+    usage: UsageStats,
+    onCacheAllSourcesChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val totals = usage.totals
+    val cache = usage.cache
+    val allSources = usage.cacheSource == null
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -454,11 +466,39 @@ private fun UsageTotalsGrid(usage: UsageStats, modifier: Modifier = Modifier) {
                 modifier = Modifier.weight(1f),
                 icon = HugeIcons.PercentCircle,
                 label = stringResource(R.string.stats_page_cache_hit_rate),
-                value = if (totals.promptTokens > 0) {
-                    "%.1f%%".format(totals.cachedTokens * 100.0 / totals.promptTokens)
-                } else {
-                    "-"
-                },
+                // 只有上游明确上报过缓存才有比例；未上报显示"—"，绝不拿 0/prompt 造 0%。
+                // promptTokens 为 0 时 percentText 天然是 null（不会出现 NaN%）。
+                value = cache.percentText ?: "-",
+            )
+        }
+        // 命中率的来源口径必须是显式选择：默认只算主对话，子代理/辅助要用户自己点"全部"。
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            FilterChip(
+                selected = !allSources,
+                onClick = { onCacheAllSourcesChange(false) },
+                label = { Text(stringResource(R.string.r22_cache_scope_chat)) },
+                modifier = Modifier.testTag("stats-cache-scope-chat"),
+            )
+            FilterChip(
+                selected = allSources,
+                onClick = { onCacheAllSourcesChange(true) },
+                label = { Text(stringResource(R.string.r22_cache_scope_all)) },
+                modifier = Modifier.testTag("stats-cache-scope-all"),
+            )
+        }
+        if (cache.excludedPromptTokens > 0L) {
+            Text(
+                text = stringResource(
+                    R.string.r22_cache_stats_excluded,
+                    formatTokens(cache.excludedPromptTokens),
+                    cache.excludedRequests,
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

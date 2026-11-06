@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r22_subagent_model_pool">模型池</string>
+    <string name="r22_subagent_model_pool_desc">子代理可用的有序模型池；列表顺序就是回退顺序，只允许池内模型。留空则跟随默认模型/主会话模型。</string>
+    <string name="r22_subagent_add_model">添加模型</string>
+    <string name="r22_subagent_pool_empty">未配置模型池：使用默认模型（或主会话模型），不做跨渠道分配。</string>
+    <string name="r22_subagent_strategy">分配策略</string>
+    <string name="r22_subagent_strategy_desc">有序：每个任务都从池首开始，失败后按顺序换。均衡：同时创建的任务轮转到不同渠道，避免都打主模型。</string>
+    <string name="r22_subagent_strategy_ordered">有序</string>
+    <string name="r22_subagent_strategy_balanced">均衡</string>
+    <string name="r22_subagent_auto_failover">自动换渠道</string>
+    <string name="r22_subagent_auto_failover_desc">遇到报错或空输出时换下一个模型，从已完成的工具/模型检查点续跑，不重跑成功的工具。超时是整个任务的预算；需要审批、未知副作用、主动取消不重放。</string>
+    <string name="r22_subagent_max_attempts">单任务最多尝试模型数</string>
+    <string name="r22_subagent_max_attempts_desc">5 表示最多换 4 次渠道；0 表示不限，但仍不超过模型池大小。</string>
+    <string name="r22_subagent_per_model_concurrency">每模型并发上限</string>
+    <string name="r22_subagent_per_model_concurrency_desc">0 表示不额外限制，只受上面的最大并发约束。</string>
+    <string name="r22_subagent_move_up">上移</string>
+    <string name="r22_subagent_move_down">下移</string>
+    <string name="r22_subagent_remove">移除</string>
+    <string name="r22_subagent_task_meta">%1$s · %2$dS 秒 · %3$d 次尝试 · %4$s</string>
+</resources>

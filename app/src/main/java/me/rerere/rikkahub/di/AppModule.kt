@@ -30,6 +30,7 @@ import me.rerere.tts.provider.TTSManager
 import org.koin.dsl.module
 
 val appModule = module {
+    includes(r22RuntimeModule)
     single(createdAtStart = true) {
         me.rerere.rikkahub.service.ChatRecoveryNotificationManager(
             context = get(), appScope = get(), eventBus = get(), settingsStore = get())
@@ -165,6 +166,8 @@ val appModule = module {
             subagentRunner = get(),
             backgroundShellManager = get(),
             backgroundToolManager = get(),
+            deviceBridge = get(),
+            localMcpSettings = get(),
         )
     }
 

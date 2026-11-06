@@ -243,15 +243,16 @@ internal class ChatCompletionsStreamDecoder : StreamChunkDecoder {
 
     private fun parseUsage(usage: JsonObject?): TokenUsage? {
         if (usage == null) return null
+        val cachedTokens = usage["prompt_tokens_details"]?.jsonObjectOrNull
+            ?.get("cached_tokens")?.jsonPrimitive?.intOrNull
+            ?: usage["cached_tokens"]?.jsonPrimitive?.intOrNull
+            ?: usage["prompt_cache_hit_tokens"]?.jsonPrimitive?.intOrNull
         return TokenUsage(
             promptTokens = usage["prompt_tokens"]?.jsonPrimitive?.intOrNull ?: 0,
             completionTokens = usage["completion_tokens"]?.jsonPrimitive?.intOrNull ?: 0,
             totalTokens = usage["total_tokens"]?.jsonPrimitive?.intOrNull ?: 0,
-            cachedTokens = usage["prompt_tokens_details"]?.jsonObjectOrNull
-                ?.get("cached_tokens")?.jsonPrimitive?.intOrNull
-                ?: usage["cached_tokens"]?.jsonPrimitive?.intOrNull
-                ?: usage["prompt_cache_hit_tokens"]?.jsonPrimitive?.intOrNull
-                ?: 0,
+            cachedTokens = cachedTokens ?: 0,
+            cachedReported = cachedTokens != null,
         )
     }
 

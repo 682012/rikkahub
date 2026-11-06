@@ -841,16 +841,18 @@ class ChatCompletionsAPI(
 
     private fun parseTokenUsage(jsonObject: JsonObject?): TokenUsage? {
         if (jsonObject == null) return null
+        // 各 provider 汇报缓存命中的字段形状不统一，按方言兜底解析（#1576）：
+        // OpenAI 嵌套 -> Moonshot 顶层 cached_tokens -> DeepSeek prompt_cache_hit_tokens。
+        // 三个都没有就是"没报缓存"（cachedReported = null），不能当成 0% 命中。
+        val cachedTokens = jsonObject["prompt_tokens_details"]?.jsonObjectOrNull?.get("cached_tokens")?.jsonPrimitive?.intOrNull
+            ?: jsonObject["cached_tokens"]?.jsonPrimitive?.intOrNull
+            ?: jsonObject["prompt_cache_hit_tokens"]?.jsonPrimitive?.intOrNull
         return TokenUsage(
             promptTokens = jsonObject["prompt_tokens"]?.jsonPrimitive?.intOrNull ?: 0,
             completionTokens = jsonObject["completion_tokens"]?.jsonPrimitive?.intOrNull ?: 0,
             totalTokens = jsonObject["total_tokens"]?.jsonPrimitive?.intOrNull ?: 0,
-            // 各 provider 汇报缓存命中的字段形状不统一，按方言兜底解析（#1576）：
-            // OpenAI 嵌套 -> Moonshot 顶层 cached_tokens -> DeepSeek prompt_cache_hit_tokens
-            cachedTokens = jsonObject["prompt_tokens_details"]?.jsonObjectOrNull?.get("cached_tokens")?.jsonPrimitive?.intOrNull
-                ?: jsonObject["cached_tokens"]?.jsonPrimitive?.intOrNull
-                ?: jsonObject["prompt_cache_hit_tokens"]?.jsonPrimitive?.intOrNull
-                ?: 0
+            cachedTokens = cachedTokens ?: 0,
+            cachedReported = cachedTokens != null,
         )
     }
 

@@ -1,12 +1,18 @@
 package me.rerere.ai.agent
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
 import me.rerere.ai.provider.NetworkRouteChangedException
 import me.rerere.ai.provider.NetworkUnavailableException
 import me.rerere.ai.provider.WebProtocolException
+import me.rerere.ai.provider.WebSessionException
 import me.rerere.ai.provider.stream.StreamTruncatedException
 import me.rerere.ai.util.HttpException
 import me.rerere.common.http.NetworkChangedException
@@ -20,16 +26,11 @@ import kotlin.time.Duration.Companion.seconds
 private const val MAX_RANGE_SECONDS = 86_400L
 
 /**
- * 真 HTTP 服务端错误里，**只有**这几类还能再试：
- * - 408 请求超时：请求没被处理，重发不会重复计费；
- * - 429 频率限制：等一会儿就恢复；
- * - 500..599 服务端故障：同一份请求换个时刻可能就好了。
+ * 退避等待的最大检查粒度：每等这么久重新读一次 [RetryPolicy.isEnabled]。
  *
- * 其余状态码一律不试。特别是 401/403（要用户重新授权）、402（余额/配额）、400/422（请求本身不合法）
- * 重发一次结果完全一样，只会多花一次往返和一次用户等待。
+ * 用户关掉「自动重试」不该等到这一次退避（最长 60 秒）走完才生效，也不该让谁去每秒轮询整个设置对象。
  */
-private fun retryableHttpStatus(status: Int): Boolean =
-    status == 408 || status == 429 || status in 500..599
+private const val RETRY_GATE_STEP_MS = 1_000L
 
 /**
  * 429 里混着一种「等多久都不会好」的情况：额度真的用完了。
@@ -67,17 +68,152 @@ fun httpStatusOf(error: Throwable): Int? = (error as? HttpException)?.statusCode
  * [HttpException] 没有状态码（纯解析 body 得到的）时返回 false：不确定就不重试。
  * 这条规则对 `withRetry`、ChatService 的自动恢复和 app 侧共用同一个入口，避免三处各写一份。
  */
-fun retryableFailure(error: Throwable): Boolean {
-    if (error is HttpException) {
-        val status = error.statusCode ?: return false
-        if (!retryableHttpStatus(status)) return false
-        if (status == 429 && looksLikeQuotaExhausted(error)) return false
-        return true
+fun retryableFailure(error: Throwable): Boolean = RetryScope.CLASSIFIED.allows(error)
+
+/**
+ * 一次模型请求失败属于哪一类。
+ *
+ * 这个枚举是「用户可选的重试范围」的唯一词汇表：设置页的多选、[RetryScope]、[RecoveryPolicy]
+ * 的分类、[RetryBudget] 的记账都用它，不再各自写 is/else。
+ *
+ * 类别只描述**请求为什么失败**，不描述「能不能重试」——能不能重试由 [RetryScope] 决定，
+ * 用户停止/等待审批/权限/未知工具副作用根本不进这个枚举，它们不是请求错误。
+ */
+@Serializable
+enum class RetryErrorCategory {
+    /** 传输层：连不上、超时、读到一半断开、信号中断网、换网作废。 */
+    NETWORK,
+
+    /** 服务端临时错误：408 / 429（非额度耗尽）/ 5xx。 */
+    SERVER,
+
+    /** 鉴权失败：401 / 403、Web 会话登录过期。重发前必须先修配置。 */
+    AUTH,
+
+    /** 余额或配额用尽：402、明确说了额度用完的 429。重发不会自己好。 */
+    QUOTA,
+
+    /** 请求本身不合法或响应格式不对：400 / 422、协议违规、没有真实状态码的解析失败。 */
+    REQUEST_FORMAT,
+
+    /** 答复是空的或没收完：半截流、空内容。 */
+    EMPTY_RESPONSE,
+
+    /** 其它（含自定义供应商抛出的自有异常）：不知道原因，默认不猜。 */
+    UNKNOWN,
+}
+
+/**
+ * 用户想要的重试范围。
+ *
+ * - [RetryScopeMode.CLASSIFIED]（默认）：只重试历史上一直重试的那几类（传输层、408/429/5xx、
+ *   半截流）。401/403/402/格式错误一律不试，这是老版本行为，升级后一个字都不会变。
+ * - [RetryScopeMode.CUSTOM]：在旧分类之上追加用户勾选的类别（[categories] 是**追加**，不是替换：
+ *   勾选「鉴权」不代表不要网络重试）。
+ * - [RetryScopeMode.ANY_ERROR]：任何模型请求错误都重试，等价于勾满所有类别。
+ *
+ * 任何模式下用户停止、等待审批、未经授权的权限错误、不确定的工具副作用都不在重试范围里，
+ * 这是安全边界，不会被这个设置打开。
+ */
+@Serializable
+data class RetryScope(
+    val mode: RetryScopeMode = RetryScopeMode.CLASSIFIED,
+    val categories: Set<RetryErrorCategory> = emptySet(),
+) {
+    /** 默认就重试的类别：老版本 `retryableFailure` 放行的就是这几类。 */
+    val effectiveCategories: Set<RetryErrorCategory>
+        get() = when (mode) {
+            RetryScopeMode.CLASSIFIED -> LEGACY_CATEGORIES
+            // 追加：默认分类永远在，勾选的只是多出来的部分
+            RetryScopeMode.CUSTOM -> LEGACY_CATEGORIES + categories
+            RetryScopeMode.ANY_ERROR -> RetryErrorCategory.entries.toSet()
+        }
+
+    /** 这一类的失败要不要再发一次同样的请求。 */
+    fun allows(category: RetryErrorCategory): Boolean = category in effectiveCategories
+
+    /** 这条错误要不要重试；判定只有 [retryCategoryOf] 一份。 */
+    fun allows(error: Throwable): Boolean = allows(retryCategoryOf(error))
+
+    /** 是否是「任何错误都试」模式，界面拿它显示额度风险提示 */
+    val triesEverything: Boolean get() = mode == RetryScopeMode.ANY_ERROR
+
+    companion object {
+        /** 老行为：传输层 + 408/429/5xx + 半截流。 */
+        val LEGACY_CATEGORIES: Set<RetryErrorCategory> = setOf(
+            RetryErrorCategory.NETWORK,
+            RetryErrorCategory.SERVER,
+            RetryErrorCategory.EMPTY_RESPONSE,
+        )
+
+        /** 用户能在设置页追加勾选的类别（其余类别默认就已包含）。 */
+        val OPTIONAL_CATEGORIES: List<RetryErrorCategory> = listOf(
+            RetryErrorCategory.AUTH,
+            RetryErrorCategory.QUOTA,
+            RetryErrorCategory.REQUEST_FORMAT,
+            RetryErrorCategory.UNKNOWN,
+        )
+
+        val CLASSIFIED = RetryScope()
+        val ANY_ERROR = RetryScope(mode = RetryScopeMode.ANY_ERROR)
     }
-    return error is IOException &&
-        error !is WebProtocolException &&
-        error !is javax.net.ssl.SSLHandshakeException &&
-        error !is javax.net.ssl.SSLPeerUnverifiedException
+}
+
+/** 用户选的具体是哪种范围，和 [RetryScope] 一起序列化进设置。 */
+@Serializable
+enum class RetryScopeMode {
+    @SerialName("classified")
+    CLASSIFIED,
+
+    @SerialName("custom")
+    CUSTOM,
+
+    @SerialName("any_error")
+    ANY_ERROR,
+}
+
+/**
+ * 把一条真实异常折算成 [RetryErrorCategory]。
+ *
+ * 只读异常的真实类型和 [HttpException.statusCode]；**不从错误文本里正则猜数字**，
+ * 猜错一个码就会把余额不足当成服务端抖动无限重发。拿不到码的 [HttpException]
+ * （`parseErrorDetail()` 解析 body 得到的那些）一律按 [RetryErrorCategory.REQUEST_FORMAT] 处理。
+ *
+ * @param httpStatus 调用方额外知道的状态码（测试和 App 的会话上下文会传），真实异常里的码优先。
+ */
+fun retryCategoryOf(error: Throwable, httpStatus: Int? = null): RetryErrorCategory {
+    val status = httpStatusOf(error) ?: httpStatus
+    if (error is HttpException) {
+        return when {
+            status == 401 || status == 403 -> RetryErrorCategory.AUTH
+            status == 402 -> RetryErrorCategory.QUOTA
+            status == 429 && looksLikeQuotaExhausted(error) -> RetryErrorCategory.QUOTA
+            status == 408 || status == 429 || (status != null && status in 500..599) ->
+                RetryErrorCategory.SERVER
+            status == null -> RetryErrorCategory.REQUEST_FORMAT
+            status != null && status in 400..499 -> RetryErrorCategory.REQUEST_FORMAT
+            // 1xx/3xx/6xx 这类真实但不是"服务端临时错误"的码：旧 `retryableFailure` 明确不重试，
+            // 这里也必须落在默认不放行的类别里，否则 CLASSIFIED 会比旧行为多试一次。
+            else -> RetryErrorCategory.UNKNOWN
+        }
+    }
+    return when {
+        status == 401 || status == 403 -> RetryErrorCategory.AUTH
+        status == 402 -> RetryErrorCategory.QUOTA
+        error is WebSessionException -> RetryErrorCategory.AUTH
+        error is WebProtocolException -> RetryErrorCategory.REQUEST_FORMAT
+        error is StreamTruncatedException -> RetryErrorCategory.EMPTY_RESPONSE
+        error is NetworkUnavailableException -> RetryErrorCategory.NETWORK
+        error is NetworkRouteChangedException || error is NetworkChangedException ->
+            RetryErrorCategory.NETWORK
+        error is javax.net.ssl.SSLHandshakeException ||
+            error is javax.net.ssl.SSLPeerUnverifiedException -> RetryErrorCategory.UNKNOWN
+        error is IOException -> RetryErrorCategory.NETWORK
+        status == 408 || status == 429 || (status != null && status in 500..599) ->
+            RetryErrorCategory.SERVER
+        status != null && status in 400..499 -> RetryErrorCategory.REQUEST_FORMAT
+        else -> RetryErrorCategory.UNKNOWN
+    }
 }
 
 /** 服务端是否在这条错误里明确说了「额度用完了」。只看文本里有没有那几个标记，不做任何推断。 */
@@ -134,6 +270,21 @@ sealed interface RetryDelay {
 }
 
 /**
+ * 运行期的「现在还要不要重试」开关。
+ *
+ * 用 fun interface 而不是裸 `() -> Boolean`：默认值必须是**同一个对象**（[ALWAYS]），否则
+ * [RetryPolicy] 作为 data class 的相等性会被每次新建的 lambda 破坏（`RetryPolicy.NONE ==
+ * RetryPolicy(0)` 会变成 false，老测试和老调用点都靠这个）。
+ */
+fun interface RetryGate {
+    fun isEnabled(): Boolean
+
+    companion object {
+        val ALWAYS: RetryGate = RetryGate { true }
+    }
+}
+
+/**
  * 请求模型失败时的重试策略：最多重试 [maxRetries] 次，每次重试前按 [delayMode] 等待。
  *
  * 默认只重试 [IOException]，也就是连不上、超时、读到一半断开这类网络故障。
@@ -158,6 +309,39 @@ data class RetryPolicy(
      */
     val retryOn: (Throwable) -> Boolean = { retryableFailure(it) },
     val delayMode: RetryDelay = RetryDelay.Exponential,
+    /**
+     * 用户选的重试范围。默认 [RetryScope.CLASSIFIED]，也就是老行为。
+     *
+     * 它不只影响 [retryOn]：`withRetry` 的预算记账（[RetryBudget]）和 App 侧的自动恢复
+     * （ChatAutoRecovery）读的是同一个对象，所以"界面勾了鉴权"在请求层和整轮恢复层是同一件事，
+     * 不会出现界面说会试、实际不试这种分叉。
+     */
+    val scope: RetryScope = RetryScope.CLASSIFIED,
+    /**
+     * 是否一直重试到用户停止。
+     *
+     * true 时 [maxRetries] 不再限制真正失败的重试次数（离线/换网仍各有独立上限）。
+     * 这是用户明确打开的高风险选项：会一直花额度，只有取消生成、关闭总开关或修好配置才会停。
+     */
+    val unlimitedRetries: Boolean = false,
+    /**
+     * 用户「自动重试」总开关的**实时**读取口，默认恒为 true（老行为）[RetryGate.ALWAYS]。
+     *
+     * 只影响"要不要再发一次"，不影响首发的第一次尝试：用户关掉开关时，已经在跑的请求不会被这里打断，
+     * 但**已经排上的重试**会在下一个 1 秒检查点立刻放弃。[withRetry] 在每次真正重试之前和退避等待期间
+     * 各读一次，所以不需要谁去轮询整个 Settings 对象，也不依赖构造策略时的设置快照。
+     *
+     * 不放进 [scope]：范围描述"哪些错误值得重试"，开关描述"用户现在还想不想重试"，两者正交。
+     */
+    val retryGate: RetryGate = RetryGate.ALWAYS,
+    /**
+     * 整轮共享的一份记账（[RetryBudget]）；null 表示每次 [withRetry] 自己新建一份（老行为）。
+     *
+     * AgentLoop 的每一步模型请求都会调一次 [withRetry]：不共享时"每步 N 次"会随工具步数放大成
+     * N × 步数。调用方（ChatRequestFactory）在一轮开始时建一份放进这里，整轮的每一次步骤重试都从
+     * 同一份预算里扣，用户设置的次数就是**整轮**的次数。
+     */
+    val sharedBudget: RetryBudget? = null,
     /**
      * 可选的网络代际观察者：退避期间网络换了路由（切 Wi-Fi、切 VPN）时提前结束等待。
      *
@@ -196,6 +380,10 @@ data class RetryAttempt(
     val retry: Int,
     val maxRetries: Int,
     val delay: Duration,
+    /** 这次失败属于哪一类，界面用它显示"在等什么"。[withRetry] 之外的调用方可以留空。 */
+    val category: RetryErrorCategory? = null,
+    /** 是否无限重试（[RetryPolicy.unlimitedRetries]），界面据此不显示"共 N 次"。 */
+    val unlimited: Boolean = false,
 )
 
 /**
@@ -226,6 +414,11 @@ fun failureFacts(error: Throwable, cancelled: Boolean = false): FailureFacts = F
  * 所以"最多重试几次"和"哪些错误重试"的语义都没变。
  *
  * 记账交给 [RetryBudget]：只有真正失败的尝试才消耗 [RetryPolicy.maxRetries]。
+ * 预算默认每次调用一份；[RetryPolicy.sharedBudget] 非空时（AgentLoop 的一轮多步）整轮共用一份，
+ * 所以"用户设 3 次"在一轮里就是 3 次，不随工具步数放大。
+ *
+ * 重试资格在每次重试前和退避期间（每 [RETRY_GATE_STEP_MS]）重新读 [RetryPolicy.retryGate]：
+ * 关掉总开关后不会再有"已经排上、还在后台等着"的重试。
  * 请求根本没发出去（[NetworkUnavailableException]）和连接被换网作废
  * （[NetworkRouteChangedException] / [NetworkChangedException]）各有一份独立的有界预算——
  * 拿用户的三次机会去扣这两类失败，正是「切一下 Wi-Fi 就再也不重连」的直接原因。
@@ -236,7 +429,8 @@ suspend fun <T> withRetry(
     block: suspend () -> T,
 ): T {
     val handover = policy.networkHandover
-    val budget = RetryBudget(policy.maxRetries)
+    // 一轮内多个步骤共用同一份预算；没有共享时仍然是一次调用一份（老行为）。
+    val budget = policy.sharedBudget ?: RetryBudget(policy.maxRetries, policy.scope, policy.unlimitedRetries)
     while (true) {
         // 已取消/已停止的协程不能再被拉起；正常取消在这里直接抛出，不消耗重试次数
         currentCoroutineContext().ensureActive()
@@ -251,13 +445,51 @@ suspend fun <T> withRetry(
             if (error is CancellationException || !policy.retryOn(error)) {
                 throw error
             }
-            val kind = RecoveryPolicy.classify(failureFacts(error))
+            // 用户关掉总开关之后不再排新的重试；这里读的是实时值，不是构造策略时的设置快照。
+            if (!policy.retryGate.isEnabled()) throw error
+            val kind = RecoveryPolicy.classify(failureFacts(error), policy.scope)
             if (!budget.record(kind, epoch)) throw error
             val backoff = policy.delayFor(budget.attempt)
-            onRetry(RetryAttempt(error, budget.attempt, policy.maxRetries, backoff))
+            onRetry(
+                RetryAttempt(
+                    cause = error,
+                    retry = budget.attempt,
+                    maxRetries = policy.maxRetries,
+                    delay = backoff,
+                    category = retryCategoryOf(error),
+                    unlimited = policy.unlimitedRetries,
+                )
+            )
             // 网络切换导致的失败不必干等完整退避；没有网络事件时 awaitRetry 同样按 backoff 等满。
             // 等待本身可取消，停止生成不会被这里的等待拖住。
-            if (handover == null) delay(backoff) else handover.awaitRetry(epoch, backoff)
+            if (handover == null) {
+                // 普通退避切成不超过 1 秒的小段：每段之前重新读一次总开关，
+                // 关掉开关时已经排上的等待立刻结束，而不是等满这次退避。
+                var remaining = backoff.inWholeMilliseconds
+                while (remaining > 0) {
+                    if (!policy.retryGate.isEnabled()) throw error
+                    val step = remaining.coerceAtMost(RETRY_GATE_STEP_MS)
+                    delay(step)
+                    remaining -= step
+                }
+            } else {
+                // 有网络观察者时**不切片** awaitRetry：它的代际/稳定期语义依赖"一次调用整段"，
+                // 切片会让换网后的每一段都重新睡一遍稳定期，把重连拖长。
+                // 改成"每次最多挂起 1 秒再看一眼开关"：退避仍然是同一次 awaitRetry 调用，
+                // 总时长和换网唤醒行为与旧实现一致，只是多了一个开关检查点。
+                coroutineScope {
+                    val wait = async { handover.awaitRetry(epoch, backoff) }
+                    while (true) {
+                        val finished = withTimeoutOrNull(RETRY_GATE_STEP_MS) { wait.await() } != null
+                        if (finished) break
+                        if (!policy.retryGate.isEnabled()) {
+                            wait.cancel()
+                            throw error
+                        }
+                    }
+                }
+            }
+            if (!policy.retryGate.isEnabled()) throw error
         }
     }
 }

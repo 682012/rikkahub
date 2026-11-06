@@ -46,6 +46,16 @@ data class UsageRecordEntity(
     val completionTokens: Int = 0,
     @ColumnInfo("cached_tokens")
     val cachedTokens: Int = 0,
+    /**
+     * 缓存命中字段是否由上游明确上报（r22 schema36）。
+     * 1/true = 上报过（[cachedTokens] 即使是 0 也是真实 0），NULL = 未知（旧数据或该响应没有缓存字段）。
+     * 命中率的分子分母只认这一位，绝不拿 NULL 当 0%。
+     */
+    @ColumnInfo("cached_reported")
+    val cachedReported: Boolean? = null,
+    /** 新写入缓存的输入 token（Claude cache_creation），属于输入但不是命中；NULL = 未知/无此概念。 */
+    @ColumnInfo("cache_creation_tokens")
+    val cacheCreationTokens: Int? = null,
     /** Kept for fork.15 compatibility; queries derive totals from prompt + completion. */
     @ColumnInfo("total_tokens")
     val totalTokens: Int = promptTokens + completionTokens,

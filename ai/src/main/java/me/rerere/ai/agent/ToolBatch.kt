@@ -106,16 +106,16 @@ private suspend fun executeBatch(calls: List<BatchCall>): List<UIMessagePart> {
         var until = from + 1
         while (until < calls.size && calls[until].tool.executionMode.allowsParallelExecution()) until++
         val group = calls.subList(from, until)
-        val grouped = LinkedHashMap<String, MutableList<BatchCall>>()
-        group.forEach { call ->
-            val key = if (call.tool.executionMode == ToolExecutionMode.PARALLEL_DEDUPLICATED) {
-                "${call.tool.name}\n${canonicalToolJson(call.arguments)}"
-            } else "unique:${call.index}"
-            grouped.getOrPut(key) { mutableListOf() }.add(call)
-        }
+        // 同名的成员才可能撞成同一组；名字在这一段里只出现一次时不必规范化它的参数（见 groupParallelCalls）
+        val grouped = groupParallelCalls(
+            calls = group,
+            nameOf = { it.tool.name },
+            deduplicated = { it.tool.executionMode == ToolExecutionMode.PARALLEL_DEDUPLICATED },
+            canonicalKey = { canonicalToolJson(it.arguments).toString() },
+        )
         coroutineScope {
             val permits = Semaphore(8)
-            grouped.values.map { members -> async {
+            grouped.map { members -> async {
                 permits.withPermit {
                     val result = executeBatchCall(members.first())
                     members.forEach { outputs[it.index] = result }

@@ -954,15 +954,21 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
             ?: bodyJson["message"]?.jsonObject?.get("usage")?.jsonObject
             ?: return null
         val inputTokens = usageJson["input_tokens"]?.jsonPrimitive?.intOrNull ?: 0
-        val cachedInputTokens = usageJson["cache_read_input_tokens"]?.jsonPrimitiveOrNull?.intOrNull ?: 0
-        val cachedCreationTokens = usageJson["cache_creation_input_tokens"]?.jsonPrimitiveOrNull?.intOrNull ?: 0
+        // 显式取 null 保留"没报这个字段"和"报了 0"的区别：false/0 不能和缺字段混在一起
+        val cachedReadTokens = usageJson["cache_read_input_tokens"]?.jsonPrimitiveOrNull?.intOrNull
+        val cacheCreationTokens = usageJson["cache_creation_input_tokens"]?.jsonPrimitiveOrNull?.intOrNull
+        val cachedInputTokens = cachedReadTokens ?: 0
+        val cachedCreationTokens = cacheCreationTokens ?: 0
         val completionTokens = usageJson["output_tokens"]?.jsonPrimitive?.intOrNull ?: 0
+        // input / cache_read / cache_creation 三部分都按输入计费；命中只算 cache_read
         val promptTokens = inputTokens + cachedInputTokens + cachedCreationTokens
         return TokenUsage(
             promptTokens = promptTokens,
             completionTokens = completionTokens,
             totalTokens = promptTokens + completionTokens,
             cachedTokens = cachedInputTokens,
+            cachedReported = cachedReadTokens != null,
+            cacheCreationTokens = cacheCreationTokens,
         )
     }
 }

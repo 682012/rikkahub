@@ -36,6 +36,15 @@ data class SubagentTask(
     val steps: Int = 0,
     val resultPath: String? = null,
     val logPath: String? = null,
+    /**
+     * 实际尝试过的模型（按尝试顺序，含成功的那个）。[modelId] 是最终/当前使用的模型，
+     * 这里保留完整轨迹，便于 UI 和模型看到"换过几次渠道、换到了谁"。
+     */
+    val triedModelIds: List<Uuid> = emptyList(),
+    /** 已经发起的模型尝试次数（>=1 表示至少发出过一次请求）。 */
+    val attempts: Int = 0,
+    /** 换渠道说明，例如 "A -> B (empty output)"；没换过时为 null。 */
+    val switchNote: String? = null,
 ) {
     val isFinished: Boolean
         get() = status in setOf(
@@ -329,6 +338,10 @@ data class SubagentTaskRecord(
     val finishedAt: Long? = null,
     val error: String? = null,
     val steps: Int = 0,
+    /** r22：尝试过的模型与换渠道轨迹；旧记录缺省为空，读取时按"一次尝试"理解。 */
+    val attempts: Int = 0,
+    val triedModelIds: List<String> = emptyList(),
+    val switchNote: String? = null,
 )
 
 /** 重启遗留的未完成任务统一改成 CANCELLED，并留下可解释的 error。 */
@@ -363,6 +376,9 @@ fun SubagentTask.toRecord(): SubagentTaskRecord = SubagentTaskRecord(
     finishedAt = finishedAt,
     error = error,
     steps = steps,
+    attempts = attempts,
+    triedModelIds = triedModelIds.map { it.toString() },
+    switchNote = switchNote,
 )
 
 /**
@@ -397,5 +413,8 @@ fun SubagentTaskRecord.toTask(
         steps = steps,
         resultPath = resultPath,
         logPath = logPath,
+        triedModelIds = triedModelIds.mapNotNull { runCatching { Uuid.parse(it) }.getOrNull() },
+        attempts = attempts,
+        switchNote = switchNote,
     )
 }

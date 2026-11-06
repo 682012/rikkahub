@@ -302,12 +302,14 @@ internal class ResponseApiStreamDecoder : StreamChunkDecoder {
 
     private fun parseUsage(usage: JsonObject?): TokenUsage? {
         if (usage == null) return null
+        val cachedTokens = usage["input_tokens_details"]?.jsonObjectOrNull
+            ?.get("cached_tokens")?.jsonPrimitive?.intOrNull
         return TokenUsage(
             promptTokens = usage["input_tokens"]?.jsonPrimitive?.intOrNull ?: 0,
             completionTokens = usage["output_tokens"]?.jsonPrimitive?.intOrNull ?: 0,
             totalTokens = usage["total_tokens"]?.jsonPrimitive?.intOrNull ?: 0,
-            cachedTokens = usage["input_tokens_details"]?.jsonObjectOrNull
-                ?.get("cached_tokens")?.jsonPrimitive?.intOrNull ?: 0,
+            cachedTokens = cachedTokens ?: 0,
+            cachedReported = cachedTokens != null,
         )
     }
 

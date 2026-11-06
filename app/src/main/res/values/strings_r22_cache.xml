@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r22_cache_scope_all">All (main + subagents + auxiliary)</string>
+    <string name="r22_cache_scope_chat">Main chat</string>
+    <string name="r22_cache_scope_subagent">Subagents</string>
+    <string name="r22_cache_scope_aux">Auxiliary</string>
+    <string name="r22_cache_invalid_report">Upstream cache report is inconsistent: %1$s tokens</string>
+    <string name="r22_cache_rate">%1$s tokens (%2$s of %3$s input)</string>
+    <string name="r22_cache_unreported">Cache not reported upstream: %1$s tokens. Hit rate unknown, not 0%%.</string>
+    <string name="r22_cache_excluded">%1$s input from %2$s requests whose model never reports cache is excluded from the rate</string>
+    <string name="r22_cache_note">Cache is part of input and never added twice. Unreported cache does not mean a miss.</string>
+    <string name="r22_cache_sources_title">By source</string>
+    <string name="r22_cache_sources_note">Subagents and title/summary/fast-model requests share the parent conversation id; they are only added to the total when you pick that scope or All.</string>
+    <string name="r22_cache_source_chat">Main chat</string>
+    <string name="r22_cache_source_subagent">Subagents</string>
+    <string name="r22_cache_source_aux">Auxiliary · %1$s</string>
+    <string name="r22_cache_source_row">%1$d requests · %2$s in · %3$s out</string>
+    <string name="r22_cache_stats_excluded">%1$s tokens (%2$d requests) are left out of the rate: upstream reported no cache field, so they are unknown, not 0%%.</string>
+</resources>

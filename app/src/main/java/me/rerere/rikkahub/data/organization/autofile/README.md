@@ -118,3 +118,19 @@ Manifest 无需改动：Worker 是现成 `CoroutineWorker`，用 `GlobalContext.
 | `ConversationAutoFilePromptTest` | 提示词最多 16 条、含严格 JSON 字段要求 |
 
 新增/改动的源码未经 Gradle 编译（本轮禁止跑 Gradle），由父代理接线后统一编译；测试为本轮手写，供 F 执行。
+
+## r22 增项
+
+| 新增/改动 | 内容 |
+| --- | --- |
+| `ConversationAutoFileLocalClassifier.kt`（新） | 完全本地规则模式：标题/`#标签`/中文二元组/词频 + 加权余弦相似度；已有库优先，同簇 ≥3 条才建库；置信度 0.85..0.94（上限，不冒充 0.99）；每条建议带可解释理由；零网络、零模型、确定性 |
+| `ConversationAutoFileFacade.kt`（新） | 给本机 MCP 的稳定小门面：status/history/details/trigger/cancel/undo/configure；必须显式 assistantId，无全助手导出，导出不含正文；`configure` 打开 AI 模式要求 `confirmExternalModelUsage` |
+| `ConversationAutoFileModels.kt` | `AutoFileMode`（AI/LOCAL，默认 AI）+ `settings.mode`；`AutoFileAssignment.reason` / `AutoFilePlannedMove.reason`；`AutoFileBatchDetail` |
+| `ConversationAutoFileJournal.kt` | 批次 `mode`、移动 `reason`、`movedCount/failedCount/skippedCount/undoneCount/modeOrDefault`；`history(limit)` / `batch(id)` 只读接口（日志本来就是按助手持久 JSON） |
+| `ConversationAutoFileController.kt` | 按 `settings.mode` 分流分类器（LOCAL 走本地规则，默认参数已注入，接线无需改）；`cancelRun` 真正取消在途批次（批次体在独立作用域子任务里）；关闭开关 = 取消调度 + 叫停在途；后台撞车静默退出；`history/details/status/enabledAssistantIds` |
+| `ConversationAutoFileWork.kt` | 唯一周期任务改用 `UPDATE`（模式/约束变化即生效）；AI 要联网、LOCAL 不要求网络；退避 30min；取消上抛不记失败；异常 `retry` |
+| `ConversationAutoFilePanel.kt` | 模式选择（AI/本地，含「不发网/不承诺准确率」说明）、后台调度说明、整理记录列表（时间/模式/状态/移动数/失败数/可撤销）、批次详情（会话/目标库/理由/逐条状态 + 可选「打开」）、空/加载/失败/已取消状态 |
+| `strings_r22_autofile.xml` | 新增文案独立文件：`values`、`values-zh-rCN`、`values-zh-rTW` 三语，不改公共 strings |
+
+接线（主代理）：`RikkaHubApp` 调 `ConversationAutoFileController.initialize()`（必须），`ChatDrawer` 传 `onOpenConversation`（可选），
+AppModule 可选 `single { ConversationAutoFileFacade(get()) }`。详见 `/workspace/rk-sync/r22-runtime/autofile/WIRING.patch.md`。

@@ -23,15 +23,21 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import me.rerere.ai.agent.AgentEvent
 import me.rerere.ai.agent.AgentFinishReason
+import me.rerere.ai.agent.RecoveryPolicy
 import me.rerere.ai.agent.RetryAttempt
+import me.rerere.ai.agent.RetryErrorCategory
 import me.rerere.ai.agent.httpStatusOf
+import me.rerere.ai.agent.retryCategoryOf
+import me.rerere.rikkahub.data.ai.RetrySwitch
 import me.rerere.rikkahub.data.ai.retryPolicy
 import me.rerere.common.http.NetworkHandover
 import me.rerere.ai.agent.runAgent
@@ -203,12 +209,48 @@ class ChatService(
         appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(id, "", ""))
     }
 
-    private fun scheduleRecovery(session: ConversationSession, ticket: ChatReconnectTicket, sender: String) {
-        val wait = settingsStore.settingsFlow.value.retryPolicy().delayFor(recoveryLedger.attempts(session.id))
-        session.processingStatus.value = context.getString(R.string.r21_recovery_scheduled, wait.inWholeSeconds)
+    private fun scheduleRecovery(
+        session: ConversationSession,
+        ticket: ChatReconnectTicket,
+        sender: String,
+        category: RetryErrorCategory,
+    ) {
+        val policy = settingsStore.settingsFlow.value.retryPolicy()
+        val attempt = recoveryLedger.attempts(session.id).coerceAtLeast(1)
+        val wait = policy.delayFor(attempt)
+        // 状态里写清楚：第几次自动恢复、等多久、为什么（用户勾了"任何错误"之后，"为什么"才重要）
+        session.processingStatus.value = context.getString(
+            R.string.r22_retry_status_waiting,
+            attempt,
+            wait.inWholeSeconds,
+            RecoveryPolicy.describe(category),
+        )
         appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(session.id, sender, session.processingStatus.value.orEmpty()))
         val job = appScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
-            delay(wait)
+            // 等待期间每秒只看一个 volatile 布尔（RetrySwitch 是总开关/次数变化的实时投影）：
+            // 关掉就立刻放弃排队中的恢复，不等到时间到，也不每秒重建整个 Settings 快照。
+            // delay 本身可取消，用户停止生成不会被这里拖住。
+            var remaining = wait.inWholeMilliseconds
+            while (remaining > 0) {
+                if (!RetrySwitch.isEnabled()) {
+                    synchronized(session) {
+                        if (reconnectTickets[session.id] === ticket) {
+                            clearRecovery(session.id)
+                            session.awaitingNetworkRecovery = false
+                            session.processingStatus.value = null
+                            session.inbox.pause(InboxPauseReason.ERROR)
+                            appEventBus.tryEmit(AppEvent.ChatRecoveryStatus(session.id, sender,
+                                context.getString(R.string.r21_recovery_stopped), terminal = true))
+                            session.scheduleIdleCheck()
+                        }
+                    }
+                    return@launch
+                }
+                val step = remaining.coerceAtMost(1_000L)
+                delay(step)
+                remaining -= step
+                if (reconnectTickets[session.id] !== ticket) return@launch
+            }
             if (reconnectTickets[session.id] !== ticket) return@launch
             // Timed retry also works when the network stays on the same route (timeout/5xx/half stream).
             try {
@@ -309,6 +351,14 @@ class ChatService(
     // Background completions are delivered at the next existing model step, never start a turn.
 
     init {
+        // 自动重试是否可用的实时投影：设置变化才写一次，请求层 withRetry 在退避中间读它，
+        // 所以关掉总开关/把次数改成 0 会立刻终止已经排上的重试，而不是等下一轮生成。
+        appScope.launch {
+            settingsStore.settingsFlow
+                .map { settings -> !ChatAutoRecovery.retryDisabled(settings.retryPolicy()) }
+                .distinctUntilChanged()
+                .collect { enabled -> RetrySwitch.install(enabled) }
+        }
         // Queue completion notices only. An idle parent does not incur an unsolicited model request.
         subagentRunner.noticeSink = { event ->
             val session = sessionManager.getOrCreate(event.conversationId)
@@ -342,8 +392,9 @@ class ChatService(
                 try {
                     val session = sessionManager.getOrCreate(id)
                     session.inbox.restore()
-                    if (networkHandover.state.value.available && settingsStore.settingsFlow.value.retryPolicy().maxRetries > 0)
-                        session.inbox.resumeAfterNetwork()
+                    if (networkHandover.state.value.available &&
+                        !ChatAutoRecovery.retryDisabled(settingsStore.settingsFlow.value.retryPolicy())
+                    ) session.inbox.resumeAfterNetwork()
                     dispatchInbox(id)
                 } catch (e: Exception) {
                     addError(e, id, title = context.getString(R.string.r18_queue_restore_failed))
@@ -356,7 +407,8 @@ class ChatService(
                 sessionManager.snapshot().forEach { session ->
                     try {
                         if (!tryReconnect(session) && reconnectTickets[session.id] == null &&
-                            settingsStore.settingsFlow.value.retryPolicy().maxRetries > 0 && session.inbox.resumeAfterNetwork()) {
+                            !ChatAutoRecovery.retryDisabled(settingsStore.settingsFlow.value.retryPolicy()) &&
+                            session.inbox.resumeAfterNetwork()) {
                             session.processingStatus.value = null
                             dispatchInbox(session.id)
                         }
@@ -686,7 +738,9 @@ class ChatService(
             // A pending tool approval is still part of the current turn.
             if (session.getJob() != null || session.state.value.isAwaitingToolApproval) return null
             if (session.awaitingNetworkRecovery || session.isChangingOwner || session.isAutoFiling) return null
-            if (!networkHandover.state.value.available && settingsStore.settingsFlow.value.retryPolicy().maxRetries > 0) {
+            if (!networkHandover.state.value.available &&
+                !ChatAutoRecovery.retryDisabled(settingsStore.settingsFlow.value.retryPolicy())
+            ) {
                 session.inbox.pause(InboxPauseReason.NETWORK)
                 session.processingStatus.value = context.getString(R.string.r18_waiting_network)
                 return null
@@ -963,7 +1017,13 @@ class ChatService(
         var observedReply: UIMessage? = null
         var turnFinishReason: AgentFinishReason? = null
         try {
-            val settings = settingsStore.awaitLoaded()
+            // 自动恢复拉起的轮次把**内层**重试彻底关掉（次数 0 且取消无限标记）：整轮的次数由外层
+            // 自动恢复（turnAttemptLimit）负责。总请求数 = (N+1) 首发轮 + N 恢复轮 = 2N+1，线性；
+            // 不是以前的逐轮递减（和仍是 N(N+1)/2 的平方），也不会外层无限 × 内层无限。
+            val settings = ChatAutoRecovery.settingsForTurnRecovery(
+                settingsStore.awaitLoaded(),
+                recoveryLedger.attempts(conversationId),
+            )
             // fork: 上下文到阈值时先插入摘要检查点，不删除历史
             if (regenerateNodeId == null) maybeAutoCompress(session, settings)
             // 清掉上一轮的建议；没法继续执行的工具调用发给模型会被拒绝，先去掉。
@@ -1137,12 +1197,17 @@ class ChatService(
                 generationJob?.ensureActive()
                 val retry = settingsStore.settingsFlow.value.retryPolicy()
                 val checkpoint = reconnectCheckpoint
+                val category = retryCategoryOf(e)
                 val blocker = ChatAutoRecovery.blockReason(e,
                     httpStatus = httpStatusOf(e),
                     awaitingApproval = session.state.value.isAwaitingToolApproval,
-                    canResume = checkpoint?.canResume == true)
-                val recoverable = retry.maxRetries > 0 && retry.retryOn(e) && blocker == null &&
-                    activeReplyNodeId != null && recoveryLedger.noteFailure(conversationId, retry.maxRetries)
+                    canResume = checkpoint?.canResume == true,
+                    // 用户选了"任何错误也重试"时，401/402/格式错误在这里才放行；
+                    // 取消、审批、权限、未知工具副作用在 blockReason 里仍然先拦，与范围无关
+                    scope = retry.scope)
+                val recoverable = !ChatAutoRecovery.retryDisabled(retry) && retry.retryOn(e) &&
+                    blocker == null && activeReplyNodeId != null &&
+                    recoveryLedger.noteFailure(conversationId, ChatAutoRecovery.turnAttemptLimit(retry))
                 if (recoverable) {
                     val current = session.state.value.currentMessages
                     reconnectTickets[conversationId] = ChatReconnectTicket(
@@ -1155,7 +1220,12 @@ class ChatService(
                     )
                     session.awaitingNetworkRecovery = true
                     session.inbox.pause(InboxPauseReason.NETWORK)
-                    scheduleRecovery(session, checkNotNull(reconnectTickets[conversationId]), senderName)
+                    scheduleRecovery(
+                        session,
+                        checkNotNull(reconnectTickets[conversationId]),
+                        senderName,
+                        category,
+                    )
                 } else {
                     val attempts = recoveryLedger.attempts(conversationId)
                     val stoppedMessage = when (blocker) {
@@ -1163,8 +1233,9 @@ class ChatService(
                         ChatRecoveryBlocker.QUOTA -> context.getString(R.string.r21_recovery_blocked_quota)
                         ChatRecoveryBlocker.REQUEST_FORMAT -> context.getString(R.string.r21_recovery_blocked_request)
                         ChatRecoveryBlocker.UNKNOWN_SIDE_EFFECT -> context.getString(R.string.r21_recovery_blocked_side_effect)
-                        else -> if (retry.maxRetries > 0 && attempts >= retry.maxRetries)
-                            context.getString(R.string.r21_recovery_gave_up, attempts)
+                        else -> if (!ChatAutoRecovery.retryDisabled(retry) &&
+                            ChatAutoRecovery.turnExhausted(retry, attempts)
+                        ) context.getString(R.string.r22_retry_gave_up, attempts, RecoveryPolicy.describe(category))
                         else context.getString(R.string.r21_recovery_stopped)
                     }
                     clearRecovery(conversationId)
@@ -1208,7 +1279,7 @@ class ChatService(
             val unchanged = session.incarnation == ticket.incarnation && user == ticket.userMessage &&
                 current.lastOrNull() == ticket.failedTail
             val expired = !force && !recoveryLedger.resumeAllowed(session.id)
-            if (!unchanged || settingsStore.settingsFlow.value.retryPolicy().maxRetries <= 0 || expired) {
+            if (!unchanged || ChatAutoRecovery.retryDisabled(settingsStore.settingsFlow.value.retryPolicy()) || expired) {
                 clearRecovery(session.id)
                 session.awaitingNetworkRecovery = false
                 session.processingStatus.value = null
@@ -1569,25 +1640,53 @@ class ChatService(
         if (!plan.exceedsThreshold(chatModel.contextLength, config.thresholdPercent)) return
         val compressionModel = config.modelId?.let { settings.findModelById(it) }
         val turn = requestFactory.createContext(settings, snapshot, compressionModel?.takeUnless { it.id == chatModel.id })
+        // 自动压缩也走同一份真实进度：跟着这轮生成一起跑，没有可单独取消的任务
+        val autoState = beginAutoCompressionState(snapshot.id) ?: return
+        val autoTaskId = autoState.taskId
+        val tracker = newCompressionTracker(snapshot.id, autoState)
+        var outcome = CompressionOutcome.Succeeded
+        var detail: String? = null
         session.processingStatus.value = context.getString(R.string.r10_compaction_auto_status)
         try {
+            tracker?.phase(CompressionPhase.WaitingModel)
             val summary = requestFactory.generateCompressionSummary(
                 turn = turn,
                 messages = plan.messages,
                 compressPrompt = buildCompressPrompt("", Locale.getDefault().displayName),
+                onProgress = tracker?.let { t -> { progress: me.rerere.rikkahub.data.ai.CompressionChunkProgress ->
+                    t.onChunk(progress.delta)
+                } },
             )
+            // 尾刷新：结束前把节流压下的最后一份字数发出去
+            tracker?.flush()
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
-            session.tryUpdate { latest ->
+            tracker?.phase(CompressionPhase.Writing)
+            val inserted = session.tryUpdate { latest ->
                 // Edits while summarizing invalidate this snapshot; never insert a stale checkpoint.
                 if (latest.messageNodes != snapshot.messageNodes) null
                 else latest.insertContextCheckpoint(plan.afterNodeId, summary)
-            }?.let { session.flush() }
+            }
+            if (inserted != null) {
+                session.flush()
+            } else {
+                outcome = CompressionOutcome.Discarded
+                detail = context.getString(R.string.chat_page_compress_conversation_changed)
+            }
         } catch (e: CancellationException) {
+            outcome = CompressionOutcome.Cancelled
+            finishCompressionState(snapshot.id, autoTaskId, outcome, null)
             throw e
         } catch (e: Exception) {
+            // 自动压缩失败不打扰用户，只把状态标成失败；对话照旧继续
+            outcome = CompressionOutcome.Failed
+            detail = e.message?.takeIf { it.isNotBlank() } ?: e::class.java.simpleName
             Log.w(TAG, "auto compress failed; continuing with original history", e)
         } finally {
             session.processingStatus.value = null
+            if (autoTaskId != null) {
+                tracker?.flush()
+                finishCompressionState(snapshot.id, autoTaskId, outcome, detail)
+            }
         }
     }
 
@@ -1676,17 +1775,23 @@ class ChatService(
         }
         val running = compressionJobs[conversationId]?.takeIf { it.isActive }
         if (running != null) return@synchronized running
+        if (_compressionStates.value[conversationId]?.isRunning == true ||
+            sessionManager.get(conversationId)?.isGenerating == true) {
+            addError(IllegalStateException(context.getString(R.string.chat_page_compress_blocked_generating)), conversationId)
+            return@synchronized Job().apply { complete() }
+        }
 
         val taskId = Uuid.random()
         pruneFinishedCompressionStates()
-        _compressionStates.update {
-            it + (conversationId to CompressionState(
-                taskId = taskId,
-                outcome = null,
-                keepRecentMessages = keepRecentMessages,
-                startedAt = System.currentTimeMillis(),
-            ))
-        }
+        val initial = CompressionState(
+            taskId = taskId,
+            outcome = null,
+            keepRecentMessages = keepRecentMessages,
+            startedAt = System.currentTimeMillis(),
+            phase = CompressionPhase.Preparing,
+        )
+        _compressionStates.update { it + (conversationId to initial) }
+        val tracker = newCompressionTracker(conversationId, initial)
 
         val job = appScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
             runBackgroundCompression(
@@ -1694,6 +1799,7 @@ class ChatService(
                 taskId = taskId,
                 additionalPrompt = additionalPrompt,
                 keepRecentMessages = keepRecentMessages,
+                tracker = tracker,
             )
         }
         compressionJobs[conversationId] = job
@@ -1731,24 +1837,47 @@ class ChatService(
 
     private fun finishCompressionState(
         conversationId: Uuid,
-        taskId: Uuid,
+        taskId: Uuid?,
         outcome: CompressionOutcome,
         message: String?,
     ) {
+        if (taskId == null) return
+        // 只改结果字段，已经上报的阶段/字数/预览原样保留；迟到的旧任务不能盖掉新任务的状态
+        _compressionStates.update { states ->
+            states.finishCompression(conversationId, taskId, outcome, message)
+        }
+    }
+
+    /**
+     * 自动压缩开始：手动压缩正在跑时不给自动压缩另外开一份显示，避免两个任务抢同一个状态。
+     * 初始状态先写进去，之后的上报才会被认成同一个任务（否则会被"完成后迟到的分块"规则挡掉）。
+     */
+    private fun beginAutoCompressionState(conversationId: Uuid): CompressionState? = synchronized(compressionLock) {
+        if (_compressionStates.value[conversationId]?.isRunning == true ||
+            compressionJobs[conversationId]?.isActive == true) return@synchronized null
+        val initial = CompressionState(
+            taskId = Uuid.random(), outcome = null,
+            startedAt = System.currentTimeMillis(), cancellable = false,
+        )
+        _compressionStates.update { it + (conversationId to initial) }
+        initial
+    }
+
+    /**
+     * 进度上报器：状态更新走节流+尾刷新，并且只写回发起它的那个任务。
+     * 任务结束后迟到的分块不再改状态（不会把完成态重新点亮成运行中）。
+     */
+    private fun newCompressionTracker(
+        conversationId: Uuid,
+        initial: CompressionState,
+    ): CompressionProgressTracker = CompressionProgressTracker(initial) { updated ->
         _compressionStates.update { states ->
             val existing = states[conversationId]
-            // 迟到的旧任务不能盖掉新任务的状态
-            if (existing != null && existing.taskId != taskId) {
-                states
-            } else {
-                states + (conversationId to CompressionState(
-                    taskId = taskId,
-                    outcome = outcome,
-                    message = message,
-                    keepRecentMessages = existing?.keepRecentMessages ?: 0,
-                    startedAt = existing?.startedAt ?: System.currentTimeMillis(),
-                    finishedAt = System.currentTimeMillis(),
-                ))
+            when {
+                // 已经是别的任务（或新任务）的状态：旧任务的分块不许改
+                existing != null && existing.taskId != updated.taskId -> states
+                existing?.outcome != null -> states
+                else -> states + (conversationId to updated)
             }
         }
     }
@@ -1758,6 +1887,7 @@ class ChatService(
         taskId: Uuid,
         additionalPrompt: String,
         keepRecentMessages: Int,
+        tracker: CompressionProgressTracker,
     ) {
         // 复用生成用的前台服务：App 切到后台时进程不被回收，压缩请求才能跑完。
         // 它只提供前台服务生命周期，任务本身仍是这个 AppScope 协程；系统/厂商杀进程照样会中断，
@@ -1789,15 +1919,21 @@ class ChatService(
 
                 val statusText = context.getString(R.string.chat_page_compressing)
                 session.processingStatus.value = statusText
+                // 请求发出后到第一个分块之间是「等待模型」：排队、首 token 延迟都不算生成量
+                tracker.phase(CompressionPhase.WaitingModel)
                 val summary = try {
                     generateCompressionSummaryOnce(
                         conversation = conversation,
                         snapshot = snapshot,
                         additionalPrompt = additionalPrompt,
+                        onChunk = { delta -> tracker.onChunk(delta) },
                     )
                 } finally {
                     session.processingStatus.compareAndSet(statusText, null)
                 }
+                // 尾刷新：结束前把节流压下的最后一份真实字数发出去
+                tracker.flush()
+                tracker.phase(CompressionPhase.Writing)
 
                 // 请求期间内容可能已经变了：这里只做校验后的一次原子插入，绝不整份写回旧快照。
                 // 范围内被改动/边界已有检查点 → 丢弃；范围之后追加的消息原样保留。
@@ -1843,6 +1979,7 @@ class ChatService(
         } finally {
             // 取消时也会走到这里；下面都是非挂起调用，不会因为已经取消而抛出来
             if (foregroundStarted) ChatGenerationForegroundService.release(context, taskId)
+            tracker.flush()
             finishCompressionState(conversationId, taskId, outcome, detail)
             appEventBus.tryEmit(
                 AppEvent.ChatCompressionEnded(
@@ -1914,6 +2051,8 @@ class ChatService(
         conversation: Conversation,
         snapshot: CompressionSnapshot,
         additionalPrompt: String,
+        /** 传了就按流式接收并逐块上报真实进度（手动/自动压缩都传） */
+        onChunk: (suspend (String) -> Unit)? = null,
     ): String {
         val compressionSettings = settingsStore.awaitLoaded()
         val compressionModel = compressionSettings.autoCompress.modelId
@@ -1926,6 +2065,9 @@ class ChatService(
                 additionalPrompt = additionalPrompt,
                 locale = Locale.getDefault().displayName,
             ),
+            onProgress = onChunk?.let { report ->
+                { progress: me.rerere.rikkahub.data.ai.CompressionChunkProgress -> report(progress.delta) }
+            },
         )
     }
 

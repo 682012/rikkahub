@@ -228,6 +228,26 @@
         <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
       </intent-filter>
     </provider>
+    <service
+      android:name=".data.mcpserver.LocalMcpService"
+      android:exported="false"
+      android:foregroundServiceType="specialUse">
+      <property
+        android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+        android:value="User-enabled local MCP endpoint for app tools and automation" />
+    </service>
+    <service
+      android:name=".data.devicecontrol.DeviceAccessibilityService"
+      android:exported="true"
+      android:label="@string/r22_device_title"
+      android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+      <intent-filter>
+        <action android:name="android.accessibilityservice.AccessibilityService" />
+      </intent-filter>
+      <meta-data
+        android:name="android.accessibilityservice"
+        android:resource="@xml/r22_device_accessibility" />
+    </service>
     <receiver android:name=".data.organization.ImageOrganizerStopReceiver" android:exported="false" />
     <provider
       android:name="androidx.startup.InitializationProvider"

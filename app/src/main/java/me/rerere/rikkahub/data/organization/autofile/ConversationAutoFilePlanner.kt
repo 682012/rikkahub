@@ -140,6 +140,9 @@ object ConversationAutoFilePlanner {
         }
         if (accepted.isEmpty()) return AutoFilePlan(rejected = rejected)
 
+        // 可解释理由按会话记下来，最终随计划项/日志落盘（AI 模式为空）。
+        val reasons = accepted.mapValues { (_, assignment) -> assignment.reason }
+
         // 按「已有库 / 新库」分组。已有库用现有 id，新库用折叠后的名字当 key。
         val groups = LinkedHashMap<String, AutoFileGroup>()
         accepted.values.forEach { assignment ->
@@ -167,7 +170,7 @@ object ConversationAutoFilePlanner {
 
         existingGroups.forEach { group ->
             group.members.sortedBy { it.createAt }.forEach { candidate ->
-                moves += AutoFilePlannedMove(candidate.id, group.name, group.existingFolderId)
+                moves += AutoFilePlannedMove(candidate.id, group.name, group.existingFolderId, reasons[candidate.id])
             }
         }
 
@@ -191,7 +194,7 @@ object ConversationAutoFilePlanner {
             totalFolders += 1
             newFolders += group.name
             group.members.sortedBy { it.createAt }.forEach { candidate ->
-                moves += AutoFilePlannedMove(candidate.id, group.name, null)
+                moves += AutoFilePlannedMove(candidate.id, group.name, null, reasons[candidate.id])
             }
         }
 

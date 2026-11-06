@@ -29,6 +29,8 @@ data class AutoFileJournalMove(
     val status: String = AutoFileMoveStatus.PLANNED,
     val updateAtBefore: Long = 0L,
     val updateAtAfter: Long? = null,
+    /** 可解释理由（本地规则模式给出，AI 模式为空）。只存一句短文本，不存正文。 */
+    val reason: String? = null,
     val error: String? = null,
 )
 
@@ -38,11 +40,25 @@ data class AutoFileJournalBatch(
     val assistantId: String,
     val createdAt: Long,
     val status: String = AutoFileBatchStatus.PLANNED,
+    /** 这批用的整理模式（`ai` / `local`），历史列表要显示「当时是哪种方式」。 */
+    val mode: String = AutoFileMode.AI.name.lowercase(),
     val moves: List<AutoFileJournalMove> = emptyList(),
     /** 这批新建的文件夹（撤销时不删库，只把会话搬回来，避免误删用户后来放进去的东西）。 */
     val createdFolderIds: List<String> = emptyList(),
     val finishedAt: Long? = null,
 ) {
+    val movedCount: Int get() = moves.count { it.status == AutoFileMoveStatus.APPLIED }
+    val failedCount: Int get() = moves.count { it.status == AutoFileMoveStatus.FAILED }
+    val skippedCount: Int get() = moves.count { it.status == AutoFileMoveStatus.SKIPPED }
+    val undoneCount: Int get() = moves.count { it.status == AutoFileMoveStatus.UNDONE }
+
+    /** [mode] 解析回枚举；坏值按 AI 处理（老日志没有这个字段）。 */
+    val modeOrDefault: AutoFileMode
+        get() = when (mode.lowercase()) {
+            AutoFileMode.LOCAL.name.lowercase() -> AutoFileMode.LOCAL
+            else -> AutoFileMode.AI
+        }
+
     fun isUndoable(): Boolean = status in AutoFileBatchStatus.UNDOABLE
 
     /**
@@ -111,10 +127,28 @@ class ConversationAutoFileJournal(
     }
 
     /**
+     * 历史批次，**最新的在最前**，最多 [limit] 条。
+     *
+     * 只读本地 JSON，不发请求、不读消息正文；坏日志同样被隔离后当空日志。
+     */
+    suspend fun history(assistantId: Uuid, limit: Int = MAX_BATCHES): List<AutoFileJournalBatch> = mutex.withLock {
+        readFile(assistantId).batches.asReversed().take(limit.coerceIn(1, MAX_BATCHES))
+    }
+
+    /** 按 id 取一批（历史详情用）；不存在或不属于该助手时返回 null。 */
+    suspend fun batch(assistantId: Uuid, batchId: String): AutoFileJournalBatch? = mutex.withLock {
+        readFile(assistantId).batches.firstOrNull { it.id == batchId }
+    }
+
+    /**
      * 落盘一批计划。写入成功后调用方才可以去改归属。
      * 同一助手的旧批次保留最近 [MAX_BATCHES] 批。
      */
-    suspend fun begin(assistantId: Uuid, moves: List<AutoFileJournalMove>): AutoFileJournalBatch =
+    suspend fun begin(
+        assistantId: Uuid,
+        moves: List<AutoFileJournalMove>,
+        mode: AutoFileMode = AutoFileMode.AI,
+    ): AutoFileJournalBatch =
         mutex.withLock {
             val file = readFile(assistantId)
             val batch = AutoFileJournalBatch(
@@ -124,6 +158,7 @@ class ConversationAutoFileJournal(
                 assistantId = assistantId.toString(),
                 createdAt = now(),
                 status = AutoFileBatchStatus.PLANNED,
+                mode = mode.name.lowercase(),
                 moves = moves,
             )
             val batches = (file.batches + batch).takeLast(MAX_BATCHES)

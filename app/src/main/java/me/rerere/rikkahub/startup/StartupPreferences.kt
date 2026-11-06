@@ -8,13 +8,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
  * 冷启动开场动效的选项。
  *
- * [OFF] 什么都不画；[RING] 一圈很轻的轨道环加一个沿环走的光点；[DOTS] 几颗光点从外圈向中心聚合。
- * 两种动效都用 Canvas 画，不引额外依赖。
+ * 内建风格都是用 Canvas 画的，不引额外依赖：
+ * [RING] 轨道环 + 沿环走的光点；[DOTS] 几颗光点向中心聚合；[AURORA] 一团很淡的柔光散开。
+ * [CUSTOM] 不用内建画法，改放用户导入的图片/动图/小视频（见 [StartupCustomIntro]）；
+ * 素材缺失或解码失败时回落到 [DEFAULT]，不会空着不画。
  */
 enum class StartupMotion {
     OFF,
     RING,
     DOTS,
+    AURORA,
+    CUSTOM,
     ;
 
     val wireName: String
@@ -22,7 +26,13 @@ enum class StartupMotion {
             OFF -> "off"
             RING -> "ring"
             DOTS -> "dots"
+            AURORA -> "aurora"
+            CUSTOM -> "custom"
         }
+
+    /** 只有这四个是能直接画出来的内建风格。 */
+    val isBuiltIn: Boolean
+        get() = this == OFF || this == RING || this == DOTS || this == AURORA
 
     companion object {
         /** 默认给一个最温和的：轨道环。 */
@@ -38,6 +48,8 @@ enum class StartupMotion {
             OFF.wireName -> OFF
             DOTS.wireName -> DOTS
             RING.wireName -> RING
+            AURORA.wireName -> AURORA
+            CUSTOM.wireName -> CUSTOM
             else -> DEFAULT
         }
     }
@@ -71,6 +83,11 @@ data class StartupIntroPlan(
 object StartupPreferences {
     private const val PREFS_NAME = "r21.startup"
     private const val KEY_MOTION = "startup_motion"
+    private const val KEY_CUSTOM_PATH = "startup_custom_path"
+    private const val KEY_CUSTOM_KIND = "startup_custom_kind"
+    private const val KEY_CUSTOM_DURATION = "startup_custom_duration"
+    private const val KEY_CUSTOM_SCALE = "startup_custom_scale"
+    private const val KEY_CUSTOM_FIT = "startup_custom_fit"
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -80,6 +97,60 @@ object StartupPreferences {
 
     fun writeMotion(context: Context, motion: StartupMotion) {
         prefs(context).edit { putString(KEY_MOTION, motion.wireName) }
+    }
+
+    /**
+     * 读自定义素材。这里只读几个字符串/整数，不碰文件本身：
+     * 冷启动第一帧之前就要知道"画不画"，`File.exists()` 和目录遍历放主线程没必要。
+     * 文件是否还在、能不能解码由绘制层在后台判断，失败就回落到内建风格。
+     */
+    fun readCustom(context: Context): StartupCustomIntro? {
+        val prefs = prefs(context)
+        val path = prefs.getString(KEY_CUSTOM_PATH, null)?.trim().orEmpty()
+        if (path.isEmpty()) return null
+        val kind = StartupMediaKind.fromWire(prefs.getString(KEY_CUSTOM_KIND, null)) ?: return null
+        return StartupCustomIntro(
+            path = path,
+            kind = kind,
+            durationMs = StartupIntroRules.clampDuration(prefs.getInt(KEY_CUSTOM_DURATION, 0), kind),
+            scalePercent = StartupIntroRules.clampScale(prefs.getInt(KEY_CUSTOM_SCALE, 0)),
+            fit = StartupFit.fromWire(prefs.getString(KEY_CUSTOM_FIT, null)),
+        )
+    }
+
+    fun writeCustom(context: Context, custom: StartupCustomIntro) {
+        prefs(context).edit {
+            putString(KEY_CUSTOM_PATH, custom.path)
+            putString(KEY_CUSTOM_KIND, custom.kind.wireName)
+            putInt(KEY_CUSTOM_DURATION, StartupIntroRules.clampDuration(custom.durationMs, custom.kind))
+            putInt(KEY_CUSTOM_SCALE, StartupIntroRules.clampScale(custom.scalePercent))
+            putString(KEY_CUSTOM_FIT, custom.fit.wireName)
+        }
+    }
+
+    /** 清除素材时同时把风格退回默认，避免"自定义但没素材"这种半坏状态留在设置里。 */
+    fun clearCustom(context: Context) {
+        prefs(context).edit {
+            remove(KEY_CUSTOM_PATH)
+            remove(KEY_CUSTOM_KIND)
+            remove(KEY_CUSTOM_DURATION)
+            remove(KEY_CUSTOM_SCALE)
+            remove(KEY_CUSTOM_FIT)
+            putString(KEY_MOTION, StartupMotion.DEFAULT.wireName)
+        }
+    }
+
+    /** 只改时长/缩放/适配时用：素材本身不动。 */
+    fun updateCustomTuning(context: Context, durationMs: Int, scalePercent: Int, fit: StartupFit) {
+        val current = readCustom(context) ?: return
+        writeCustom(
+            context,
+            current.copy(
+                durationMs = StartupIntroRules.clampDuration(durationMs, current.kind),
+                scalePercent = StartupIntroRules.clampScale(scalePercent),
+                fit = fit,
+            ),
+        )
     }
 }
 
@@ -152,3 +223,51 @@ object StartupIntroPolicy {
 fun Context.animatorDurationScale(): Float = runCatching {
     Settings.Global.getFloat(contentResolver, StartupIntroPolicy.ANIMATOR_DURATION_SCALE, 1f)
 }.getOrDefault(1f)
+
+/**
+ * 把"用户选了什么"收成一份可以直接画的场景。
+ *
+ * 纯函数，不碰 Context / 文件系统，JVM 单测覆盖每条回落路径：
+ * - 选了关闭 → 什么都不画；
+ * - 选了自定义但没有素材（没导入、上次导入失败、文件被系统清掉）→ 回落到默认内建风格；
+ * - 时长、缩放一律收进安全范围，坏值绝不让画面停住。
+ */
+object StartupIntroSceneResolver {
+    fun resolve(
+        motion: StartupMotion,
+        custom: StartupCustomIntro?,
+        customDurationMs: Int = 0,
+        customScalePercent: Int = StartupIntroRules.DEFAULT_SCALE,
+        customFit: StartupFit = StartupFit.DEFAULT,
+    ): StartupIntroScene {
+        if (motion == StartupMotion.OFF) {
+            return StartupIntroScene(style = StartupMotion.OFF, custom = null, durationMs = StartupIntroRules.BUILTIN_DURATION_MS)
+        }
+        if (motion != StartupMotion.CUSTOM) {
+            return StartupIntroScene(style = motion, custom = null, durationMs = StartupIntroRules.BUILTIN_DURATION_MS)
+        }
+        val path = custom?.path?.trim().orEmpty()
+        val kind = custom?.kind
+        if (path.isEmpty() || kind == null) {
+            // 素材不可用：内建默认风格兜底，绝不留一层空白盖在聊天页上
+            return StartupIntroScene(style = StartupMotion.DEFAULT, custom = null, durationMs = StartupIntroRules.BUILTIN_DURATION_MS)
+        }
+        val duration = StartupIntroRules.clampDuration(
+            if (customDurationMs > 0) customDurationMs else custom.durationMs,
+            kind,
+        )
+        return StartupIntroScene(
+            style = StartupMotion.DEFAULT,
+            custom = StartupCustomIntro(
+                path = path,
+                kind = kind,
+                durationMs = duration,
+                scalePercent = StartupIntroRules.clampScale(
+                    if (customScalePercent > 0) customScalePercent else custom.scalePercent
+                ),
+                fit = customFit,
+            ),
+            durationMs = duration,
+        )
+    }
+}

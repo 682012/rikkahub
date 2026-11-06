@@ -3,6 +3,9 @@ package me.rerere.rikkahub.data.datastore
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
+import me.rerere.ai.agent.RetryErrorCategory
+import me.rerere.ai.agent.RetryScope
+import me.rerere.ai.agent.RetryScopeMode
 import me.rerere.ai.core.ReasoningLevel
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.asr.ASRProviderSetting
@@ -138,7 +141,25 @@ data class NetworkSetting(
     val retryDelayMinSeconds: Int = DEFAULT_RETRY_DELAY_MIN_SECONDS,
     /** [RetryDelayMode.RANGE] 时区间上界（含）。 */
     val retryDelayMaxSeconds: Int = DEFAULT_RETRY_DELAY_MAX_SECONDS,
+    /**
+     * 重试范围模式，默认 [RetryScopeMode.CLASSIFIED]（老版本行为：只试网络、408/429/5xx、半截流）。
+     * 老配置里没有这个字段，解码后拿到的就是默认值，行为不变。
+     */
+    val retryScopeMode: RetryScopeMode = RetryScopeMode.CLASSIFIED,
+    /**
+     * [RetryScopeMode.CUSTOM] 下**追加**勾选的类别；空集合等于老分类。
+     * 勾上的类别不会替换默认分类，所以界面写"额外重试"是字面意思。
+     */
+    val retryExtraCategories: Set<RetryErrorCategory> = emptySet(),
+    /** 一直重试到用户停止（取消生成 / 关闭总开关）。默认 false，仍然受 [maxRetries] 限制。 */
+    val retryUnlimited: Boolean = false,
 ) {
+    /** 这个设置对应的重试范围。判定只有 [RetryScope] 一份，[toRetryPolicy] 和自动恢复都读它。 */
+    fun retryScope(): RetryScope = RetryScope(
+        mode = retryScopeMode,
+        categories = retryExtraCategories,
+    )
+
     /**
      * 把可能存在坏值的原始字段归整成一份合法配置。
      *

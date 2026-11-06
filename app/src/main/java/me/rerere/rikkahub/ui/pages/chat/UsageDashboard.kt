@@ -24,36 +24,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import me.rerere.rikkahub.R
 import java.text.NumberFormat
 import java.util.Locale
-
-data class DashboardTotals(
-    val requests: Long = 0,
-    val prompt: Long = 0,
-    val output: Long = 0,
-    val cached: Long = 0,
-    val invalidCacheReport: Boolean = false,
-)
-
-data class DashboardModel(
-    val name: String,
-    val requests: Long,
-    val tokens: Long,
-)
-
-data class DashboardContext(
-    val used: Int?,
-    val capacity: Int?,
-    val approximate: Boolean = false,
-)
-
-enum class UsageScope {
-    ALL, CHAT, SUBAGENT, OTHER
-}
 
 @Composable
 fun UsageDashboard(
@@ -64,6 +42,8 @@ fun UsageDashboard(
     onScopeChange: (UsageScope) -> Unit,
     onClassic: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 全部来源逐项用量；子代理/标题/摘要各自单列，默认的"主对话"口径不受它影响。 */
+    sources: List<ConversationSourceUsage> = emptyList(),
 ) {
     val totalTokens = totals.prompt + totals.output
     var exact by remember { mutableStateOf(false) }
@@ -119,12 +99,14 @@ fun UsageDashboard(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             UsageScope.entries.forEach { item ->
-                val label = when (item) {
-                    UsageScope.ALL -> "全部"
-                    UsageScope.CHAT -> "主对话"
-                    UsageScope.SUBAGENT -> "子代理"
-                    UsageScope.OTHER -> "辅助"
-                }
+                val label = stringResource(
+                    when (item) {
+                        UsageScope.ALL -> R.string.r22_cache_scope_all
+                        UsageScope.CHAT -> R.string.r22_cache_scope_chat
+                        UsageScope.SUBAGENT -> R.string.r22_cache_scope_subagent
+                        UsageScope.OTHER -> R.string.r22_cache_scope_aux
+                    }
+                )
                 FilterChip(
                     selected = scope == item,
                     onClick = { onScopeChange(item) },
@@ -258,23 +240,47 @@ fun UsageDashboard(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.height(4.dp))
-                if (totals.invalidCacheReport) {
-                    Text("上游报告异常：${formatNumber(totals.cached)} tokens", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-                } else if (totals.prompt > 0L) {
-                    val ratio = (totals.cached.toDouble() / totals.prompt * 100.0).coerceIn(0.0, 100.0)
-                    Text(
-                        text = "${formatNumber(totals.cached)} tokens (%.1f%%)".format(Locale.US, ratio),
+                // 命中率只认纯计算模型的结论：没报过缓存的模型不进分母，也绝不显示成 0%。
+                val cache = totals.cache
+                when {
+                    totals.invalidCacheReport || cache.state == CacheHitRateState.INVALID -> Text(
+                        stringResource(
+                            R.string.r22_cache_invalid_report,
+                            formatNumber(cache.cachedTokens.takeIf { it != 0L } ?: totals.cached),
+                        ),
+                        color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodyMedium,
                     )
-                } else {
-                    Text(
-                        text = "${formatNumber(totals.cached)} tokens",
+                    cache.hasRatio -> Text(
+                        stringResource(
+                            R.string.r22_cache_rate,
+                            formatNumber(cache.cachedTokens),
+                            cache.percentText.orEmpty(),
+                            formatNumber(cache.eligiblePromptTokens),
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.testTag("usage-cache-rate"),
+                    )
+                    else -> Text(
+                        stringResource(R.string.r22_cache_unreported, formatNumber(totals.cached)),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                if (cache.excludedPromptTokens > 0L) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        stringResource(
+                            R.string.r22_cache_excluded,
+                            formatNumber(cache.excludedPromptTokens),
+                            formatNumber(cache.excludedRequests),
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = "缓存属于输入，不重复相加；未报告缓存不等于未命中",
+                    text = stringResource(R.string.r22_cache_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -301,6 +307,55 @@ fun UsageDashboard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+
+        // 按来源单列：子代理和标题/摘要/快速模型用的是同一个 conversation_id，只能按 source 分开列。
+        if (sources.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.r22_cache_sources_title),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                sources.forEach { row -> SourceUsageRow(row) }
+            }
+            Text(
+                text = stringResource(R.string.r22_cache_sources_note),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SourceUsageRow(row: ConversationSourceUsage) {
+    val label = when (row.role) {
+        UsageSourceRole.CHAT -> stringResource(R.string.r22_cache_source_chat)
+        UsageSourceRole.SUBAGENT -> stringResource(R.string.r22_cache_source_subagent)
+        UsageSourceRole.AUXILIARY -> stringResource(R.string.r22_cache_source_aux, row.source)
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("usage-source-${row.source}"),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        Text(
+            text = stringResource(
+                R.string.r22_cache_source_row,
+                row.requests,
+                formatCompactTokens(row.prompt),
+                formatCompactTokens(row.output),
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

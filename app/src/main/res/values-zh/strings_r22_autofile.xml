@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r22_autofile_mode_title">整理方式</string>
+    <string name="r22_autofile_mode_ai">快速模型</string>
+    <string name="r22_autofile_mode_ai_desc">把限长摘要发给已配置的快速模型，会消耗 API 额度。</string>
+    <string name="r22_autofile_mode_local">完全本地规则</string>
+    <string name="r22_autofile_mode_local_desc">只看标题、标签和词重合度，不发网、不调模型、不花额度。</string>
+    <string name="r22_autofile_mode_select">选用</string>
+    <string name="r22_autofile_mode_ai_note">模型建议不保证正确，每一批都能撤销。</string>
+    <string name="r22_autofile_mode_local_note">确定性算法，可解释：每条都写明命中了哪些词。它不是 AI，也不承诺准确率。</string>
+    <string name="r22_autofile_mode_ai_short">模型</string>
+    <string name="r22_autofile_mode_local_short">本地规则</string>
+    <string name="r22_autofile_background_on">由 Android WorkManager 约每 12 小时调度一次，关掉这个页面也会跑。时间不精确，系统可能延后或停掉它。</string>
+    <string name="r22_autofile_background_off">关闭时不排任何后台任务。</string>
+    <string name="r22_autofile_history_title">整理记录</string>
+    <string name="r22_autofile_history_loading">正在读取记录…</string>
+    <string name="r22_autofile_history_empty">还没有整理记录。</string>
+    <string name="r22_autofile_history_counts">移动 %1$d 个 · 失败 %2$d 个</string>
+    <string name="r22_autofile_history_undoable">仍可撤销</string>
+    <string name="r22_autofile_detail_title">本批详情</string>
+    <string name="r22_autofile_detail_empty">这一批没有记录到任何移动。</string>
+    <string name="r22_autofile_detail_open">打开</string>
+    <string name="r22_autofile_detail_folder">目标库：%1$s · %2$s</string>
+    <string name="r22_autofile_detail_reason">理由：%1$s</string>
+    <string name="r22_autofile_status_done">完成</string>
+    <string name="r22_autofile_status_partial">部分完成</string>
+    <string name="r22_autofile_status_interrupted">被中断</string>
+    <string name="r22_autofile_status_undone">已撤销</string>
+    <string name="r22_autofile_status_planned">进行中</string>
+    <string name="r22_autofile_move_applied">已移动</string>
+    <string name="r22_autofile_move_skipped">已跳过</string>
+    <string name="r22_autofile_move_failed">失败</string>
+    <string name="r22_autofile_move_undone">已还原</string>
+    <string name="r22_autofile_move_planned">未完成</string>
+</resources>

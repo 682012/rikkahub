@@ -38,6 +38,12 @@ interface ConversationAutoFileGateway {
     /** 读会话当前归属，用于撤销前的复核和移动后记录版本。 */
     suspend fun placement(conversationId: Uuid): AutoFilePlacement?
 
+    /**
+     * 历史详情用的会话标题（只读标题，不读正文、不发请求）。
+     * 默认实现返回空表：测试用假实现可以完全不实现它，界面会退回显示会话 id。
+     */
+    suspend fun loadConversationTitles(assistantId: Uuid, conversationIds: List<Uuid>): Map<Uuid, String> = emptyMap()
+
     /** 一批结束后发一条被动通知（`postNotice`，不会唤醒新的一轮计费生成）。 */
     suspend fun postSummary(assistantId: Uuid, text: String)
 }

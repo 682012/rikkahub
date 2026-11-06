@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="r22_startup_title">Startup animation</string>
+    <string name="r22_startup_desc">A short layer drawn over the chat screen on a cold launch. You can already tap and scroll underneath. Shares, notifications and links skip it.</string>
+    <string name="r22_startup_reduced">System animations are off, so nothing is drawn on cold launch.</string>
+    <string name="r22_startup_style_ring">Ring</string>
+    <string name="r22_startup_style_dots">Gather</string>
+    <string name="r22_startup_style_aurora">Glow</string>
+    <string name="r22_startup_style_off">Off</string>
+    <string name="r22_startup_media_title">Use my own clip</string>
+    <string name="r22_startup_media_desc_empty">Import an image, GIF, animated WebP or a small video. It is copied into app storage.</string>
+    <string name="r22_startup_media_desc_image">Image imported. Adjust the duration and size below.</string>
+    <string name="r22_startup_media_desc_video">Video imported. Plays muted, once, then fades.</string>
+    <string name="r22_startup_media_busy">Copying the file…</string>
+    <string name="r22_startup_media_import">Import</string>
+    <string name="r22_startup_media_replay">Replay</string>
+    <string name="r22_startup_media_clear">Clear</string>
+    <string name="r22_startup_duration_title">Duration</string>
+    <string name="r22_startup_duration_desc">%1$d ms. Never blocks the content underneath.</string>
+    <string name="r22_startup_scale_title">Size</string>
+    <string name="r22_startup_scale_desc">%1$d%% of the screen</string>
+    <string name="r22_startup_fit_title">Fit</string>
+    <string name="r22_startup_fit_contain">Whole image</string>
+    <string name="r22_startup_fit_cover">Fill</string>
+    <string name="r22_startup_preview_title">Preview</string>
+    <string name="r22_startup_preview_desc">Exactly what a cold launch draws. Tap the box to replay.</string>
+    <string name="r22_startup_preview_off">Off — nothing is drawn on cold launch.</string>
+    <string name="r22_startup_preview_tap">Tap to replay</string>
+    <string name="r22_startup_fail_unsupported">That file type is not supported. Use PNG, JPEG, WebP, GIF or a small MP4/WebM.</string>
+    <string name="r22_startup_fail_too_large">That file is too large (image up to 12 MB, video up to 8 MB).</string>
+    <string name="r22_startup_fail_empty">That file is empty.</string>
+    <string name="r22_startup_fail_io">Could not copy the file. Nothing was changed.</string>
+</resources>
