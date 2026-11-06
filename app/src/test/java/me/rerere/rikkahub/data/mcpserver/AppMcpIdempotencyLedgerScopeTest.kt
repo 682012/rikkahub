@@ -105,4 +105,27 @@ class AppMcpIdempotencyLedgerScopeTest {
                 code == "idempotency_key_reuse" || code == "unknown_side_effect")
         }
     }
+
+    @Test
+    fun `an unreadable ledger rejects every scope instead of granting a fresh permit`() {
+        // 盘上记过什么已经不知道了：任何归属域都不许拿到 Fresh，否则就是一次重复的设备写。
+        val file = ledgerFile("broken.json")
+        file.parentFile.mkdirs()
+        file.writeText(
+            "[{\"key\":\"k1\",\"tool\":\"chat_send\",\"argsHash\":\"{\\\"x\\\":\\\"1\\\"}\",\"status\":\"PEND",
+        )
+        val before = file.readBytes()
+
+        val ledger = AppMcpIdempotencyLedger(file)
+        listOf("assistant-a", "assistant-b", "", "device").forEach { scope ->
+            val decision = ledger.decide("chat_send", "k1", fingerprint(), scope)
+            assertTrue(
+                "scope '$scope' got a permit from an unreadable ledger: $decision",
+                decision is AppMcpIdemDecision.Rejected,
+            )
+            assertEquals("ledger_unreadable", (decision as AppMcpIdemDecision.Rejected).code)
+        }
+        assertTrue("the broken ledger must be preserved", before.contentEquals(file.readBytes()))
+        assertTrue(ledger.snapshot().isEmpty())
+    }
 }

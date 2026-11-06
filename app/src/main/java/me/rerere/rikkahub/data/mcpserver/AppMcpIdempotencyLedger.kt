@@ -1,6 +1,9 @@
 package me.rerere.rikkahub.data.mcpserver
 
 import java.io.File
+import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -14,7 +17,11 @@ import kotlinx.serialization.json.JsonObject
  * 2. 同一个 key + 同样的参数再来一次 → 返回第一次记录的结果（[AppMcpIdemDecision.Replay]）；
  * 3. 同一个 key + 不同参数（或不同工具）→ 拒绝 `idempotency_key_reuse`；
  * 4. 账本里还是 `PENDING`（上次进程死在中间）→ 拒绝 `unknown_side_effect`，**绝不再执行一次**；
- * 5. 失败也落成终态（`FAILED` + 原因），重试返回同样的失败，不重新执行。
+ * 5. 失败也落成终态（`FAILED` + 原因），重试返回同样的失败，不重新执行；
+ * 6. **账本读不出来就不许写**：文件存在但不可读 / 是空文件 / 是坏 JSON / 根本不是普通文件
+ *    （比如被一个目录占住了名字）时，账本进入 [AppMcpLedgerLoad.UNTRUSTED]，
+ *    所有写操作一律拒绝（`ledger_unreadable`），而且这个对象**永不覆盖**那个文件——
+ *    坏文件留着给人看，绝不用一本"空账"把旧的 `PENDING` 洗掉。
  *
  * 纯 JVM（只用 java.io.File），可以直接跑单测。
  */
@@ -28,6 +35,28 @@ enum class AppMcpLedgerStatus {
 
     /** 执行失败（已如实记录），重试返回同样的失败，不重新执行。 */
     FAILED,
+}
+
+/**
+ * 账本文件的信任状态。**关键点：加载失败是显式状态，不是"当成空账本"**。
+ *
+ * 旧实现把"文件不存在"和"文件读不出来 / 是空的 / 是坏 JSON"一起当成空账本，
+ * 于是下一次写会拿到 `Fresh` 许可——如果盘上原本有一条 `PENDING`，这次就会把同一个
+ * 设备写动作**真的执行第二遍**。所以这里把三种情况彻底分开：
+ *
+ * - 文件确实不存在（首次运行）→ [TRUSTED] 空账本，允许第一笔写；
+ * - 文件存在且能完整解析（包括合法的 `[]`）→ [TRUSTED]，按内容记账；
+ * - 文件存在但读失败 / 空 / 坏 JSON / 截断 / 不是普通文件 → [UNTRUSTED]，只读拒绝。
+ */
+enum class AppMcpLedgerLoad {
+    /** 还没读过盘。 */
+    UNLOADED,
+
+    /** 内容可信：要么文件不存在（首次运行），要么完整解析成功。 */
+    TRUSTED,
+
+    /** 文件在、但内容不可信：账本记过什么已经不知道了，只许拒绝，不许写。 */
+    UNTRUSTED,
 }
 
 @Serializable
@@ -78,12 +107,30 @@ class AppMcpIdempotencyLedger(
         encodeDefaults = true
     }
     private val serializer = ListSerializer(AppMcpLedgerEntry.serializer())
-    private var loaded = false
+    private var load = AppMcpLedgerLoad.UNLOADED
+    private var loadFailure: String? = null
     private val entries = LinkedHashMap<String, AppMcpLedgerEntry>()
+
+    /** 当前加载状态（诊断用）。[AppMcpLedgerLoad.UNTRUSTED] 时所有写操作都被拒绝。 */
+    val loadState: AppMcpLedgerLoad
+        get() = synchronized(lock) {
+            ensureLoaded()
+            load
+        }
+
+    /** 加载不可信的原因（诊断用，给人看的一句话）；可信时为 `null`。 */
+    val loadError: String?
+        get() = synchronized(lock) {
+            ensureLoaded()
+            loadFailure
+        }
 
     /**
      * 同 key 同参数 → Replay；同 key 不同参数/工具 → Rejected；
      * 上次中断在 PENDING → Rejected(unknown_side_effect)；否则落盘 PENDING 并返回 Fresh。
+     *
+     * 账本不可信（[AppMcpLedgerLoad.UNTRUSTED]）时一律 Rejected(`ledger_unreadable`)：
+     * 盘上可能有没删掉的 PENDING，此时给 `Fresh` 就是允许一次重复的设备写。
      */
     fun decide(
         tool: String,
@@ -93,6 +140,7 @@ class AppMcpIdempotencyLedger(
     ): AppMcpIdemDecision =
         synchronized(lock) {
             ensureLoaded()
+            if (load != AppMcpLedgerLoad.TRUSTED) return@synchronized untrustedDecision()
             val id = idOf(tool, key, scope)
             val existing = entries[id]
             when {
@@ -146,73 +194,85 @@ class AppMcpIdempotencyLedger(
             }
         }
 
-    /** 记录成功结果；之后同 key 同参数返回这一份。 */
+    /** 记录成功结果；之后同 key 同参数返回这一份。@return 是否真的写进了磁盘。 */
     fun complete(
         tool: String,
         key: String,
         resultJson: String,
         scope: String = AppMcpLedgerEntry.DEFAULT_SCOPE,
-    ) = synchronized(lock) {
+    ): Boolean = synchronized(lock) {
         ensureLoaded()
+        // 账本不可信时不许动盘：内存里是空的，写一次就等于把盘上那些"未知 PENDING"擦掉。
+        if (load != AppMcpLedgerLoad.TRUSTED) return@synchronized false
         val id = idOf(tool, key, scope)
-        val current = entries[id]
-        if (current != null) {
-            entries[id] = current.copy(
-                status = AppMcpLedgerStatus.DONE.name,
-                resultJson = resultJson,
-                error = null,
-                at = clock(),
-            )
-            prune()
-            persist()
-        }
+        val current = entries[id] ?: return@synchronized false
+        entries[id] = current.copy(
+            status = AppMcpLedgerStatus.DONE.name,
+            resultJson = resultJson,
+            error = null,
+            at = clock(),
+        )
+        prune()
+        persist()
     }
 
-    /** 记录失败：同样是终态，重试只回放失败，不重新执行。 */
+    /** 记录失败：同样是终态，重试只回放失败，不重新执行。@return 是否真的写进了磁盘。 */
     fun fail(
         tool: String,
         key: String,
         error: String,
         scope: String = AppMcpLedgerEntry.DEFAULT_SCOPE,
-    ) = synchronized(lock) {
+    ): Boolean = synchronized(lock) {
         ensureLoaded()
+        if (load != AppMcpLedgerLoad.TRUSTED) return@synchronized false
         val id = idOf(tool, key, scope)
-        val current = entries[id]
-        if (current != null) {
-            entries[id] = current.copy(
-                status = AppMcpLedgerStatus.FAILED.name,
-                error = error,
-                at = clock(),
-            )
-            prune()
-            persist()
-        }
+        val current = entries[id] ?: return@synchronized false
+        entries[id] = current.copy(
+            status = AppMcpLedgerStatus.FAILED.name,
+            error = error,
+            at = clock(),
+        )
+        prune()
+        persist()
     }
 
+    /**
+     * 可信时返回条目；账本不可信时返回 `null`。注意 `null` 的含义是"不知道"，不是"没记过"——
+     * 调用方不能把这里的结果当放行依据（放行只看 [decide]）。
+     */
     fun entryOf(
         tool: String,
         key: String,
         scope: String = AppMcpLedgerEntry.DEFAULT_SCOPE,
     ): AppMcpLedgerEntry? = synchronized(lock) {
         ensureLoaded()
+        if (load != AppMcpLedgerLoad.TRUSTED) return@synchronized null
         entries[idOf(tool, key, scope)]
     }
 
+    /** 可信时的条目快照；账本不可信时返回空列表（内容未知，不是"账本是空的"）。 */
     fun snapshot(): List<AppMcpLedgerEntry> = synchronized(lock) {
         ensureLoaded()
+        if (load != AppMcpLedgerLoad.TRUSTED) return@synchronized emptyList()
         entries.values.toList()
     }
 
-    fun forget(tool: String, key: String, scope: String = AppMcpLedgerEntry.DEFAULT_SCOPE) =
+    /** @return 是否真的写进了磁盘；账本不可信时不删、不写，返回 `false`。 */
+    fun forget(tool: String, key: String, scope: String = AppMcpLedgerEntry.DEFAULT_SCOPE): Boolean =
         synchronized(lock) {
             ensureLoaded()
+            if (load != AppMcpLedgerLoad.TRUSTED) return@synchronized false
             entries.remove(idOf(tool, key, scope))
             persist()
         }
 
-    /** 只清终态，保留 PENDING（否则一次清理就把"未知副作用"洗白了）。 */
-    fun clearFinished() = synchronized(lock) {
+    /**
+     * 只清终态，保留 PENDING（否则一次清理就把"未知副作用"洗白了）。
+     * 账本不可信时不清理、不写盘，返回 `false`。
+     */
+    fun clearFinished(): Boolean = synchronized(lock) {
         ensureLoaded()
+        if (load != AppMcpLedgerLoad.TRUSTED) return@synchronized false
         val ids = entries.entries.filter { it.value.status != AppMcpLedgerStatus.PENDING.name }.map { it.key }
         ids.forEach { entries.remove(it) }
         persist()
@@ -239,30 +299,113 @@ class AppMcpIdempotencyLedger(
         removable.take(overflow.coerceAtLeast(0)).forEach { entries.remove(it.key) }
     }
 
+    private fun untrustedDecision(): AppMcpIdemDecision.Rejected = AppMcpIdemDecision.Rejected(
+        code = "ledger_unreadable",
+        message = "The idempotency ledger exists but cannot be trusted" +
+            (loadFailure?.let { " ($it)" } ?: "") +
+            ", so nothing was executed. It may still hold in-flight entries, and a duplicate write is " +
+            "worse than a refused one. Repair or remove the ledger file, then restart the app.",
+    )
+
+    /**
+     * 首次加载。三种情况必须分开处理，绝不能都归成"空账本"：
+     * - 文件不存在 → 首次运行，可信的空账本（允许第一笔写）；
+     * - 文件存在、能完整解析（含合法 `[]`）→ 可信；
+     * - 文件存在但不可读 / 空 / 坏 JSON / 截断 / 不是普通文件（目录等）→ 不可信，
+     *   记下原因并**保留文件原样**，之后所有写操作被拒。
+     *
+     * 恢复策略是**故意保守**的：本对象一旦被判成不可信就永远不可信（不重试、不自动恢复、
+     * 不覆盖文件）。人工修好/删掉文件后，下一次进程启动（新对象）才会重新加载；这样运行中
+     * 有人"顺手"动一下文件，也不可能把未知 PENDING 悄悄变成"账本干净，可以再写一次"。
+     */
     private fun ensureLoaded() {
-        if (loaded) return
-        loaded = true
+        if (load != AppMcpLedgerLoad.UNLOADED) return
         entries.clear()
-        val text = runCatching { if (file.isFile) file.readText() else "" }.getOrDefault("")
-        if (text.isBlank()) return
-        val decoded = runCatching { json.decodeFromString(serializer, text) }.getOrNull() ?: return
+        if (!file.exists()) {
+            // 首次运行：连文件都没有，不存在"可能有 PENDING"的问题。
+            load = AppMcpLedgerLoad.TRUSTED
+            return
+        }
+        if (!file.isFile) {
+            // 被目录/设备节点占住了名字：读不出内容，也不能往里写。
+            markUntrusted("ledger path is not a regular file")
+            return
+        }
+        val text = try {
+            file.readText()
+        } catch (failure: Exception) {
+            markUntrusted("read failed: ${failure.message ?: failure::class.simpleName}")
+            return
+        }
+        if (text.isBlank()) {
+            // 空文件 ≠ 空账本：它可能是一次写被打断后的残骸。
+            markUntrusted("ledger file is empty")
+            return
+        }
+        val decoded = try {
+            json.decodeFromString(serializer, text)
+        } catch (failure: Exception) {
+            markUntrusted("ledger file is not valid json: ${failure.message ?: failure::class.simpleName}")
+            return
+        }
         decoded.forEach { entry -> entries[idOf(entry.tool, entry.key, entry.scope)] = entry }
+        load = AppMcpLedgerLoad.TRUSTED
     }
 
-    /** @return 是否真的写进了磁盘。调用方决定"写不进去还能不能执行"（PENDING 必须 fail closed）。 */
-    private fun persist(): Boolean = runCatching {
+    private fun markUntrusted(reason: String) {
+        loadFailure = reason
+        load = AppMcpLedgerLoad.UNTRUSTED
+    }
+
+    /**
+     * @return 是否真的写进了磁盘。调用方决定"写不进去还能不能执行"（PENDING 必须 fail closed）。
+     * 账本不可信时直接返回 `false`，一个字节都不碰盘。
+     */
+    private fun persist(): Boolean {
+        if (load != AppMcpLedgerLoad.TRUSTED) return false
+        val text = runCatching { json.encodeToString(serializer, entries.values.toList()) }.getOrNull()
+            ?: return false
+        return runCatching { writeAtomically(text) }.getOrDefault(false)
+    }
+
+    /**
+     * 原子写：临时文件 → fsync → rename。
+     *
+     * - 先 `FileOutputStream` + `fd.sync()` 落盘，避免只写了 0 字节/半截内容就改了名字；
+     * - **rename 失败就返回 `false`，绝不回退成直接覆盖正式文件**：旧实现会在 rename 失败后
+     *   `file.writeText(text)`，那一步一旦被打断就把原来好好的账本截成坏文件，把 PENDING 记录
+     *   一起弄丢，下一次调用就会被判成 Fresh 并重复执行设备写。
+     *
+     * 已知边界：没有对父目录做 fsync（java.io 拿不到目录 fd），断电丢 rename 的情况靠"文件要么是
+     * 旧账本、要么是新账本"的原子性兜住；`renameTo` 在 Android/Linux 上是 `rename(2)`，可覆盖已有文件。
+     */
+    private fun writeAtomically(text: String): Boolean {
         val parent = file.parentFile
-        if (parent != null && !parent.exists()) parent.mkdirs()
-        val text = json.encodeToString(serializer, entries.values.toList())
-        // 原子写：先写临时文件再 rename，避免半截 JSON 把整本账作废。
-        val tmp = File(file.parentFile, "${file.name}.tmp")
-        tmp.writeText(text)
-        if (!tmp.renameTo(file)) {
-            file.writeText(text)
-            tmp.delete()
+        if (parent != null && !parent.isDirectory) {
+            parent.mkdirs()
+            if (!parent.isDirectory) return false
         }
-        true
-    }.getOrElse { false }
+        val tmp = File(parent, "${file.name}.tmp")
+        var written = false
+        try {
+            FileOutputStream(tmp).use { out ->
+                out.write(text.toByteArray(Charsets.UTF_8))
+                out.flush()
+                out.fd.sync()
+            }
+            written = true
+        } finally {
+            if (!written) tmp.delete()
+        }
+        return try {
+            Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            true
+        } catch (_: Exception) {
+            // 不支持原子替换或目标不可写时拒绝执行；不截断正式账本。
+            tmp.delete()
+            false
+        }
+    }
 
     companion object {
         const val DEFAULT_MAX_ENTRIES = 200
