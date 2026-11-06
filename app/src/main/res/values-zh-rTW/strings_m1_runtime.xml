@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="m1_runtime_bar_button">對話選項</string>
+    <string name="m1_runtime_bar_default">預設（全部關閉）</string>
+    <string name="m1_runtime_summary_optimize">優化原話</string>
+    <string name="m1_runtime_summary_self_check">當輪自檢</string>
+    <string name="m1_runtime_summary_review">獨立審查</string>
+    <string name="m1_runtime_summary_next_step">插話：下一 step</string>
+    <string name="m1_runtime_summary_profile">協定檔：%1$s</string>
+    <string name="m1_runtime_summary_knowledge">本機知識庫</string>
+    <string name="m1_runtime_summary_tools_off">執行指引已關</string>
+
+    <string name="m1_runtime_title">對話選項</string>
+    <string name="m1_runtime_subtitle">只影響這個對話，不會改動助手的預設設定。</string>
+    <string name="m1_runtime_saving">正在儲存…</string>
+    <string name="m1_runtime_send_not_ready">這段對話還在載入，稍等一下再送。</string>
+
+    <string name="m1_runtime_group_input">你的輸入</string>
+    <string name="m1_runtime_optimize_title">優化我的原話（只改請求副本）</string>
+    <string name="m1_runtime_optimize_desc">對話裡儲存並顯示的永遠是你寫的原話，只有送出的請求副本會被改寫。數字、路徑、引號中的原話與程式碼區塊保持原樣；逾時、錯誤或守門拒絕就照原話送出。會多一次快速模型請求。</string>
+    <string name="m1_runtime_review_title">回覆審查</string>
+    <string name="m1_runtime_review_off">關閉</string>
+    <string name="m1_runtime_review_off_desc">不對回覆做額外檢查。</string>
+    <string name="m1_runtime_review_self">當輪自檢</string>
+    <string name="m1_runtime_review_self_desc">在同一次回覆中追加一段自檢提示，不增加請求；結論來自同一個模型，並非獨立驗證。</string>
+    <string name="m1_runtime_review_independent">獨立審查</string>
+    <string name="m1_runtime_review_independent_desc">回覆寫完後另發一次唯讀審查請求（優先快速模型），單獨計費。它只讀文字、不執行工具、不重放任務，無法取代真實編譯或執行測試。</string>
+    <string name="m1_runtime_review_running">正在獨立審查…</string>
+    <string name="m1_runtime_review_failed">審查未完成</string>
+    <string name="m1_runtime_review_done">審查結果</string>
+    <string name="m1_runtime_review_expand">展開</string>
+    <string name="m1_runtime_review_collapse">收合</string>
+    <string name="m1_runtime_review_cancel">取消審查</string>
+    <string name="m1_runtime_review_dismiss">關閉</string>
+
+    <string name="m1_runtime_group_delivery">生成中插話</string>
+    <string name="m1_runtime_delivery_title">生成中送出的訊息怎麼送達</string>
+    <string name="m1_runtime_delivery_queue">排隊（預設）</string>
+    <string name="m1_runtime_delivery_next">下一 step 前插入</string>
+    <string name="m1_runtime_delivery_desc">「下一 step 前插入」會在模型下一個安全 step 之前把你的話帶進去；已經送出的請求與正在執行的工具不會被打斷或強改。帶附件時仍依排隊處理。</string>
+
+    <string name="m1_runtime_group_profile">用戶端協定檔</string>
+    <string name="m1_runtime_profile_native">原生</string>
+    <string name="m1_runtime_profile_auto">自動</string>
+    <string name="m1_runtime_profile_codex">Codex 風格</string>
+    <string name="m1_runtime_profile_claude">Claude Code 風格</string>
+    <string name="m1_runtime_profile_pi">PI 風格</string>
+    <string name="m1_runtime_profile_desc">只調整請求標頭與一小段工具用法提示，依目前 provider 與模型在本機判斷，AUTO 不送任何探測請求。不相容的檔會自動回到原生送出——不偽造官方權限、憑證或身分。</string>
+    <string name="m1_runtime_profile_current">目前生效：%1$s</string>
+    <string name="m1_runtime_profile_fallback">所選檔與目前模型不相容，已依原生送出。</string>
+    <string name="m1_runtime_profile_unknown">還沒選模型——選好模型後才能看到本機判斷結果。</string>
+
+    <string name="m1_runtime_group_knowledge">本機知識庫</string>
+    <string name="m1_runtime_knowledge_title">允許這個對話查本助手的資料</string>
+    <string name="m1_runtime_knowledge_desc">匯入與檢索都在本機。開啟後，命中你這則訊息的片段會隨請求送給本對話的模型——只送命中的片段，不會把整份原文塞進去。</string>
+    <string name="m1_runtime_knowledge_manage">管理與匯入資料</string>
+    <string name="m1_runtime_knowledge_manage_desc">範圍是本對話所屬的助手。</string>
+
+    <string name="m1_runtime_group_tools">工具執行</string>
+    <string name="m1_runtime_efficient_title">高效工具</string>
+    <string name="m1_runtime_efficient_desc">在系統提示中加入一段精簡的執行指引（先讀再改、最小 diff、只跑會失敗的最窄檢查）。只是提示，不保證模型一定採用最佳策略。</string>
+
+    <string name="m1_runtime_group_optimized">本次輸入優化</string>
+    <string name="m1_runtime_optimized_empty">這個對話裡還沒有你說的話。</string>
+    <string name="m1_runtime_optimized_loading">正在讀取這次的請求副本…</string>
+    <string name="m1_runtime_optimized_none">這一輪沒有優化版——送出的就是原話。</string>
+    <string name="m1_runtime_optimized_original_label">使用者原話（對話裡儲存的就是這段）</string>
+    <string name="m1_runtime_optimized_sent_label">這一輪送給模型的版本（不落庫）</string>
+    <string name="m1_runtime_optimized_note">只是請求副本：訊息列表、編輯與重新生成都還是你的原話。</string>
+    <string name="m1_runtime_optimized_copy">複製請求副本</string>
+    <string name="m1_runtime_optimized_copied">已複製</string>
+</resources>

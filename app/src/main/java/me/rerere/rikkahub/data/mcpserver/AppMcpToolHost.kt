@@ -33,6 +33,7 @@ import me.rerere.rikkahub.data.ai.subagent.SubagentRunner
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.devicecontrol.DeviceControlBridge
 import me.rerere.rikkahub.data.devicecontrol.DeviceToolCatalog
+import me.rerere.rikkahub.data.deviceprivilege.HighPrivilegeMcpProxy
 import me.rerere.rikkahub.data.organization.autofile.AutoFileManualWork
 import me.rerere.rikkahub.data.organization.autofile.AutoFileMode
 import me.rerere.rikkahub.data.organization.autofile.ConversationAutoFileFacade
@@ -74,6 +75,13 @@ class AppMcpToolHost(
     /** 配方归属：`AutomationRecipe` 自己没有 assistantId 字段，归属记在 MCP 这一侧，换助手即失效。 */
     private val recipeOwners: AppMcpRecipeOwnership =
         AppMcpRecipeOwnership(File(context.filesDir, "r22-mcp/recipe-owners.json")),
+    /**
+     * m1 高权限中心工具（deviceprivilege）的代理面。**只认名字白名单**，别的一律不碰；
+     * 这里刻意**不**在 [tools] 里列一遍——MCP 目录由 `AppLocalMcpToolHost` 统一追加，
+     * 而本 hook 负责让本地自动化（`AppAutomationToolRunner` → [call]）也能到达同一批工具。
+     * 授权完全由权限中心自己核（开关 + 绑定助手 + 写开关 + Shizuku 现查）。
+     */
+    private val privilegedTools: (() -> HighPrivilegeMcpProxy)? = null,
 ) {
     private val appContext: Context = context.applicationContext ?: context
     private val writeMutex = Mutex()
@@ -158,8 +166,40 @@ class AppMcpToolHost(
             return executeDevice(deviceTool.name, deviceTool.readOnly, arguments)
         }
 
+        // 高权限中心工具（deviceprivilege）：名字白名单之外一律不碰，仍然 unknown_tool。
+        privilegedCall(name, arguments, gates)?.let { return it }
+
         return error("unknown_tool", "No such tool: $name")
     }
+
+    /** 高权限中心工具的入口：名字白名单 + 本机开关 + 绑定助手；其余名字返回 null 表示"不是我的"。 */
+    private suspend fun privilegedCall(name: String, arguments: JsonObject, gates: AppMcpGates): JsonObject? {
+        val privileged = privilegedTools?.invoke() ?: return null
+        if (!privileged.handles(name)) return null
+        // 与 AppLocalMcpToolHost / 自动化步骤下拉同一口径：`read` 是底座，`device` 必须显式打开。
+        // 少了这一道，关掉 allowDevice 之后本地自动化仍然能按名字跑到 android_*。
+        if (!gates.read || !gates.grants(AppMcpGate.DEVICE)) {
+            return error(
+                "not_granted",
+                "On-device privileges need both the read switch and the device switch in the local " +
+                    "MCP/automation settings; they are currently off.",
+            )
+        }
+        val bound = gates.boundAssistantId?.trim().orEmpty()
+        if (bound.isEmpty()) {
+            return error(
+                "no_bound_assistant",
+                "No assistant is bound to this endpoint, so on-device privileges are disabled.",
+            )
+        }
+        return privileged.callAsBoundAssistant(bound, name, arguments)
+    }
+
+    /**
+     * 高权限中心代理（可能为 null）。给 `AppAutomationToolRunner` 做名字白名单用：
+     * 自动化步骤按名字运行 `android_*` 也走同一个 [call]，授权仍由权限中心自己核。
+     */
+    fun privilegedProxy(): HighPrivilegeMcpProxy? = privilegedTools?.invoke()
 
     // -------------------------------------------------------------- execution
 

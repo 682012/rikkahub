@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 高级权限与设备能力（m1）。只写真实能力和真实边界，不承诺最高权限。 -->
+    <string name="m1_priv_entry_title">Advanced permissions &amp; device capabilities</string>
+    <string name="m1_priv_entry_desc">Shizuku channel, development-level permissions, system special access and AI automation control.</string>
+    <string name="m1_priv_entry_shizuku">Shizuku channel</string>
+    <string name="m1_priv_entry_shizuku_desc">Real channel state; the grant dialog only appears when you ask for it.</string>
+    <string name="m1_priv_entry_dev">Development-level permissions</string>
+    <string name="m1_priv_entry_dev_desc">WRITE_SECURE_SETTINGS, DUMP, READ_LOGS, CHANGE_CONFIGURATION — grant and revoke per item.</string>
+    <string name="m1_priv_entry_special">System special access</string>
+    <string name="m1_priv_entry_special_desc">Modify system settings, usage access, DND, exact alarms, all files and more.</string>
+    <string name="m1_priv_entry_automation">AI automation control</string>
+    <string name="m1_priv_entry_automation_desc">Off by default; writes have their own switch; one assistant must be chosen.</string>
+    <string name="m1_priv_entry_open">Open</string>
+
+    <string name="m1_priv_sheet_title">Advanced permissions &amp; device capabilities</string>
+    <string name="m1_priv_shell_boundary">Boundary: this page only mirrors real system replies. Shizuku is a shell-level channel — it does not root the device, cannot grant system-signature-only privileges, and cannot read other apps\' private directories.</string>
+    <string name="m1_priv_loading">Reading real state…</string>
+    <string name="m1_priv_load_failed">Could not read state: %1$s</string>
+    <string name="m1_priv_retry">Retry</string>
+    <string name="m1_priv_unavailable">Not available on this device</string>
+    <string name="m1_priv_dismiss">Close</string>
+    <string name="m1_priv_action_failed">Action failed: %1$s</string>
+    <string name="m1_priv_state_system_only">System / signature only — cannot be obtained with a normal grant</string>
+    <string name="m1_priv_bound_group">This app\'s own components</string>
+    <string name="m1_priv_bound_desc">Accessibility, notification listeners and similar are bound by the system settings page. They are never switched on silently here.</string>
+    <string name="m1_priv_runtime_group">Runtime permissions</string>
+    <string name="m1_priv_notes_group">Notes on this device</string>
+    <string name="m1_priv_dev_result_no_effect">Command ran but the requested permission state did not take effect</string>
+
+    <string name="m1_priv_shizuku_group">Shizuku channel</string>
+    <string name="m1_priv_shizuku_status">Channel status</string>
+    <string name="m1_priv_shizuku_state_missing">Shizuku is not installed</string>
+    <string name="m1_priv_shizuku_state_authorized">Authorized</string>
+    <string name="m1_priv_shizuku_authorize">Request Shizuku authorization</string>
+    <string name="m1_priv_shizuku_authorize_desc">Nothing is requested until you press this. Shizuku will show its own confirmation.</string>
+    <string name="m1_priv_shizuku_authorizing">Waiting for Shizuku…</string>
+    <string name="m1_priv_shizuku_failed">Authorization failed: %1$s</string>
+    <string name="m1_priv_shizuku_no_root">Shizuku works at shell level only. It does not root the device and cannot turn this app into a system-signed app — a normal user grant never becomes system privileges.</string>
+
+    <string name="m1_priv_dev_group">Development-level permissions</string>
+    <string name="m1_priv_dev_desc">These can only be granted through Shizuku (adb shell pm grant). The checkboxes are just a selection for the batch buttons below.</string>
+    <string name="m1_priv_dev_granted">Granted</string>
+    <string name="m1_priv_dev_denied">Not granted</string>
+    <string name="m1_priv_dev_select_hint">Pick the items to act on. Each item reports its own real result afterwards.</string>
+    <string name="m1_priv_dev_grant_selected">Grant selected (%1$d)</string>
+    <string name="m1_priv_dev_revoke_selected">Revoke selected (%1$d)</string>
+    <string name="m1_priv_dev_working">Running…</string>
+    <string name="m1_priv_dev_result_ok">OK</string>
+    <string name="m1_priv_dev_result_fail">Failed</string>
+
+    <string name="m1_priv_adb_group">ADB commands</string>
+    <string name="m1_priv_adb_desc">Copied only when you tap. The package name is this build\'s actual value (%1$s).</string>
+    <string name="m1_priv_adb_empty">No command available on this device</string>
+    <string name="m1_priv_adb_copy">Copy</string>
+    <string name="m1_priv_adb_copied">Copied</string>
+
+    <string name="m1_priv_special_group">System special access</string>
+    <string name="m1_priv_special_desc">These are granted on the system\'s own settings pages. Coming back to this page re-reads the real state; a declared permission is not a granted one.</string>
+    <string name="m1_priv_special_manual">Needs manual enabling</string>
+
+    <string name="m1_priv_auto_group">AI automation control</string>
+    <string name="m1_priv_auto_master">Allow AI to operate this device</string>
+    <string name="m1_priv_auto_master_desc">Off by default. Turning it off cancels the current automation session immediately; permissions are never inherited from other workspaces.</string>
+    <string name="m1_priv_auto_writes">Allow write operations</string>
+    <string name="m1_priv_auto_writes_desc">A separate switch, off by default. It only affects commands that change the device.</string>
+    <string name="m1_priv_auto_assistant">Operating assistant</string>
+    <string name="m1_priv_auto_assistant_desc">Choose one assistant explicitly. If none is chosen, no assistant gets access.</string>
+    <string name="m1_priv_auto_assistant_invalid">The chosen assistant no longer exists — pick one again</string>
+    <string name="m1_priv_auto_pick">Choose</string>
+    <string name="m1_priv_auto_need_assistant">Choose an assistant first, then turn this on</string>
+    <string name="m1_priv_auto_scope">Can do: read and change system settings, diagnostics, and the Shizuku commands granted above. Shell level only — not highest privilege, and it cannot read other apps\' private directories.</string>
+
+    <string name="m1_priv_cap_group">Available capabilities</string>
+    <string name="m1_priv_cap_settings">Change system settings</string>
+    <string name="m1_priv_cap_settings_desc">Runs through the AI tool once automation is on and WRITE_SECURE_SETTINGS is granted; this page only shows state.</string>
+    <string name="m1_priv_cap_diag">Device diagnostics</string>
+    <string name="m1_priv_cap_diag_desc">Reads screen structure, performance and permission state for the AI. It changes nothing.</string>
+    <string name="m1_priv_cap_shizuku">Granted Shizuku commands</string>
+    <string name="m1_priv_cap_shizuku_desc">Only the development-level permissions granted above are offered as shell commands; anything else is refused.</string>
+</resources>

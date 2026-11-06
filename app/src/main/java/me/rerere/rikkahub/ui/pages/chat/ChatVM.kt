@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -41,6 +42,7 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.isEmptyInputMessage
 import me.rerere.rikkahub.BuildConfig
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.inputassist.InputAssistReviewState
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.SettingsStore
 import me.rerere.rikkahub.data.draft.ChatDraftStore
@@ -52,11 +54,13 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Avatar
 import me.rerere.rikkahub.data.model.ChatDraft
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.ConversationRuntimeOptions
 import me.rerere.rikkahub.data.model.MessageNode
 import me.rerere.rikkahub.data.model.NodeFavoriteTarget
 import me.rerere.rikkahub.data.model.chatDraftKey
 import me.rerere.rikkahub.data.model.getAssistantOf
 import me.rerere.rikkahub.data.model.getChatModelOf
+import me.rerere.rikkahub.data.model.runtime
 import me.rerere.rikkahub.data.repository.FavoriteRepository
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.service.ChatService
@@ -92,7 +96,77 @@ class ChatVM(
 ) : ViewModel() {
     private val _conversationId: Uuid = Uuid.parse(id)
     val conversation: StateFlow<Conversation> = chatService.getConversationFlow(_conversationId)
+
+    /**
+     * 会话内容是否已经就绪。false 时 [conversation] 里的空列表只是加载中的占位（或上一次打开
+     * 留下的可见内容），页面必须把它当成单独的加载态，不能当成「聊天记录被清空」渲染。
+     * 就绪后的空列表才是用户真正的空会话/已删除。
+     */
+    val contentReady: StateFlow<Boolean> = chatService.getConversationContentReadyFlow(_conversationId)
     var chatListInitialized by mutableStateOf(false) // 聊天列表是否已经滚动到底部
+
+    // ---- 会话内运行时选项（m1）：只作用于当前会话，默认全关 ----
+
+    /** 当前会话的运行时选项；还没固定配置的新会话读默认值（优化/审查/知识库都关） */
+    val runtimeOptions: StateFlow<ConversationRuntimeOptions> = conversation
+        .map { it.runtime }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, conversation.value.runtime)
+
+    /** 正在把选项写回当前会话：面板据此禁用控件，避免在旧值上继续叠开关 */
+    private val _runtimeUpdateBusy = MutableStateFlow(false)
+    val runtimeUpdateBusy: StateFlow<Boolean> = _runtimeUpdateBusy.asStateFlow()
+
+    /**
+     * 写入当前会话的运行时选项。失败时停在原值（面板下一帧读到的还是旧配置，不会显示成已开启），
+     * 并把错误挂到这个会话上，而不是静默吞掉。
+     */
+    fun updateRuntimeOptions(options: ConversationRuntimeOptions) {
+        if (_runtimeUpdateBusy.value) return
+        _runtimeUpdateBusy.value = true
+        viewModelScope.launch {
+            try {
+                chatService.updateConversationRuntimeOptions(_conversationId, options)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                chatService.addError(
+                    error = e,
+                    conversationId = _conversationId,
+                    title = context.getString(R.string.error_title_operation),
+                )
+            } finally {
+                _runtimeUpdateBusy.value = false
+            }
+        }
+    }
+
+    /** 当前会话的输入审查状态；[InputAssistReviewState.Idle] 表示没开或已收起，别的会话读不到这一条 */
+    val inputAssistReview: StateFlow<InputAssistReviewState> =
+        chatService.getInputAssistReviewFlow(_conversationId)
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                InputAssistReviewState.Idle,
+            )
+
+    /** 取消排队中/进行中的独立审查（那是要计费的请求） */
+    fun cancelInputReview() {
+        chatService.cancelInputReview(_conversationId)
+    }
+
+    /** 只收起审查卡，不影响正在跑的审查 */
+    fun dismissInputReview() {
+        chatService.dismissInputReview(_conversationId)
+    }
+
+    /**
+     * 回读这一轮真正发给模型的优化副本。缓存是磁盘上的私有文件，所以整段切 IO：
+     * 页面只拿到一个 String?，不会在主线程读盘。
+     */
+    suspend fun optimizedInputFor(messageId: Uuid): String? = withContext(Dispatchers.IO) {
+        chatService.getOptimizedInput(conversation.value, messageId)
+    }
 
     // 聊天输入状态 - 保存在 ViewModel 中避免 TransactionTooLargeException
     val inputState = ChatInputState()
@@ -162,6 +236,8 @@ class ChatVM(
             yield()
             // 设置还没加载时 `assistant` 是 dummy 助手，这时的 key 是错的，先等它加载完
             withTimeoutOrNull(5_000) { settingsStore.awaitLoaded() }
+            // Loading placeholders may carry the globally selected assistant, not this chat's owner.
+            contentReady.first { it }
             draftKeyFlow.collectLatest { key -> syncDraft(key) }
         }
     }
@@ -392,6 +468,9 @@ class ChatVM(
      * @param answer 是否触发消息生成，如果为false，则仅添加消息到消息列表中
      */
     fun handleMessageSend(content: List<UIMessagePart>, answer: Boolean = true): Boolean {
+        // 内容还没就绪时 conversation 里可能只是空壳占位：它的 assistantId 是"当前选中的助手"，
+        // 不是这个会话真正的助手。这时发出去会把消息和草稿记到另一个助手名下，宁可等这一下。
+        if (!contentReady.value) return false
         if (content.isEmptyInputMessage() || !_draftReady.value) return false
         // answer=true 但没有模型时这一轮必然失败，不能先把输入清掉
         if (answer && currentChatModel.value == null) return false

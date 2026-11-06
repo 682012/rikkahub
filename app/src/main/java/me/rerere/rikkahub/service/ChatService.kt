@@ -38,6 +38,11 @@ import me.rerere.ai.agent.RetryErrorCategory
 import me.rerere.ai.agent.httpStatusOf
 import me.rerere.ai.agent.retryCategoryOf
 import me.rerere.rikkahub.data.ai.RetrySwitch
+import me.rerere.rikkahub.data.ai.inputassist.InputAssistReviewState
+import me.rerere.rikkahub.data.model.ConversationRuntimeOptions
+import me.rerere.rikkahub.data.model.ConversationReviewMode
+import me.rerere.rikkahub.data.model.RunningMessageDelivery
+import me.rerere.rikkahub.data.model.runtime
 import me.rerere.rikkahub.data.ai.retryPolicy
 import me.rerere.common.http.NetworkHandover
 import me.rerere.ai.agent.runAgent
@@ -169,6 +174,7 @@ class ChatService(
     private val subagentRunner: me.rerere.rikkahub.data.ai.subagent.SubagentRunner,
     private val backgroundToolManager: me.rerere.rikkahub.data.ai.tools.background.BackgroundToolManager,
     private val networkHandover: NetworkHandover,
+    private val inputAssist: me.rerere.rikkahub.data.ai.inputassist.InputAssistService,
 ) {
     /** 一轮生成的结果 */
     private sealed interface TurnResult {
@@ -442,6 +448,41 @@ class ChatService(
     fun getConversationFlow(conversationId: Uuid): StateFlow<Conversation> =
         sessionManager.getConversationFlow(conversationId)
 
+    fun getConversationContentReadyFlow(conversationId: Uuid): StateFlow<Boolean> =
+        sessionManager.getConversationContentReadyFlow(conversationId)
+
+    fun getInputAssistReviewFlow(conversationId: Uuid): Flow<InputAssistReviewState> =
+        inputAssist.reviewStates.map { it[conversationId] ?: InputAssistReviewState.Idle }
+            .distinctUntilChanged()
+
+    fun cancelInputReview(conversationId: Uuid) = inputAssist.cancelReview(conversationId)
+
+    fun dismissInputReview(conversationId: Uuid) = inputAssist.dismissReview(conversationId)
+
+    suspend fun getOptimizedInput(conversation: Conversation, messageId: Uuid): String? =
+        withContext(Dispatchers.IO) {
+            inputAssist.optimizedTextFor(conversation, messageId)
+        }
+
+    /** Runtime preferences are metadata of this conversation, never global assistant settings. */
+    suspend fun updateConversationRuntimeOptions(conversationId: Uuid, options: ConversationRuntimeOptions) {
+        withLoadedSession(conversationId) { session ->
+            val settings = settingsStore.awaitLoaded()
+            val owner = session.state.value.assistantId
+            val transform: (Conversation) -> Conversation = { latest ->
+                check(latest.assistantId == owner && !session.isChangingOwner) {
+                    context.getString(R.string.r21_assistant_changed)
+                }
+                val bound = latest.bindConfig(settings)
+                bound.copy(config = checkNotNull(bound.config).copy(runtime = options))
+            }
+            if (!session.updateDraft(transform)) {
+                session.updateMetadata(transform = transform, persist = conversationRepo::updateConversationConfig)
+            }
+            inputAssist.updateOptions(conversationId, options)
+        }
+    }
+
     /** 会话的最新内容：已加载的以内存为准，否则读数据库 */
     suspend fun getConversation(conversationId: Uuid): Conversation? =
         sessionManager.get(conversationId)?.takeIf { it.isInitialized }?.state?.value
@@ -676,7 +717,14 @@ class ChatService(
                         session.awaitingNetworkRecovery = false
                         // Sending a new user message is explicit permission to continue an old paused queue.
                         session.inbox.resume()
-                        val queued = session.inbox.enqueue(parts, answer, persisted = CompletableDeferred())
+                        val steer = shouldSteerInput(
+                            parts = parts, answer = answer, generating = session.isGenerating,
+                            awaitingApproval = session.state.value.isAwaitingToolApproval,
+                            requested = session.state.value.runtime.messageDelivery == RunningMessageDelivery.NEXT_STEP,
+                        )
+                        val queued = session.inbox.enqueue(
+                            parts, answer, persisted = CompletableDeferred(), deliverDuringRun = steer,
+                        )
                         acceptedByQueue = queued != null
                         accepted.complete(acceptedByQueue)
                         dispatchInbox(conversationId)
@@ -766,6 +814,15 @@ class ChatService(
         ) {
             try {
                 ensureInitialized(session)
+                // A crash can happen after the steering notice was flushed but before its
+                // queue acknowledgement. Retrying that item must not start a second model turn.
+                if (queued.deliverDuringRun && queued.isSteeringDeliveredIn(session.state.value.currentMessages)) {
+                    session.inbox.acknowledge(queued.id)
+                    session.submittingMessage = null
+                    queued.persisted?.complete(true)
+                    queued.reply?.complete(null)
+                    return@launchGenerationJob
+                }
                 finishInterruptedPendingTools(session)
 
                 val assistant = settingsStore.awaitLoaded().getStoredAssistantOf(session.state.value)
@@ -1015,6 +1072,7 @@ class ChatService(
         var retries = 0
         var recoveryProgressVisible = recoveryLedger.attempts(conversationId) > 0
         var observedReply: UIMessage? = null
+        var inputUser: UIMessage? = null
         var turnFinishReason: AgentFinishReason? = null
         try {
             // 自动恢复拉起的轮次把**内层**重试彻底关掉（次数 0 且取消无限标记）：整轮的次数由外层
@@ -1056,7 +1114,30 @@ class ChatService(
             // 它会挂起也可能失败，期间或失败后不能还指着上一轮的回复
             session.replyMessageId.value = history.lastOrNull()?.takeIf { it.role == MessageRole.ASSISTANT }?.id
 
-            val turn = requestFactory.createContext(settings, conversation)
+            inputUser = history.lastOrNull { it.role == MessageRole.USER }
+            inputUser?.let { user ->
+                val options = session.state.value.runtime
+                if (options.optimizeUserInput) session.processingStatus.value = "正在优化输入"
+                val incarnation = session.incarnation
+                inputAssist.prepareTurn(settings, conversation, user.id, options)
+                currentCoroutineContext().ensureActive()
+                check(incarnation == session.incarnation && conversation.assistantId == session.state.value.assistantId) {
+                    context.getString(R.string.r21_assistant_changed)
+                }
+                // A switch changed while the auxiliary request was in flight: never apply a late rewrite.
+                if (session.state.value.runtime != options) {
+                    inputAssist.finishTurn(conversationId)
+                    inputAssist.stageSelfCheck(session.state.value, user.id, session.state.value.runtime)
+                }
+                session.processingStatus.value = null
+            }
+            // Auxiliary optimization may suspend while runtime switches change. Use current
+            // options, but query knowledge from exactly the history this request can see.
+            val currentConversation = session.state.value
+            check(currentConversation.assistantId == conversation.assistantId) {
+                context.getString(R.string.r21_assistant_changed)
+            }
+            val turn = requestFactory.createContext(settings, currentConversation, requestMessages = history)
             learningTurn = turn
             senderName = if (turn.assistant.useAssistantAvatar) {
                 turn.assistant.name.ifEmpty { context.getString(R.string.assistant_page_default_assistant) }
@@ -1066,6 +1147,7 @@ class ChatService(
             warnIfToolsUnavailable(turn, conversationId)
 
             var pendingNotices = emptyList<QueuedNotice>()
+            var pendingSteering = emptyList<QueuedMessage>()
             val (request, hooks) = requestFactory.createAgent(
                 turn = turn,
                 messages = history,
@@ -1076,6 +1158,21 @@ class ChatService(
                     session.inbox.acknowledgeNotices(delivered)
                     pendingNotices = fresh
                     fresh.map { it.toDeliveryPart() }
+                },
+                takePendingUserParts = {
+                    if (session.state.value.assistantId != turn.assistant.id ||
+                        session.state.value.runtime.messageDelivery != RunningMessageDelivery.NEXT_STEP ||
+                        session.state.value.isAwaitingToolApproval) {
+                        emptyList()
+                    } else {
+                        val queued = session.inbox.peekSteering()
+                        val (delivered, fresh) = queued.partition {
+                            it.isSteeringDeliveredIn(session.state.value.currentMessages)
+                        }
+                        session.inbox.acknowledgeSteering(delivered)
+                        pendingSteering = fresh
+                        fresh.map { it.toSteeringPart() }
+                    }
                 },
             )
             var finishReason: AgentFinishReason? = null
@@ -1100,13 +1197,16 @@ class ChatService(
                                 (tool.startedAt != null && previous?.first != tool.startedAt) ||
                                     (tool.isExecuted && previous?.second != true)
                             }
-                            if (lifecycleChanged || pendingNotices.isNotEmpty()) {
+                            if (lifecycleChanged || pendingNotices.isNotEmpty() || pendingSteering.isNotEmpty()) {
                                 // Commit start before effects and each completed result without stream throttling.
                                 // AgentLoop waits for this collector, so a killed process cannot silently replay a write.
                                 session.flush()
                                 // Commit notice parts before removing their durable queue entries.
                                 session.inbox.acknowledgeNotices(pendingNotices)
                                 pendingNotices = emptyList()
+                                // Only after the original steering text is durably in the reply may it leave the queue.
+                                session.inbox.acknowledgeSteering(pendingSteering)
+                                pendingSteering = emptyList()
                                 tools.forEach { tool ->
                                     persistedToolStates[tool.toolCallId] = tool.startedAt to tool.isExecuted
                                 }
@@ -1161,6 +1261,19 @@ class ChatService(
             }
 
             val reason = checkNotNull(finishReason)
+            if (reason == AgentFinishReason.Completed) {
+                val original = inputUser
+                val reply = observedReply
+                if (original != null && reply != null && session.state.value.assistantId == turn.assistant.id) {
+                    inputAssist.startReview(
+                        settings = settingsStore.settingsFlow.value,
+                        conversation = session.state.value,
+                        userText = original.toText(), replyText = reply.toText(),
+                        userMessageId = original.id, replyMessageId = reply.id,
+                        options = session.state.value.runtime,
+                    )
+                }
+            }
             // 等待审批时这一轮还没结束，标题、建议和记忆整理等审批之后再做
             if (reason !is AgentFinishReason.AwaitingApproval) {
                 // 标题：发消息时已经按原话起过就用那个；这里只在还没有标题时才补一个，
@@ -1251,6 +1364,7 @@ class ChatService(
             Logging.log(TAG, e.stackTraceToString())
             return TurnResult.Failed
         } finally {
+            inputAssist.finishTurn(conversationId)
             val owner = learningTurn
             val reply = observedReply
             if (owner != null && reply != null && turnFinishReason !is AgentFinishReason.AwaitingApproval) {
@@ -2215,6 +2329,7 @@ class ChatService(
                 withContext(NonCancellable + Dispatchers.IO) {
                     // Reject late notices from old tasks even after a restart. Tool results remain readable
                     // in the explicitly migrated history; they cannot silently start or steer a new turn.
+                    inputAssist.forgetConversation(conversationId)
                     session.changeOwnership(
                         transform = { it.migrateToAssistant(target, settings) },
                         persist = conversationRepo::updateConversation,
@@ -2364,6 +2479,7 @@ class ChatService(
      * 还停在这个会话上的页面看到的是空会话，之后再发消息会新建记录，不会写回已删除的那条。
      */
     suspend fun deleteConversation(conversationId: Uuid) {
+        inputAssist.forgetConversation(conversationId)
         // 后台压缩先停掉：它的结果不能再写进下面这个空会话（incarnation 也会让迟到的提交落空）
         discardCompression(conversationId)
         val session = sessionManager.getOrCreate(conversationId)
@@ -2529,6 +2645,7 @@ class ChatService(
 
     // 停止当前会话生成任务（不清理会话缓存）
     suspend fun stopGeneration(conversationId: Uuid) {
+        inputAssist.cancelReview(conversationId)
         val session = sessionManager.get(conversationId) ?: return
         val jobs = synchronized(session) {
             clearRecovery(conversationId)

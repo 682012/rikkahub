@@ -97,7 +97,13 @@ internal class AgentLoop(
                 if (pending.isNotEmpty()) return finish(AgentFinishReason.AwaitingApproval(pending))
                 executeTools()
             } else if (current != null && steps > 0) {
-                return finish(AgentFinishReason.Completed)
+                // 模型已经给出最终回复。还有步数预算时先问一次运行中插话：有用户输入就追加进本条消息、
+                // 再生成一步，让它看见。预算用完时一次都不问，队列留给之后的新一轮（不吞用户输入）。
+                if (steps < request.maxSteps && appendPendingUserParts(requireModelTurn = false)) {
+                    // 已经追加，落到下面的 generateStep
+                } else {
+                    return finish(AgentFinishReason.Completed)
+                }
             }
             // 继承了已用步数时这里可能已经超过上限（比如换了更小的 maxSteps），用 >= 兜住
             if (steps >= request.maxSteps) return finish(AgentFinishReason.StepLimitReached)
@@ -127,6 +133,8 @@ internal class AgentLoop(
     }
 
     private suspend fun generateStep() {
+        // 用户插话先于后台通知：同一批里用户内容在前，模型看到的是「用户说了什么」再「后台发生了什么」
+        appendPendingUserParts()
         appendPendingParts()
         val current = message
         val step = hooks.prepareStep(if (current == null) history else history + current)
@@ -147,6 +155,28 @@ internal class AgentLoop(
             generate(messages, params, base)
         }
         update(hooks.finishStep(generated, newPartsFrom = base.parts.size).copy(finishedAt = now()))
+    }
+
+    /**
+     * 在安全点把运行中用户插话追加到本条助手消息末尾，返回是否真的追加了内容。
+     *
+     * 安全点 = 没有任何待执行的工具：正在执行工具或等待审批时插话会插到工具结果中间，
+     * 模型看不到结果就先答，工具也不会因此重放。追加只是往消息末尾加 part，
+     * 不取消正在进行的请求、不改写已有内容。
+     *
+     * [requireModelTurn] 为 true 时只在本轮轮到模型的地方追加（新的一轮开始、一批工具跑完之后、
+     * 消息以通知结尾时）。续写半截回复时不追加：那会把一次续写切成两个助手消息。
+     * 用户插话真正要用的判断点是「模型已经给出最终回复」，那里传 false。
+     */
+    private suspend fun appendPendingUserParts(requireModelTurn: Boolean = true): Boolean {
+        val current = message
+        if (current != null && current.getTools().any { !it.isExecuted }) return false
+        if (requireModelTurn && current != null && !current.parts.lastOrNull().isModelsTurn()) return false
+        val parts = hooks.pendingUserParts()
+        if (parts.isEmpty()) return false
+        val base = current ?: UIMessage(role = MessageRole.ASSISTANT, parts = emptyList())
+        update(base.copy(parts = base.parts + parts))
+        return true
     }
 
     // 续写普通回复时最后一个 part 不是执行完的工具或通知，这时追加会把续写变成新的一轮

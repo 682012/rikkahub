@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="r22_input_optimization_usage_source">输入优化</string>
+  <string name="r22_independent_review_usage_source">独立审查</string>
+
+  <!-- 审查卡片（m1）：只写事实——只读文本、不执行工具、取消不退款。 -->
+  <string name="r22_input_review_running_title">正在独立审查</string>
+  <string name="r22_input_review_running_desc">用快速模型读一遍你的这条消息和这条回复，不执行工具，也不重放任务。</string>
+  <string name="r22_input_review_running_cancel_cost">取消只停止等待和这张卡片；已经发出的请求照常计费。</string>
+  <string name="r22_input_review_failed_title">审查未完成</string>
+  <string name="r22_input_review_failed_reason">原因：%1$s</string>
+  <string name="r22_input_review_failed_no_result">模型没有返回可解析的审查结果。</string>
+  <string name="r22_input_review_failed_untouched">回复原文没有被改动，也没有因为审查重新生成。</string>
+  <string name="r22_input_review_dismiss">收起</string>
+
+  <string name="r22_input_review_title_independent">独立审查</string>
+  <string name="r22_input_review_title_self">同模型自查</string>
+  <string name="r22_input_review_cached">· 复用本机已存结果，未再请求</string>
+  <string name="r22_input_review_empty">审查没有列出具体问题。这不等于已验证工作正确，也不代表真的编译或运行过。</string>
+  <string name="r22_input_review_suggestion">建议：%1$s</string>
+  <string name="r22_input_review_limits_independent">这只是文本意见：不执行工具、不重放任务，也无法替代真实的编译或测试运行。</string>
+  <string name="r22_input_review_limits_self">这次自查由当轮同一个模型顺带完成：没有额外请求，也不是独立验证。</string>
+  <string name="r22_input_review_model">审查模型：%1$s</string>
+  <string name="r22_input_review_cost">优化和审查都是额外的模型请求，用量记录里分别记为 INPUT_OPTIMIZATION / REVIEW，单独计费。</string>
+
+  <string name="r22_input_review_compare_show">对照原文与优化版</string>
+  <string name="r22_input_review_compare_hide">收起原文/优化版</string>
+  <string name="r22_input_review_original_label">你的原话（会话里保存的就是这段）</string>
+  <string name="r22_input_review_optimized_label">这一轮发给模型的优化版</string>
+  <string name="r22_input_review_copy_optimized">复制优化版</string>
+
+  <string name="r22_input_review_verdict_ok">未列出问题</string>
+  <string name="r22_input_review_verdict_concern">需要留意</string>
+  <string name="r22_input_review_verdict_risk">有风险</string>
+  <string name="r22_input_review_verdict_unknown">未能判断</string>
+</resources>

@@ -768,6 +768,8 @@ private fun sourceLabel(source: SourceUsage): String {
             UsageSource.SUBAGENT -> R.string.stats_page_source_subagent
             UsageSource.COMPANION -> R.string.stats_page_source_companion
             UsageSource.AUTOFILE -> R.string.r21_autofile_usage_source
+            UsageSource.INPUT_OPTIMIZATION -> R.string.r22_input_optimization_usage_source
+            UsageSource.REVIEW -> R.string.r22_independent_review_usage_source
         }
     )
 }

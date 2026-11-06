@@ -8,8 +8,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.isEmptyInputMessage
-import me.rerere.rikkahub.data.model.Conversation
-import me.rerere.rikkahub.data.model.localFileUrls
 import kotlin.uuid.Uuid
 
 /** 收件箱里等待发给模型的一项 */
@@ -37,6 +35,11 @@ data class QueuedMessage(
      */
     @Transient
     val persisted: CompletableDeferred<Boolean>? = null,
+    /**
+     * 用户在模型生成期间发来的输入：允许在运行中插进当前这一轮（下一步之前），
+     * 不必等这一轮结束。默认 false 保持旧语义（只排队，下一轮再发）。
+     */
+    val deliverDuringRun: Boolean = false,
 ) : InboxItem
 
 /**
@@ -96,17 +99,6 @@ sealed interface InboxTurn {
 
     /** 只有通知在等，单独开一轮；通知在开始时用 [ConversationInbox.takeNotices] 取 */
     data object Notices : InboxTurn
-}
-
-internal fun unreferencedQueuedAttachmentUrls(
-    previous: QueuedMessage,
-    conversations: List<Conversation>,
-    pendingMessages: List<QueuedMessage>,
-): Set<String> {
-    val retainedParts = conversations.flatMap { conversation ->
-        conversation.messageNodes.flatMap { node -> node.messages.flatMap { it.parts } }
-    } + pendingMessages.flatMap { it.parts }
-    return previous.parts.localFileUrls() - retainedParts.localFileUrls()
 }
 
 /** Pending input is kept outside conversation history until dispatched. */
@@ -184,6 +176,7 @@ class ConversationInbox(
         reply: CompletableDeferred<String?>? = null,
         persisted: CompletableDeferred<Boolean>? = null,
         id: Uuid = Uuid.random(),
+        deliverDuringRun: Boolean = false,
     ): QueuedMessage? {
         restore()
         if (parts.isEmptyInputMessage()) {
@@ -201,6 +194,7 @@ class ConversationInbox(
             answer = answer,
             reply = reply,
             persisted = persisted,
+            deliverDuringRun = deliverDuringRun,
         )
         try {
             commit(current.copy(items = current.items + message))
@@ -317,6 +311,78 @@ class ConversationInbox(
         val remaining = current.items.filterNot { it is QueuedNotice && it in targets }
         if (remaining.size == current.items.size) return
         commit(current.copy(items = remaining))
+    }
+
+    /**
+     * 运行中插话的候选快照：**不移除**任何条目，供主代理塞进正在生成的那一轮。
+     *
+     * 只取队首连续的、可插话的用户输入（[QueuedMessage.deliverDuringRun] 且非编辑中、要模型回答、
+     * 全是纯文本）；遇到第一条普通排队输入就停，绝不允许插话跨过它抢序。通知不参与、也不挡路：
+     * 它们由 [takeNotices] 在每步开头单独取走。
+     *
+     * 上限 [STEERING_MAX_MESSAGES] 条 / [STEERING_MAX_TEXT] 字。第一条本身就超长时返回空：
+     * 宁可让它正常走下一轮（[takeNext] 照常发它），也不在这里吞掉。
+     *
+     * 暂停或还有一条 [InboxState.inFlight] 时返回空：那一轮还没确认落库，插进去会让两条输入乱序。
+     */
+    @Synchronized
+    fun peekSteering(): List<QueuedMessage> {
+        restore()
+        val current = mutableState.value
+        if (current.paused || current.inFlight != null) return emptyList()
+        val picked = mutableListOf<QueuedMessage>()
+        var textLength = 0
+        for (item in current.items) {
+            // 通知不是用户输入：既不取也不挡，本轮开头会用 takeNotices 单独取走
+            if (item !is QueuedMessage) continue
+            if (picked.size >= STEERING_MAX_MESSAGES) break
+            if (!item.steerable()) break
+            // 和 shouldSteerInput 同一口径：按拼接后真正发出去的长度算（含文本之间的换行）
+            val length = steeringTextLength(item.parts)
+            if (textLength + length > STEERING_MAX_TEXT) break
+            picked += item
+            textLength += length
+        }
+        return picked
+    }
+
+    /**
+     * 插话交付确认：只移除仍然与 [delivered] 里那条**完全相等**的用户输入（含 id、parts、
+     * answer、deliverDuringRun 等全部字段）。
+     *
+     * 整条判等而不是按 id 匹配，理由同 [acknowledgeNotices]：交付期间用户可能编辑了同一条
+     * （[finishEdit] 换掉 parts），那是还没送到模型的新内容，不能被旧快照顺带删掉。
+     * 不动 [InboxState.inFlight]，也不动任何通知。
+     *
+     * 先落盘再 complete(persisted, true)：写盘失败时异常抛给调用方，队列原样保留，
+     * 重启后 [restore] 会把这些输入放回队首，不会既没插进会话又丢了输入。
+     */
+    @Synchronized
+    fun acknowledgeSteering(delivered: List<QueuedMessage>) {
+        restore()
+        if (delivered.isEmpty()) return
+        val targets = delivered.toSet()
+        val current = mutableState.value
+        val remaining = current.items.filterNot { it is QueuedMessage && it in targets }
+        if (remaining.size != current.items.size) commit(current.copy(items = remaining))
+        // 已经插进会话并落库：草稿可以清了。重复确认在这里是空操作。
+        delivered.forEach { it.persisted?.complete(true) }
+    }
+
+    /** 关掉某一条的运行中插话；已经插进去的内容不受影响，它只是不再参与后续插话 */
+    @Synchronized
+    fun clearSteeringMode(id: Uuid): QueuedMessage? {
+        restore()
+        val current = mutableState.value
+        val target = current.messages.find { it.id == id && it.deliverDuringRun } ?: return null
+        commit(
+            current.copy(
+                items = current.items.map {
+                    if (it is QueuedMessage && it.id == id) it.copy(deliverDuringRun = false) else it
+                },
+            ),
+        )
+        return target
     }
 
     /**

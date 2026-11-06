@@ -210,6 +210,7 @@ object AutomationToolOutcomes {
         "not_found",
         "not_owned",
         "no_bound_assistant",
+        "idempotency_key_required",
         "queue_rejected",
         "ownership_not_persisted",
         "invalid_recipe",

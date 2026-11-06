@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="r22_input_optimization_usage_source">Input optimization</string>
+  <string name="r22_independent_review_usage_source">Independent review</string>
+
+  <!-- Review card (m1). Only facts: text-only review, no tool run, cancel is not a refund. -->
+  <string name="r22_input_review_running_title">Reviewing independently</string>
+  <string name="r22_input_review_running_desc">A fast model reads your message and this reply once. It runs no tools and does not replay the task.</string>
+  <string name="r22_input_review_running_cancel_cost">Cancelling only stops the wait and this card; a request that was already sent is still billed.</string>
+  <string name="r22_input_review_failed_title">Review did not finish</string>
+  <string name="r22_input_review_failed_reason">Reason: %1$s</string>
+  <string name="r22_input_review_failed_no_result">The model returned no parsable review.</string>
+  <string name="r22_input_review_failed_untouched">The reply itself was not changed or regenerated because of the review.</string>
+  <string name="r22_input_review_dismiss">Hide</string>
+
+  <string name="r22_input_review_title_independent">Independent review</string>
+  <string name="r22_input_review_title_self">Same-model self-check</string>
+  <string name="r22_input_review_cached">· reused a local result, no new request</string>
+  <string name="r22_input_review_empty">The reviewer listed no specific problem. That is not proof the work was done correctly, nor that anything was built or run.</string>
+  <string name="r22_input_review_suggestion">Suggestion: %1$s</string>
+  <string name="r22_input_review_limits_independent">This is text-only feedback: it runs no tools, replays no task and cannot replace a real build or test run.</string>
+  <string name="r22_input_review_limits_self">This self-check was done by the same model during the same turn: no extra request, and not independent verification.</string>
+  <string name="r22_input_review_model">Reviewer model: %1$s</string>
+  <string name="r22_input_review_cost">Optimization and review are extra model requests, billed separately in usage as INPUT_OPTIMIZATION / REVIEW.</string>
+
+  <string name="r22_input_review_compare_show">Compare original and optimized</string>
+  <string name="r22_input_review_compare_hide">Hide original/optimized</string>
+  <string name="r22_input_review_original_label">Your original (this is what the conversation stores)</string>
+  <string name="r22_input_review_optimized_label">Optimized copy sent to the model this turn</string>
+  <string name="r22_input_review_copy_optimized">Copy optimized copy</string>
+
+  <string name="r22_input_review_verdict_ok">No listed problem</string>
+  <string name="r22_input_review_verdict_concern">Needs attention</string>
+  <string name="r22_input_review_verdict_risk">At risk</string>
+  <string name="r22_input_review_verdict_unknown">No verdict</string>
+</resources>

@@ -41,6 +41,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.reading.ReadingPreferences
 import me.rerere.rikkahub.ui.components.nav.BackButton
+import me.rerere.rikkahub.ui.components.setting.HighPrivilegeSheet
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.switchItem
 import me.rerere.rikkahub.utils.plus
@@ -81,6 +82,8 @@ fun PermissionHubPage() {
     val permissionPrefs = remember { context.getSharedPreferences("permission_requests", Context.MODE_PRIVATE) }
     val asked = remember { mutableStateListOf<String>().apply { addAll(permissionPrefs.all.keys) } }
     var readLinks by remember { mutableStateOf(ReadingPreferences.enabled(context)) }
+    // 高级权限与设备能力的入口；内容全在同一个 bottomsheet 里，四组都从这一页可达。
+    var highPrivilegeOpen by remember { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         revision++
     }
@@ -203,6 +206,56 @@ fun PermissionHubPage() {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
+                CardGroup(title = { Text(stringResource(R.string.m1_priv_entry_title)) }) {
+                    item(headlineContent = { Text(stringResource(R.string.m1_priv_entry_desc)) })
+                    val open: () -> Unit = { highPrivilegeOpen = true }
+                    item(
+                        onClick = open,
+                        headlineContent = { Text(stringResource(R.string.m1_priv_entry_shizuku)) },
+                        supportingContent = { Text(stringResource(R.string.m1_priv_entry_shizuku_desc)) },
+                        trailingContent = {
+                            Text(
+                                text = stringResource(R.string.m1_priv_entry_open),
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                    )
+                    item(
+                        onClick = open,
+                        headlineContent = { Text(stringResource(R.string.m1_priv_entry_dev)) },
+                        supportingContent = { Text(stringResource(R.string.m1_priv_entry_dev_desc)) },
+                        trailingContent = {
+                            Text(
+                                text = stringResource(R.string.m1_priv_entry_open),
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                    )
+                    item(
+                        onClick = open,
+                        headlineContent = { Text(stringResource(R.string.m1_priv_entry_special)) },
+                        supportingContent = { Text(stringResource(R.string.m1_priv_entry_special_desc)) },
+                        trailingContent = {
+                            Text(
+                                text = stringResource(R.string.m1_priv_entry_open),
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                    )
+                    item(
+                        onClick = open,
+                        headlineContent = { Text(stringResource(R.string.m1_priv_entry_automation)) },
+                        supportingContent = { Text(stringResource(R.string.m1_priv_entry_automation_desc)) },
+                        trailingContent = {
+                            Text(
+                                text = stringResource(R.string.m1_priv_entry_open),
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                    )
+                }
+            }
+            item {
                 CardGroup(title = { Text(stringResource(R.string.r20_permissions_group_system)) }) {
                     systemRows.forEach { row ->
                         val blockedHint: (@Composable () -> Unit)? =
@@ -260,6 +313,14 @@ fun PermissionHubPage() {
                 )
             }
         }
+    }
+
+    // revision 在 ON_RESUME 时自增：从系统设置回来，sheet 里的真实状态会重新读取。
+    if (highPrivilegeOpen) {
+        HighPrivilegeSheet(
+            refreshKey = revision,
+            onDismiss = { highPrivilegeOpen = false },
+        )
     }
 }
 

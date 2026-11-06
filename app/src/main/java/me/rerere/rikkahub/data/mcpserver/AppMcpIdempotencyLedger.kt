@@ -218,7 +218,17 @@ class AppMcpIdempotencyLedger(
         persist()
     }
 
-    private fun idOf(tool: String, key: String, scope: String): String = "$scope#$tool#$key"
+    /**
+     * 账本身份 = 归属域 + `idempotency_key`。**工具名故意不参与**：一个 key 在一个域里只能指向
+     * 一笔操作，换工具就是换了操作，必须在 `decide` 里撞上同一条记录并被拒成
+     * `idempotency_key_reuse`。把 tool 拼进 id 会让"同一个 key 换个工具"直接落成一条全新的
+     * PENDING 并执行，规则 3 的 `existing.tool != tool` 分支也就永远走不到——即一次误用同一个 key
+     * 的调用会把第二个写动作真的执行掉。
+     *
+     * 参数 `tool` 保留是为了所有调用点的可读性（身份不来自它，见上）。
+     */
+    @Suppress("UNUSED_PARAMETER")
+    private fun idOf(tool: String, key: String, scope: String): String = "$scope#$key"
 
     private fun prune() {
         if (entries.size <= maxEntries) return

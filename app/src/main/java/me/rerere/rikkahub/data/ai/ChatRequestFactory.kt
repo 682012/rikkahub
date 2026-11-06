@@ -27,6 +27,11 @@ import me.rerere.ai.ui.UIMessagePart
 import me.rerere.ai.ui.expandNotices
 import me.rerere.ai.ui.limitContext
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.clientprofile.ProfiledRequest
+import me.rerere.rikkahub.data.ai.clientprofile.applyProfile
+import me.rerere.rikkahub.data.ai.execution.ExecutionGuidance
+import me.rerere.rikkahub.data.ai.inputassist.InputAssistRuntime
+import me.rerere.rikkahub.data.ai.inputassist.rewriteRequestMessages
 import me.rerere.rikkahub.data.ai.prompts.buildMemoryPrompt
 import me.rerere.rikkahub.data.ai.tools.ChatToolFactory
 import me.rerere.rikkahub.data.ai.transformers.Base64ImageToLocalFileTransformer
@@ -50,11 +55,14 @@ import me.rerere.rikkahub.data.datastore.NetworkSetting
 import me.rerere.rikkahub.data.datastore.RetryDelayMode
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findProvider
+import me.rerere.rikkahub.data.knowledge.KnowledgeLimits
+import me.rerere.rikkahub.data.knowledge.LocalKnowledgeRepository
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.MemoryFile
 import me.rerere.rikkahub.data.model.getAssistantOf
 import me.rerere.rikkahub.data.model.getChatModelOf
+import me.rerere.rikkahub.data.model.runtime
 import me.rerere.rikkahub.data.repository.MemoryRepository
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.data.repository.memoryId
@@ -81,6 +89,21 @@ class ChatTurnContext(
     val memories: List<MemoryFile>,
     val tools: List<Tool>,
     val learningPrompt: String = "",
+    /**
+     * 本轮固定的客户端协议兼容档；`null` = 未启用（等价原生）。
+     * 一轮只解析一次，所以自动选择的档位在这一轮所有工具步骤里都一样。
+     */
+    val clientProfile: ProfiledRequest? = null,
+    /**
+     * 本轮的知识库参考片段（已带来源/编号、已按预算截断）。
+     * 只在会话开启知识库且本轮命中时非空；一轮只查一次，因此每个工具步骤注入的内容完全一致。
+     */
+    val knowledgeContext: String = "",
+    /**
+     * 本轮的「执行方式」短指引（由 [ExecutionGuidance] 按实际工具生成）。
+     * 会话关闭高效模式、或本轮没有代码类工具时为空串，此时系统提示一个字都不变。
+     */
+    val executionGuidance: String = "",
 ) {
     // The memory snapshot is fixed for this turn; avoid rebuilding it on every tool step.
     val memoryPrompt: String by lazy { if (assistant.enableMemory) buildMemoryPrompt(memories) else "" }
@@ -94,6 +117,8 @@ class ChatRequestFactory(
     private val chatToolFactory: ChatToolFactory,
     private val memoryRepository: MemoryRepository,
     private val learningRepository: AssistantLearningRepository,
+    /** 本地知识库（只读检索）；按需注入不可信参考片段，不做全量注入 */
+    private val knowledgeRepository: LocalKnowledgeRepository,
     templateTransformer: TemplateTransformer,
     workspaceRepository: WorkspaceRepository,
     okHttpClient: okhttp3.OkHttpClient,
@@ -142,6 +167,7 @@ class ChatRequestFactory(
         settings: Settings,
         conversation: Conversation,
         modelOverride: Model? = null,
+        requestMessages: List<UIMessage> = conversation.currentMessages,
     ): ChatTurnContext {
         // 模型、思考级别、搜索、工具等以会话上固定的配置为准；modelOverride 只给压缩这类旁路请求单独指定模型
         check(settings.assistants.any { it.id == conversation.assistantId }) {
@@ -151,6 +177,35 @@ class ChatRequestFactory(
         val model = modelOverride ?: settings.getChatModelOf(conversation)
             ?: throw IllegalStateException("No chat model selected")
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
+        // 客户端兼容档：纯本地判断（provider 类型 / Responses 开关 / 模型名族），不发探测请求；
+        // 一轮只算一次，所以自动选择的档位在本轮所有工具步骤里保持恒定。
+        val clientProfile = applyProfile(
+            params = TextGenerationParams(model = model, sessionId = conversation.id.toString()),
+            setting = provider,
+            profile = conversation.runtime.clientProfile,
+        )
+        // 压缩/摘要这类旁路请求（modelOverride != null）只取文本历史：不带工具、不查知识库、不加执行指引，
+        // 免得为了一份摘要多打一次 SQLite、多塞一套工具说明。
+        val mainTurn = modelOverride == null
+        val runtimeOptions = conversation.runtime
+        // 压缩这类旁路请求只需要文本，指定了单独模型时不带工具，
+        // 避免不支持工具调用的上游直接拒绝请求
+        val tools = if (!mainTurn || (provider is ProviderSetting.WebAccount && !provider.toolBridgeEnabled)) {
+            emptyList()
+        } else {
+            chatToolFactory.createTools(
+                settings = settings,
+                assistant = assistant,
+                model = model,
+                workspaceCwd = conversation.workspaceCwd,
+                conversationId = conversation.id,
+                // 知识库工具只在这个会话真的开启后才进工具目录；scope 固定为当前助手
+                knowledgeEnabled = runtimeOptions.knowledgeEnabled,
+            ).let { tools ->
+                if (provider is ProviderSetting.WebAccount) tools.map { it.copy(needsApproval = { true }) }
+                else tools
+            }
+        }
         return ChatTurnContext(
             settings = settings,
             assistant = assistant,
@@ -168,23 +223,46 @@ class ChatRequestFactory(
                 Log.w(TAG, "Learning unavailable; continuing without experience hints", e)
                 ""
             },
-            // 压缩这类旁路请求只需要文本，指定了单独模型时不带工具，
-            // 避免不支持工具调用的上游直接拒绝请求
-            tools = if (modelOverride != null || (provider is ProviderSetting.WebAccount && !provider.toolBridgeEnabled)) {
-                emptyList()
-            } else {
-                chatToolFactory.createTools(
-                    settings = settings,
-                    assistant = assistant,
-                    model = model,
-                    workspaceCwd = conversation.workspaceCwd,
-                    conversationId = conversation.id,
-                ).let { tools ->
-                    if (provider is ProviderSetting.WebAccount) tools.map { it.copy(needsApproval = { true }) }
-                    else tools
-                }
-            },
+            tools = tools,
+            clientProfile = clientProfile,
+            // 一轮只查一次知识库，片段挂在用户请求尾部（不可信引用），工具步骤里原样复用
+            knowledgeContext = if (mainTurn && runtimeOptions.knowledgeEnabled) {
+                knowledgeContextFor(assistant, requestMessages)
+            } else "",
+            // 高效模式：按实际拿到的工具生成短指引；关掉或没有代码类工具时为空，系统提示不变
+            executionGuidance = if (mainTurn && runtimeOptions.efficientTools) {
+                ExecutionGuidance.forTools(tools)
+            } else "",
         )
+    }
+
+    /**
+     * 本轮的知识库参考片段。
+     *
+     * 只用**当前这条用户消息的原始文本**（`currentMessages` 里最后一条 USER）当查询：
+     * 不用 assistant 侧尾输出，也没有未来消息；同一（助手, 文本）一轮只查一次。
+     * 知识库不可用时只记一条日志、照常发原请求，绝不因为本地索引问题拦住对话。
+     */
+    private suspend fun knowledgeContextFor(assistant: Assistant, requestMessages: List<UIMessage>): String {
+        val query = requestMessages
+            .lastOrNull { it.role == MessageRole.USER }
+            ?.toText()
+            ?.trim()
+            .orEmpty()
+        if (query.isBlank()) return ""
+        // The turn retains its result; a new turn must see document edits and deletions.
+        return try {
+            knowledgeRepository.buildKnowledgeContext(
+                assistantId = assistant.id,
+                query = query,
+                maxChars = KnowledgeLimits.CONTEXT_DEFAULT_MAX_CHARS,
+            ).orEmpty()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Knowledge unavailable; continuing without local references", e)
+            ""
+        }
     }
 
     /**
@@ -196,6 +274,7 @@ class ChatRequestFactory(
         messages: List<UIMessage>,
         processingStatus: MutableStateFlow<String?>,
         takePendingParts: suspend () -> List<UIMessagePart> = { emptyList() },
+        takePendingUserParts: suspend () -> List<UIMessagePart> = { emptyList() },
     ): Pair<AgentRequest, AgentHooks> {
         val request = AgentRequest(
             provider = usageRecorder.wrap(
@@ -213,7 +292,16 @@ class ChatRequestFactory(
         val hooks = object : AgentHooks {
             override suspend fun prepareStep(messages: List<UIMessage>): StepRequest {
                 Log.i(TAG, "prepareStep: ${turn.model.id}")
-                return buildStep(turn, messages, processingStatus)
+                // 输入优化/自查只改「发出去的那一份」：按 assistantId + 消息 hash 精确替换那一条用户消息，
+                // 会话里存的原话、完整历史、通知和 tool result 全都不动。默认关闭时这里是恒等变换。
+                return buildStep(
+                    turn = turn,
+                    messages = rewriteRequestMessages(
+                        messages,
+                        InputAssistRuntime.stateFor(turn.conversationId)?.takeIf { it.assistantId == turn.assistant.id },
+                    ),
+                    processingStatus = processingStatus,
+                )
             }
 
             override suspend fun previewStep(message: UIMessage, newPartsFrom: Int) =
@@ -229,6 +317,8 @@ class ChatRequestFactory(
                 }
 
             override suspend fun pendingParts() = takePendingParts()
+
+            override suspend fun pendingUserParts() = takePendingUserParts()
         }
         return request to hooks
     }
@@ -366,7 +456,9 @@ class ChatRequestFactory(
         }
         val requestMessages = buildList {
             buildSystemMessage(turn, tools, messages)?.let { add(it) }
-            addAll(preparedMessages)
+            // 知识库参考：不可信引用，只挂在最后一条用户消息尾部（不塞系统提示、不改历史）。
+            // 放在 transforms 之前，动态时钟（TimeReminder 追加在请求尾部）仍然是最后一条。
+            addAll(attachKnowledgeReference(preparedMessages, turn.knowledgeContext))
         }.transforms(
             transformers = if (allowSequentialVision) inputTransformers else compactionInputTransformers,
             context = context,
@@ -435,6 +527,14 @@ class ChatRequestFactory(
                 val guidance = tool.systemPrompt(turn.model, messages)
                 if (guidance.isNotBlank()) add("工具 · ${tool.name}" to guidance)
             }
+            // 高效模式的小节：只讲怎么用已经给的入口，不改工具、不改权限（关闭时为空，不产生任何 diff）
+            if (turn.executionGuidance.isNotBlank()) {
+                add(ExecutionGuidance.SECTION_TITLE to turn.executionGuidance)
+            }
+            // 客户端兼容档的风格引导：独立小节、不替换主提示词、不改身份
+            turn.clientProfile?.guidance?.takeIf { it.isNotBlank() }?.let { guidance ->
+                add("客户端风格 · 工具用法" to guidance)
+            }
         }
         PromptCompositionStore.record(assistant.id.toString(), turn.model.displayName,
             sections.map { PromptSection(it.first, it.second.length) })
@@ -442,23 +542,44 @@ class ChatRequestFactory(
         return if (system.isNotBlank()) UIMessage.system(prompt = system).copy(isSynthetic = true) else null
     }
 
-    private fun buildParams(turn: ChatTurnContext, tools: List<Tool>) = TextGenerationParams(
-        model = turn.model,
-        temperature = turn.assistant.temperature,
-        topP = turn.assistant.topP,
-        maxTokens = turn.assistant.maxTokens,
-        tools = tools,
-        reasoningLevel = turn.assistant.reasoningLevel,
-        customHeaders = buildList {
-            addAll(turn.assistant.customHeaders)
-            addAll(turn.model.customHeaders)
-        },
-        customBody = buildList {
-            addAll(turn.assistant.customBodies)
-            addAll(turn.model.customBodies)
-        },
-        sessionId = turn.conversationId.toString(),
-    )
+    private fun buildParams(turn: ChatTurnContext, tools: List<Tool>): TextGenerationParams {
+        val params = TextGenerationParams(
+            model = turn.model,
+            temperature = turn.assistant.temperature,
+            topP = turn.assistant.topP,
+            maxTokens = turn.assistant.maxTokens,
+            tools = tools,
+            reasoningLevel = turn.assistant.reasoningLevel,
+            customHeaders = buildList {
+                addAll(turn.assistant.customHeaders)
+                addAll(turn.model.customHeaders)
+            },
+            customBody = buildList {
+                addAll(turn.assistant.customBodies)
+                addAll(turn.model.customBodies)
+            },
+            sessionId = turn.conversationId.toString(),
+        )
+        // 兼容档只补不覆盖：用户/助手/模型的自定义头与请求体优先，同名去重；
+        // 原生档（NATIVE / 不支持而降级）时原样返回，一个字节都不改。
+        return turn.clientProfile?.applyTo(params) ?: params
+    }
+
+    /**
+     * 把知识库参考片段挂到用户请求尾部。
+     *
+     * 只追加到**最后一条 USER 消息**的文本 part 后面：消息条数与角色顺序不变（各协议都接受），
+     * 前面的静态前缀也不受影响；同一轮每个工具步骤注入的都是同一份文本（[ChatTurnContext] 里固定）。
+     */
+    private fun attachKnowledgeReference(messages: List<UIMessage>, reference: String): List<UIMessage> {
+        if (reference.isBlank()) return messages
+        val index = messages.indexOfLast { it.role == MessageRole.USER }
+        if (index == -1) return messages
+        val target = messages[index]
+        return messages.toMutableList().also { list ->
+            list[index] = target.copy(parts = target.parts + UIMessagePart.Text("\n\n$reference"))
+        }
+    }
 }
 
 /**

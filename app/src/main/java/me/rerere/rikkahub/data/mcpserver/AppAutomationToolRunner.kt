@@ -48,7 +48,35 @@ class AppAutomationToolRunner(
                     readOnly = descriptor.readOnly,
                 )
             }
-        return appTools + deviceTools
+        return appTools + deviceTools + privilegedTools(gates)
+    }
+
+    /**
+     * 高权限中心的 `android_*` 工具（deviceprivilege）。
+     *
+     * 之前这里只做到了"按名字执行能到达"，步骤下拉里看不见 —— 因为拿不到 suspend 的授权查询。
+     * 现在用 [HighPrivilegeMcpProxy.automationCatalog]（非 suspend，内部仍然现查控制器，
+     * 不缓存、不弹框），过滤条件与执行时**同一口径**：
+     *
+     * - MCP/自动化自己的开关：`allowRead` 是底座，`allowDevice` 必须显式打开；
+     * - 必须有绑定助手（null/空白 ≠ 全部助手）；
+     * - 权限中心自动化已开启，且绑定的是**同一个**助手。
+     *
+     * 写开关与 Shizuku 就绪刻意不在这里过滤：它们是每次调用都要重核的门禁，先让用户能把配方写出来；
+     * 真跑的时候该拒的照拒（`not_granted`，不重试、不降级、不 fallback）。
+     * `readOnly` 直接取工具自己的声明，避免把 `android_settings_get` 误判成写、把后续步骤卡成未知副作用。
+     */
+    private fun privilegedTools(gates: AppMcpGates): List<AutomationToolSpec> {
+        if (!gates.read || !gates.grants(AppMcpGate.DEVICE)) return emptyList()
+        val proxy = host.privilegedProxy() ?: return emptyList()
+        val bound = gates.boundAssistantId?.trim()?.takeIf { it.isNotEmpty() } ?: return emptyList()
+        return runCatching { proxy.automationCatalog(bound) }.getOrDefault(emptyList()).map { descriptor ->
+            AutomationToolSpec(
+                name = descriptor.name,
+                description = descriptor.description,
+                readOnly = descriptor.readOnly,
+            )
+        }
     }
 
     override suspend fun execute(tool: String, arguments: JsonObject): AutomationToolResult {
@@ -63,8 +91,13 @@ class AppAutomationToolRunner(
             )
         }
         val gates = gatesSource.current()
+        val privileged = host.privilegedProxy()
+        // 只做静态元数据读取（不是授权）：用来判"这个名字是不是写"，以及给结果分类。
+        val privilegedTool = privileged?.descriptorOrNull(tool)
         val known = AppMcpToolCatalog.find(tool) != null ||
-            runCatching { DeviceToolCatalog.descriptors().any { it.name == tool } }.getOrDefault(false)
+            runCatching { DeviceToolCatalog.descriptors().any { it.name == tool } }.getOrDefault(false) ||
+            // 高权限中心工具（deviceprivilege）：只认名字白名单，其余仍然 unknown_tool。
+            (privileged?.handles(tool) == true)
         if (!known) {
             // 清单外的工具一律拒绝：不会把参数丢给"所有 App 工具"试一遍。
             return AutomationToolResult(
@@ -77,7 +110,9 @@ class AppAutomationToolRunner(
             )
         }
         val spec = AppMcpToolCatalog.find(tool)
-        val requiresKey = spec?.requiresIdempotencyKey ?: (tool.startsWith("device_") && isDeviceWrite(tool))
+        val requiresKey = spec?.requiresIdempotencyKey
+            ?: (tool.startsWith("device_") && isDeviceWrite(tool)) ||
+            (privileged?.requiresIdempotencyKey(tool) == true)
         val withKey = if (requiresKey && arguments[AppMcpToolCatalog.IDEMPOTENCY_KEY_FIELD] == null) {
             JsonObject(
                 arguments + (
@@ -101,9 +136,10 @@ class AppAutomationToolRunner(
         val result = host.call(tool, withKey)
         // 结果归类（ok / 未执行 / 未知副作用 / 需要审批）走纯函数，别在这里拍死 ok=false。
         // readOnly 读不出来时按"写"处理：宁可多要一次确认，也不能漏掉可能的副作用。
+        // android_* 的只读标记取工具自己的声明（静态元数据，不是授权）；最后兜底仍是"当写处理"。
         return AutomationToolOutcomes.fromHostResult(
             tool = tool,
-            readOnly = spec?.readOnly ?: deviceReadOnly(tool),
+            readOnly = spec?.readOnly ?: privilegedTool?.readOnly ?: deviceReadOnly(tool),
             result = result,
         )
     }

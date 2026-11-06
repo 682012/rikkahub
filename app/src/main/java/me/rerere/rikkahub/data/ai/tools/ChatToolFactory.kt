@@ -68,6 +68,13 @@ class ChatToolFactory(
     ),
     private val deviceBridge: me.rerere.rikkahub.data.devicecontrol.DeviceControlBridge? = null,
     private val localMcpSettings: me.rerere.rikkahub.data.mcpserver.LocalMcpSettingsStore? = null,
+    /** 本地知识库：只在会话开启知识库时把只读工具加进目录（scope 固定为当前助手） */
+    private val localKnowledgeRepository: me.rerere.rikkahub.data.knowledge.LocalKnowledgeRepository,
+    /**
+     * m1 高权限中心（deviceprivilege）。默认 null = 目录里**没有** android_* 工具。
+     * 只有用户在权限中心把自动化授权打开并绑定到当前助手时才加进来（见 [createHighPrivilegeTools]）。
+     */
+    private val highPrivilegeToolHost: me.rerere.rikkahub.data.deviceprivilege.HighPrivilegeToolHost? = null,
 ) {
     suspend fun createTools(
         settings: Settings,
@@ -75,6 +82,8 @@ class ChatToolFactory(
         model: Model,
         workspaceCwd: String? = null,
         conversationId: Uuid? = null,
+        /** 会话 runtime 的知识库开关；默认 false = 老行为，工具目录里没有知识库工具 */
+        knowledgeEnabled: Boolean = false,
     ): List<Tool> {
         // fork: 工作区实体只取一次，工具可见性判断共用同一份 workspace
         val workspace = assistant.workspaceId?.toString()
@@ -91,6 +100,11 @@ class ChatToolFactory(
             if (assistant.enableMemory) {
                 addAll(buildMemoryTools(memoryRepository, assistant.memoryId))
             }
+            // 只读、PARALLEL_DEDUPLICATED；没开会话开关就不出现在工具目录里。
+            // 作用域用 assistant.id（当前助手），模型没有办法查别的助手。
+            if (knowledgeEnabled) {
+                addAll(createKnowledgeTools(localKnowledgeRepository, assistant.id))
+            }
             if (shouldUseExternalWebSearch(assistant, model)) {
                 addAll(createSearchTools(settings))
             }
@@ -100,6 +114,11 @@ class ChatToolFactory(
                 addAll(createConversationTools(conversationRepository, assistant.id))
             }
             addAll(workspaceTools)
+            // m1 高权限工具：opt-in。未开启 / 未绑定 / 绑的是别的助手 → 这里返回空，
+            // 工具名与既有工具集完全不变（最终顺序由 prepareEfficientTools 的 sortedBy 决定）。
+            if (highPrivilegeToolHost != null) {
+                addAll(createHighPrivilegeTools(highPrivilegeToolHost, assistant.id.toString()))
+            }
             if (assistant.enabledSkills.isNotEmpty()) {
                 addAll(
                     createSkillTools(

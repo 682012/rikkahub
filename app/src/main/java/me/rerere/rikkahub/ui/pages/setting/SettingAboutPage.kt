@@ -185,7 +185,7 @@ fun SettingAboutPage() {
                             ),
                             leadingContent = { CardGroupIcon(HugeIcons.Code, containerColor = containerColor, contentColor = contentColor) },
                             supportingContent = {
-                                Text("${BuildConfig.VERSION_NAME} / ${BuildConfig.VERSION_CODE}")
+                                Text("Meridian · ${BuildConfig.VERSION_NAME} / ${BuildConfig.VERSION_CODE}")
                             },
                             headlineContent = { Text(stringResource(R.string.about_page_version)) },
                         )

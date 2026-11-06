@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.service.stability.ChatSnapshotCache
+import me.rerere.rikkahub.service.stability.ChatSnapshotRetention
 import kotlin.uuid.Uuid
 
 /** Owns runtime sessions; loading and message dispatch belong to ChatService, persistence goes through [ConversationStore]. */
@@ -27,6 +29,17 @@ class ConversationSessionManager(
     private val lock = Any()
     private val sessions = MutableStateFlow<Map<Uuid, ConversationSession>>(emptyMap())
 
+    /**
+     * 上次回收时留下的已加载内容，按真实会话 id 隔离。
+     *
+     * 回收后再打开同一个会话，会话对象（和它的 StateFlow）是新的：如果又从一个空壳占位开始，
+     * 页面会先把空列表画出来，等读库完成才恢复——用户看到的就是「聊天记录瞬间清空/闪白」。
+     * 用上一份可见内容当占位初值，读库结果随后照样覆盖它（isInitialized 仍为 false，
+     * 加载完成前不接受修改），所以不会出现旧内容盖住新内容。
+     * 只在已落库且已加载过时保留，删除/清空后不会留着旧内容（见 [ChatSnapshotRetention]）。
+     */
+    private val retained = ChatSnapshotCache<Uuid, Conversation>()
+
     fun get(conversationId: Uuid): ConversationSession? = sessions.value[conversationId]
 
     fun snapshot(): List<ConversationSession> = sessions.value.values.toList()
@@ -36,7 +49,7 @@ class ConversationSessionManager(
         lateinit var session: ConversationSession
         session = ConversationSession(
             id = conversationId,
-            initial = createInitialConversation(conversationId),
+            initial = retained.take(conversationId) ?: createInitialConversation(conversationId),
             scope = scope,
             store = store,
             onIdle = { removeIfIdle(session) },
@@ -79,6 +92,13 @@ class ConversationSessionManager(
     internal fun removeIfIdle(session: ConversationSession) {
         val removed = synchronized(lock) {
             if (get(session.id) !== session || session.isInUse) return
+            // Publish retention and registry removal atomically. A concurrent acquire must see
+            // either the live session or its retained content, never an empty gap between them.
+            if (ChatSnapshotRetention.shouldRetain(session.isInitialized, session.existsInDatabase)) {
+                retained.put(session.id, session.state.value)
+            } else {
+                retained.remove(session.id)
+            }
             sessions.value = sessions.value - session.id
             session
         }
@@ -89,6 +109,7 @@ class ConversationSessionManager(
 
     fun cleanup() {
         val removed = synchronized(lock) {
+            retained.clear()
             snapshot().also { sessions.value = emptyMap() }
         }
         removed.forEach { it.cleanup() }
@@ -96,6 +117,13 @@ class ConversationSessionManager(
 
     fun getConversationFlow(conversationId: Uuid): StateFlow<Conversation> =
         getOrCreate(conversationId).state
+
+    /**
+     * 会话内容是否已经就绪。false 时页面的空列表只是占位，必须当成加载中，
+     * 不能当成「聊天记录被清空了」。
+     */
+    fun getConversationContentReadyFlow(conversationId: Uuid): StateFlow<Boolean> =
+        getOrCreate(conversationId).contentReady
 
     fun getProcessingStatusFlow(conversationId: Uuid): StateFlow<String?> =
         getOrCreate(conversationId).processingStatus

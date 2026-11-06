@@ -4,7 +4,7 @@ package me.rerere.rikkahub.data.devicecontrol
  * 抓树时的纯规则：敏感字段识别、内容脱敏、字数截断。
  *
  * 这里不引用 android.text.InputType / AccessibilityNodeInfo，常量自己写死，单测能直接跑。
- * 敏感判定按 inputType 的低字节比对（密码变体）——比"包含某一位"更少误判：
+ * 敏感判定分别比对 inputType 的类型与变体（忽略高位 flags）——比"包含某一位"更少误判：
  * 普通文本 + 自动纠正等组合位不至于被当成密码。
  */
 object DeviceTreeRules {
@@ -13,7 +13,7 @@ object DeviceTreeRules {
     const val TYPE_TEXT_VARIATION_PASSWORD = 0x00000080
     const val TYPE_TEXT_VARIATION_VISIBLE_PASSWORD = 0x00000090
     const val TYPE_NUMBER_VARIATION_PASSWORD = 0x00000010
-    const val TYPE_TEXT_VARIATION_WEB_PASSWORD = 0x000000a1
+    const val TYPE_TEXT_VARIATION_WEB_PASSWORD = 0x000000e0
 
     private val passwordVariations = setOf(
         TYPE_TEXT_VARIATION_PASSWORD,
@@ -27,8 +27,19 @@ object DeviceTreeRules {
         "password", "passwd", "passcode", "passphrase", "密码", "密碼", "パスワード", "비밀번호",
     )
 
-    fun isPasswordInputType(inputType: Int): Boolean =
-        (inputType and 0xff) in passwordVariations && inputType != 0
+    fun isPasswordInputType(inputType: Int): Boolean {
+        val inputClass = inputType and 0x0f
+        val variation = inputType and 0x0ff0
+        return when (inputClass) {
+            // Also accept variation-only values for compatibility with exported node data.
+            0 -> variation in passwordVariations
+            1 -> variation == TYPE_TEXT_VARIATION_PASSWORD ||
+                variation == TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
+                variation == TYPE_TEXT_VARIATION_WEB_PASSWORD
+            2 -> variation == TYPE_NUMBER_VARIATION_PASSWORD
+            else -> false
+        }
+    }
 
     fun looksSensitive(vararg hints: String?): Boolean {
         for (hint in hints) {

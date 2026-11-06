@@ -63,6 +63,11 @@ class ConversationSession(
     var isInitialized = false
         private set
 
+    // 内容是否已经就绪（加载完成或显式替换完成）。页面用它区分「占位空壳，还在加载」和
+    // 「会话确实是空的」：未就绪时的空列表只是暂时的，不能当成清空；就绪后的空列表才是真的空。
+    private val _contentReady = MutableStateFlow(false)
+    val contentReady: StateFlow<Boolean> = _contentReady.asStateFlow()
+
     // 上次落库、加载或新建时的状态，内存还是这个实例就说明没有要落库的修改；只在 writeMutex 内修改
     private var lastWritten: Conversation = initial
 
@@ -113,6 +118,7 @@ class ConversationSession(
             synchronized(this) {
                 _state.value = cleanedConversation
                 isInitialized = true
+                _contentReady.value = true
             }
             if (cleanedConversation !== conversation) withContext(NonCancellable) { flush() }
         }
@@ -312,6 +318,9 @@ class ConversationSession(
                 synchronized(this) {
                     _state.value = conversation
                     isInitialized = true
+                    // 删除/清空也走这里：状态就是最新的真实内容（可能是空会话），标记就绪
+                    // 之后页面才会把它当成「真的空」而不是「还在加载」
+                    _contentReady.value = true
                     incarnation++
                 }
                 lastWritten = conversation

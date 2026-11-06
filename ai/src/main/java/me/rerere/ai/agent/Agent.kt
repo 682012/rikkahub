@@ -56,6 +56,19 @@ interface AgentHooks {
      * 否则追加的内容会变成新的一轮。返回的 part 会立即写回消息，调用方取出后应当不再重复返回。
      */
     suspend fun pendingParts(): List<UIMessagePart> = emptyList()
+
+    /**
+     * 运行中用户插话：用户在模型生成期间发来的输入，返回的 part 会作为新的一轮用户内容
+     * 追加到本轮助手消息末尾，让下个步骤立刻看到。
+     *
+     * 和 [pendingParts] 分开是因为语义不同：[pendingParts] 是后台事件，不能自己催动模型多跑一步；
+     * 这里返回了内容就说明用户要求模型现在回应，所以模型给出最终回复后仍会再走一步（见 [runAgent]）。
+     * 只在安全点调用：没有待执行的工具、不在等审批时。返回的内容会立即写回消息，调用方取出后
+     * 应当不再重复返回（主代理负责 ack 收件箱）。
+     *
+     * 默认空实现：既有调用方行为完全不变。
+     */
+    suspend fun pendingUserParts(): List<UIMessagePart> = emptyList()
 }
 
 data class StepRequest(

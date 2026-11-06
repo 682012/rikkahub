@@ -1,6 +1,7 @@
 package me.rerere.rikkahub.ui.pages.chat
 
 import android.net.Uri
+import android.content.ClipData
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,6 +38,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -56,16 +59,20 @@ import kotlinx.coroutines.launch
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.ProviderSetting
+import me.rerere.ai.core.MessageRole
+import me.rerere.rikkahub.data.ai.clientprofile.resolveClientProfile
 import me.rerere.rikkahub.data.ai.clearSequentialImageFlags
 import me.rerere.rikkahub.data.ai.markSequentialImages
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.R
+import me.rerere.rikkahub.data.ai.inputassist.InputAssistReviewState
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findProvider
 import me.rerere.rikkahub.data.datastore.getSelectedASRProvider
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.runtime
 import me.rerere.rikkahub.data.repository.WorkspaceRepository
 import me.rerere.rikkahub.service.ChatError
 import me.rerere.rikkahub.ui.components.ai.ChatAttachmentPickerActions
@@ -374,8 +381,50 @@ private fun ChatPageContent(
     var showFilesSheet by remember { mutableStateOf(false) }
     // 压缩状态挂在 ChatService 上：切页、锁屏回来仍显示当前阶段，不靠弹窗自己的任务对象
     val compressionState by vm.compressionState.collectAsStateWithLifecycle()
+    // 内容还没就绪时，conversation 里的空列表只是加载占位（也可能还挂着上一次的可见内容），
+    // 不能当成「聊天记录被清空」渲染，也不能拿来发消息。
+    val contentReady by vm.contentReady.collectAsStateWithLifecycle()
+    val clipboard = LocalClipboard.current
+
+    // ---- 会话内运行时选项（m1）----
+    var showRuntimePanel by rememberSaveable { mutableStateOf(false) }
+    var showKnowledgePanel by rememberSaveable { mutableStateOf(false) }
+    val runtimeOptions = conversation.runtime
+    val runtimeBusy by vm.runtimeUpdateBusy.collectAsStateWithLifecycle()
+    // 审查卡：非 Idle 才出现；换会话就是另一个 ChatVM，不会显示上一个会话的结论
+    val reviewState by vm.inputAssistReview.collectAsStateWithLifecycle()
+    // 兼容档的判定完全走 clientprofile 的纯函数（AUTO 也是本地判断），UI 自己不算
+    val clientProfileDecision = remember(runtimeOptions.clientProfile, currentChatModel, setting.providers) {
+        val model = currentChatModel
+        val provider = model?.findProvider(setting.providers)
+        if (model == null || provider == null) null
+        else resolveClientProfile(provider, model, runtimeOptions.clientProfile)
+    }
+    // 对照只认最新一条真实的用户消息（currentMessages 是会话当前选中的分支）
+    val latestUserMessage = conversation.currentMessages.lastOrNull { it.role == MessageRole.USER }
+    val latestUserText = latestUserMessage?.toText()?.takeIf { it.isNotBlank() }
+    val optimizedInput = rememberOptimizedInput(
+        messageId = latestUserMessage?.id,
+        enabled = showRuntimePanel || reviewState !is InputAssistReviewState.Idle,
+        load = vm::optimizedInputFor,
+    )
+    val copiedHintForToast = stringResource(R.string.m1_runtime_optimized_copied)
+    val copyOptimized: (String) -> Unit = { text ->
+        val copiedHint = copiedHintForToast
+        scope.launch {
+            clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("optimized-input", text)))
+            toaster.show(copiedHint)
+        }
+    }
+    val contentNotReadyHint = stringResource(R.string.m1_runtime_send_not_ready)
     // r17: 按已保存规则直接发送，不再逐次弹窗。标记随消息固定，重试不会受后来改设置影响。
     fun submitCurrentInput(answer: Boolean) {
+        // 内容还没就绪：这时的 conversation 可能只是空壳（assistant、草稿 key 都还没对上这个会话），
+        // 先让用户等一下，别把消息/草稿记到别的助手名下
+        if (!contentReady) {
+            toaster.show(contentNotReadyHint)
+            return
+        }
         val currentParts = clearSequentialImageFlags(inputState.getContents())
         val policy = setting.displaySetting.multiImageSend.normalized()
         val supportsVision = currentChatModel?.inputModalities?.contains(Modality.IMAGE) == true
@@ -473,6 +522,22 @@ private fun ChatPageContent(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                         )
                     }
+                    // 输入辅助结果：非 Idle 才出现，默认折叠成一行，展开后限高 180dp
+                    InputAssistReviewSection(
+                        state = reviewState,
+                        originalText = latestUserText,
+                        optimizedText = optimizedInput.text,
+                        onCancel = vm::cancelInputReview,
+                        onDismiss = vm::dismissInputReview,
+                        onCopyOptimized = copyOptimized,
+                    )
+                    // 会话选项：一条紧凑按钮 + 当前开启项摘要
+                    ConversationRuntimeBar(
+                        options = runtimeOptions,
+                        busy = runtimeBusy,
+                        clientProfileLabel = clientProfileDecision?.label,
+                        onOpen = { showRuntimePanel = true },
+                    )
                     ChatInput(
                     onStartVoiceMode = onStartVoiceMode,
                     voiceState = voiceState,
@@ -517,7 +582,8 @@ private fun ChatPageContent(
                 innerPadding = innerPadding,
                 conversation = conversation,
                 state = chatListState,
-                loading = loadingJob != null,
+                // 内容还没就绪时的空列表只是占位：当成单独的加载态，不能把已有消息换成空
+                loading = loadingJob != null || !contentReady,
                 processingStatus = processingStatus,
                 previewMode = previewMode,
                 settings = setting,
@@ -591,6 +657,39 @@ private fun ChatPageContent(
                 onStartVoiceMode = onStartVoiceMode,
                 onDismiss = { showFilesSheet = false },
             )
+        }
+
+        // 会话选项面板：6 组开关全部读写当前会话的 runtime 配置
+        if (showRuntimePanel) {
+            ModalBottomSheet(onDismissRequest = { showRuntimePanel = false }) {
+                ConversationRuntimePanel(
+                    options = runtimeOptions,
+                    busy = runtimeBusy,
+                    clientProfileDecision = clientProfileDecision,
+                    originalText = latestUserText,
+                    optimizedInput = optimizedInput,
+                    onChange = vm::updateRuntimeOptions,
+                    onOpenKnowledge = {
+                        // 面板里点「管理资料」：先收起这一层，知识库面板才不会叠在上面
+                        showRuntimePanel = false
+                        showKnowledgePanel = true
+                    },
+                    onCopyOptimized = copyOptimized,
+                )
+            }
+        }
+
+        // 知识库面板：按这个对话真正的助手打开，别用全局当前助手（会写错范围）
+        if (showKnowledgePanel) {
+            ModalBottomSheet(onDismissRequest = { showKnowledgePanel = false }) {
+                // Dispose the old owner's UI state and in-flight management jobs on migration.
+                androidx.compose.runtime.key(conversation.assistantId) {
+                    me.rerere.rikkahub.ui.components.knowledge.LocalKnowledgePanel(
+                        assistantId = conversation.assistantId,
+                        onDismiss = { showKnowledgePanel = false },
+                    )
+                }
+            }
         }
     }
 

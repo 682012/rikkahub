@@ -35,6 +35,42 @@
     android:name="android.permission.READ_EXTERNAL_STORAGE"
     android:maxSdkVersion="32" />
 
+  <!-- ===================================================================================
+       Meridian m1 高权限中心：**只声明，不自动授予**。
+       声明只是让 `pm grant` / 系统设置页能对上号；装完仍然全是拒绝状态，
+       App 启动时不会弹任何权限框，由用户在权限中心逐项授权。
+
+       前四项是 AOSP 里 protectionLevel="signature|privileged|development" 的开发权限，
+       普通 App 装完默认拒绝，只能由 ADB 或 Shizuku 的 shell UID 执行 `pm grant` 授予，
+       Android 14 部分 OEM 还可能另有「安全设置」限制。
+       这里刻意**不**声明签名专属的 INJECT_EVENTS / GRANT_RUNTIME_PERMISSIONS /
+       INSTALL_PACKAGES / REBOOT / READ_FRAME_BUFFER 等：声明了也拿不到，只会误导用户；
+       这些能力走已有的 Shizuku shell 通道，不改签名边界、不放宽 SELinux。
+       =================================================================================== -->
+  <uses-permission
+    android:name="android.permission.WRITE_SECURE_SETTINGS"
+    tools:ignore="ProtectedPermissions" />
+  <uses-permission
+    android:name="android.permission.DUMP"
+    tools:ignore="ProtectedPermissions" />
+  <uses-permission
+    android:name="android.permission.READ_LOGS"
+    tools:ignore="ProtectedPermissions" />
+  <uses-permission
+    android:name="android.permission.CHANGE_CONFIGURATION"
+    tools:ignore="ProtectedPermissions" />
+  <!-- 系统设置页里的独立开关（special app access），只有用户自己能打开。 -->
+  <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+  <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+  <!-- 本机自动化工具需要枚举已安装 App 才能按名字定位目标。
+       注意：Google Play 分发时此权限需申报用途并经审核；本地/fork 渠道不受影响。 -->
+  <uses-permission
+    android:name="android.permission.QUERY_ALL_PACKAGES"
+    tools:ignore="QueryAllPackagesPermission" />
+
   <uses-feature
     android:name="android.hardware.camera"
     android:required="false" />

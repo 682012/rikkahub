@@ -34,6 +34,10 @@ enum class UsageSource {
     COMPANION,
     /** 用户启用的话题归库分类，单列辅助用量。 */
     AUTOFILE,
+    /** 对话内开启「用户消息优化」时那次改写请求；只在开关打开时发生。 */
+    INPUT_OPTIMIZATION,
+    /** 对话内开启「独立审查」时那次审查请求；和主回复分开计费。 */
+    REVIEW,
 }
 
 /** 记录用量时附带的归属信息 */

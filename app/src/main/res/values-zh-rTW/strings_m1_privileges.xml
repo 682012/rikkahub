@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="m1_priv_entry_title">進階權限與裝置能力</string>
+    <string name="m1_priv_entry_desc">Shizuku 通道、開發級權限、系統特殊存取與 AI 自動化控制。</string>
+    <string name="m1_priv_entry_shizuku">Shizuku 通道</string>
+    <string name="m1_priv_entry_shizuku_desc">查看真實通道狀態；授權視窗只在你點擊時出現。</string>
+    <string name="m1_priv_entry_dev">開發級權限</string>
+    <string name="m1_priv_entry_dev_desc">WRITE_SECURE_SETTINGS、DUMP、READ_LOGS、CHANGE_CONFIGURATION，可逐項授予與撤銷。</string>
+    <string name="m1_priv_entry_special">系統特殊存取</string>
+    <string name="m1_priv_entry_special_desc">修改系統設定、使用狀況存取、勿擾、精確鬧鐘、所有檔案等。</string>
+    <string name="m1_priv_entry_automation">AI 自動化控制</string>
+    <string name="m1_priv_entry_automation_desc">預設關閉；寫入操作獨立開關；必須明確選擇一個助手。</string>
+    <string name="m1_priv_entry_open">開啟</string>
+
+    <string name="m1_priv_sheet_title">進階權限與裝置能力</string>
+    <string name="m1_priv_shell_boundary">邊界：本頁只反映系統真實回覆。Shizuku 是 shell 級通道，不會 root 裝置，不能取得系統簽章專屬權限，也讀不到其他應用程式的私有目錄。</string>
+    <string name="m1_priv_loading">正在讀取真實狀態…</string>
+    <string name="m1_priv_load_failed">讀取失敗：%1$s</string>
+    <string name="m1_priv_retry">重試</string>
+    <string name="m1_priv_unavailable">目前裝置不支援</string>
+    <string name="m1_priv_dismiss">關閉</string>
+    <string name="m1_priv_action_failed">操作失敗：%1$s</string>
+    <string name="m1_priv_state_system_only">僅系統/簽章應用程式，一般授權拿不到</string>
+    <string name="m1_priv_bound_group">本應用程式自身元件</string>
+    <string name="m1_priv_bound_desc">無障礙、通知監聽等由系統設定頁綁定，本頁不會替你靜默開啟。</string>
+    <string name="m1_priv_runtime_group">執行階段權限</string>
+    <string name="m1_priv_notes_group">本機補充說明</string>
+    <string name="m1_priv_dev_result_no_effect">指令已執行，但權限狀態沒有依要求改變</string>
+
+    <string name="m1_priv_shizuku_group">Shizuku 通道</string>
+    <string name="m1_priv_shizuku_status">通道狀態</string>
+    <string name="m1_priv_shizuku_state_missing">未安裝 Shizuku</string>
+    <string name="m1_priv_shizuku_state_authorized">已授權</string>
+    <string name="m1_priv_shizuku_authorize">請求 Shizuku 授權</string>
+    <string name="m1_priv_shizuku_authorize_desc">不點這個按鈕就不會發起任何授權請求，確認畫面由 Shizuku 自行顯示。</string>
+    <string name="m1_priv_shizuku_authorizing">正在等待 Shizuku…</string>
+    <string name="m1_priv_shizuku_failed">授權失敗：%1$s</string>
+    <string name="m1_priv_shizuku_no_root">Shizuku 只是 shell 級能力：不會 root 裝置，也不能把本應用程式變成系統簽章應用程式。一般使用者授權不會變成系統權限。</string>
+
+    <string name="m1_priv_dev_group">開發級權限</string>
+    <string name="m1_priv_dev_desc">只能透過 Shizuku（adb shell pm grant）授予。這裡的勾選只用於下方的批次按鈕。</string>
+    <string name="m1_priv_dev_granted">已授予</string>
+    <string name="m1_priv_dev_denied">未授予</string>
+    <string name="m1_priv_dev_select_hint">勾選要處理的項目，處理完每一項都會顯示自己的真實結果。</string>
+    <string name="m1_priv_dev_grant_selected">授予所選（%1$d）</string>
+    <string name="m1_priv_dev_revoke_selected">撤銷所選（%1$d）</string>
+    <string name="m1_priv_dev_working">正在執行…</string>
+    <string name="m1_priv_dev_result_ok">成功</string>
+    <string name="m1_priv_dev_result_fail">失敗</string>
+
+    <string name="m1_priv_adb_group">ADB 指令</string>
+    <string name="m1_priv_adb_desc">只有點擊時才複製；套件名稱取自本應用程式的實際值（%1$s）。</string>
+    <string name="m1_priv_adb_empty">目前裝置沒有可用指令</string>
+    <string name="m1_priv_adb_copy">複製</string>
+    <string name="m1_priv_adb_copied">已複製</string>
+
+    <string name="m1_priv_special_group">系統特殊存取</string>
+    <string name="m1_priv_special_desc">這些開關由系統設定頁授予。回到本頁會重新讀取真實狀態；在清單中宣告過不等於已授予。</string>
+    <string name="m1_priv_special_manual">需手動開啟</string>
+
+    <string name="m1_priv_auto_group">AI 自動化控制</string>
+    <string name="m1_priv_auto_master">允許 AI 操作本機</string>
+    <string name="m1_priv_auto_master_desc">預設關閉。關閉會立即撤銷目前的自動化工作階段；權限不會從其他工作區繼承。</string>
+    <string name="m1_priv_auto_writes">允許寫入操作</string>
+    <string name="m1_priv_auto_writes_desc">獨立開關，預設關閉，只影響會改動裝置的指令。</string>
+    <string name="m1_priv_auto_assistant">執行助手</string>
+    <string name="m1_priv_auto_assistant_desc">必須明確選一個助手；未選擇之前不對任何助手開放。</string>
+    <string name="m1_priv_auto_assistant_invalid">所選助手已不存在，請重新選擇</string>
+    <string name="m1_priv_auto_pick">選擇</string>
+    <string name="m1_priv_auto_need_assistant">先選擇一個助手，才能開啟</string>
+    <string name="m1_priv_auto_scope">可執行：讀寫系統設定、診斷、上方已授權的 Shizuku 指令。僅 shell 級，不是最高權限，也讀不到其他應用程式的私有目錄。</string>
+
+    <string name="m1_priv_cap_group">可用功能</string>
+    <string name="m1_priv_cap_settings">修改系統設定</string>
+    <string name="m1_priv_cap_settings_desc">開啟自動化並授予 WRITE_SECURE_SETTINGS 後由 AI 工具執行；本頁只顯示狀態。</string>
+    <string name="m1_priv_cap_diag">裝置診斷</string>
+    <string name="m1_priv_cap_diag_desc">讀取畫面結構、效能與權限狀態供 AI 判斷，不修改任何資料。</string>
+    <string name="m1_priv_cap_shizuku">已授權的 Shizuku 指令</string>
+    <string name="m1_priv_cap_shizuku_desc">只有上方已授予的開發級權限會作為 shell 指令提供；其餘指令會被拒絕。</string>
+</resources>

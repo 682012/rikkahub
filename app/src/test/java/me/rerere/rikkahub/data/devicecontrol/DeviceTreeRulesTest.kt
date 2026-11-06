@@ -14,6 +14,12 @@ class DeviceTreeRulesTest {
         assertTrue(DeviceTreeRules.isPasswordInputType(0x00000010))
         assertFalse(DeviceTreeRules.isPasswordInputType(0))
         assertFalse(DeviceTreeRules.isPasswordInputType(0x00000001)) // TYPE_CLASS_TEXT
+        assertTrue(DeviceTreeRules.isPasswordInputType(0x00080081)) // text password + flags
+        assertTrue(DeviceTreeRules.isPasswordInputType(0x000000e1)) // web password
+        assertTrue(DeviceTreeRules.isPasswordInputType(0x00000012)) // number password
+        assertFalse(DeviceTreeRules.isPasswordInputType(0x000000a1)) // web edit text
+        assertFalse(DeviceTreeRules.isPasswordInputType(0x00000011)) // text URI, not numeric password
+        assertFalse(DeviceTreeRules.isPasswordInputType(0x00080001)) // ordinary text + flags
     }
 
     @Test

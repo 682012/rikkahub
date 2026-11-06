@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 会话内运行时选项（m1）。只描述真实行为，不承诺"最优"或"官方"。 -->
+    <string name="m1_runtime_bar_button">Chat options</string>
+    <string name="m1_runtime_bar_default">Defaults: everything off</string>
+    <string name="m1_runtime_summary_optimize">Input optimized</string>
+    <string name="m1_runtime_summary_self_check">Self-check this turn</string>
+    <string name="m1_runtime_summary_review">Independent review</string>
+    <string name="m1_runtime_summary_next_step">Interject: next step</string>
+    <string name="m1_runtime_summary_profile">Profile: %1$s</string>
+    <string name="m1_runtime_summary_knowledge">Local knowledge</string>
+    <string name="m1_runtime_summary_tools_off">Plain tool guidance</string>
+
+    <string name="m1_runtime_title">Chat options</string>
+    <string name="m1_runtime_subtitle">Applies to this conversation only. Your assistant defaults are not changed.</string>
+    <string name="m1_runtime_saving">Saving…</string>
+    <string name="m1_runtime_send_not_ready">This conversation is still loading. Send again in a moment.</string>
+
+    <string name="m1_runtime_group_input">Your input</string>
+    <string name="m1_runtime_optimize_title">Optimize my wording (request copy only)</string>
+    <string name="m1_runtime_optimize_desc">The message you keep and see stays exactly as you wrote it — only the request copy is rewritten. Numbers, paths, quoted wording and code blocks are kept verbatim; on timeout, error or a failed guard the original text is sent. Costs one extra fast-model request.</string>
+    <string name="m1_runtime_review_title">Reply review</string>
+    <string name="m1_runtime_review_off">Off</string>
+    <string name="m1_runtime_review_off_desc">No extra check on the reply.</string>
+    <string name="m1_runtime_review_self">Self-check</string>
+    <string name="m1_runtime_review_self_desc">A self-check hint is appended inside the same turn: no extra request, and the verdict comes from the same model — it is not independent verification.</string>
+    <string name="m1_runtime_review_independent">Independent review</string>
+    <string name="m1_runtime_review_independent_desc">After the reply is written, one read-only review request is made (fast model preferred) and billed separately. It only reads text, runs no tools and does not replay the task — it cannot replace a real build or test run.</string>
+    <string name="m1_runtime_review_running">Reviewing independently…</string>
+    <string name="m1_runtime_review_failed">Review did not finish</string>
+    <string name="m1_runtime_review_done">Review result</string>
+    <string name="m1_runtime_review_expand">Open</string>
+    <string name="m1_runtime_review_collapse">Collapse</string>
+    <string name="m1_runtime_review_cancel">Cancel review</string>
+    <string name="m1_runtime_review_dismiss">Close</string>
+
+    <string name="m1_runtime_group_delivery">Sending while a reply runs</string>
+    <string name="m1_runtime_delivery_title">How a message sent mid-run is delivered</string>
+    <string name="m1_runtime_delivery_queue">Queue (default)</string>
+    <string name="m1_runtime_delivery_next">Insert before next step</string>
+    <string name="m1_runtime_delivery_desc">Insert-before-next-step hands your text to the model before its next safe step. A request that is already sent and a tool that is already running are not interrupted or rewritten. Messages with attachments still go to the queue.</string>
+
+    <string name="m1_runtime_group_profile">Client protocol profile</string>
+    <string name="m1_runtime_profile_native">Native</string>
+    <string name="m1_runtime_profile_auto">Auto</string>
+    <string name="m1_runtime_profile_codex">Codex style</string>
+    <string name="m1_runtime_profile_claude">Claude Code style</string>
+    <string name="m1_runtime_profile_pi">PI style</string>
+    <string name="m1_runtime_profile_desc">Only request headers and a short tool-usage hint are adjusted, decided locally from the current provider and model. Auto sends no probe request. An incompatible profile falls back to native — no official permission, credentials or identity is ever faked.</string>
+    <string name="m1_runtime_profile_current">Effective: %1$s</string>
+    <string name="m1_runtime_profile_fallback">This profile does not fit the current model; the request is sent natively.</string>
+    <string name="m1_runtime_profile_unknown">No model selected yet — pick one to see the local decision.</string>
+
+    <string name="m1_runtime_group_knowledge">Local knowledge</string>
+    <string name="m1_runtime_knowledge_title">Let this conversation search this assistant\'s documents</string>
+    <string name="m1_runtime_knowledge_desc">Import and search stay on this device. When enabled, the snippets that match your message are sent with the request to this conversation\'s model — only the matched snippets, never a whole document.</string>
+    <string name="m1_runtime_knowledge_manage">Manage and import documents</string>
+    <string name="m1_runtime_knowledge_manage_desc">Scoped to this conversation\'s assistant.</string>
+
+    <string name="m1_runtime_group_tools">Tool execution</string>
+    <string name="m1_runtime_efficient_title">Efficient tool guidance</string>
+    <string name="m1_runtime_efficient_desc">Adds a short execution hint to the system prompt (read before edit, narrowest diff, only the checks that can fail). It is guidance only and does not guarantee the best strategy.</string>
+
+    <string name="m1_runtime_group_optimized">Optimization of this turn</string>
+    <string name="m1_runtime_optimized_empty">There is no message from you in this conversation yet.</string>
+    <string name="m1_runtime_optimized_loading">Reading the request copy…</string>
+    <string name="m1_runtime_optimized_none">No optimized copy for this turn — the original text was sent.</string>
+    <string name="m1_runtime_optimized_original_label">Your original words (what the conversation stores)</string>
+    <string name="m1_runtime_optimized_sent_label">What was sent to the model this turn (not stored)</string>
+    <string name="m1_runtime_optimized_note">Request copy only: the message list, edits and regenerate all still use your original text.</string>
+    <string name="m1_runtime_optimized_copy">Copy request copy</string>
+    <string name="m1_runtime_optimized_copied">Copied</string>
+</resources>

@@ -168,6 +168,8 @@ val appModule = module {
             backgroundToolManager = get(),
             deviceBridge = get(),
             localMcpSettings = get(),
+            localKnowledgeRepository = get(),
+            highPrivilegeToolHost = get(),
         )
     }
 
@@ -186,6 +188,7 @@ val appModule = module {
             chatToolFactory = get(),
             memoryRepository = get(),
             learningRepository = get(),
+            knowledgeRepository = get(),
             templateTransformer = get(),
             workspaceRepository = get(),
             okHttpClient = get(),
@@ -211,6 +214,8 @@ val appModule = module {
             subagentRunner = get(),
             backgroundToolManager = get(),
             networkHandover = get(),
+            // m1 输入优化/自查/独立审查的执行入口（契约见 meridian-m1/inputassist/API-CONTRACT.md）
+            inputAssist = get(),
         )
     }
 

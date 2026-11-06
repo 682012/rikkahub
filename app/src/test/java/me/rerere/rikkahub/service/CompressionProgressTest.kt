@@ -109,8 +109,13 @@ class CompressionProgressTest {
         // 尾刷新补发最近一次真实值：字数不能停在旧值
         tracker.flush()
         assertEquals(publishedAfterPhase + 1, published.size)
-        assertEquals(44, published.last().generatedChars)
-        assertEquals(22, published.last().chunks)
+        // fixture 自己算一遍：20 块 "ab" = 40 字 + 1 块 "cd" = 42 字；分块数 20 + 1 = 21。
+        // （这里原来写的是 44/22，和它自己的 fixture 差一块——是断言的算术错，不是生产值滞后：
+        //  同样的输入下 tracker 的 snapshot 也是 42/21，尾刷新发的就是它。）
+        assertEquals(42, published.last().generatedChars)
+        assertEquals(21, published.last().chunks)
+        assertEquals(published.last().generatedChars, tracker.snapshot().generatedChars)
+        assertEquals(published.last().chunks, tracker.snapshot().chunks)
         assertEquals(CompressionPhase.Generating, published.last().phase)
     }
 
