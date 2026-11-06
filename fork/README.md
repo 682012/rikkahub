@@ -1,23 +1,23 @@
 # 个人分支：构建、发布与维护
 
-本页只讲**怎么把这个分支构建出来、怎么发、出问题怎么回退**。用户功能与安装说明在 [仓库首页](../README.md) 与 [功能对比](FEATURES.md)，当前版本的变化见 [m1 说明](RELEASE-m1.md)。
+本页只讲**怎么把这个分支构建出来、怎么发、出问题怎么回退**。用户功能与安装说明在 [仓库首页](../README.md) 与 [功能对比](FEATURES.md)，当前版本的变化见 [m2 说明](RELEASE-m2.md)。
 
 ## 当前状态
 
 | 项目 | 值 |
 |---|---|
-| 版本 | `3.1.1-m1` / `3000070` |
-| 维护分支 | `fork/3.1.1`（本轮开发分支 `feature/meridian-m1`） |
+| 版本 | `3.1.1-m2` / `3000071` |
+| 维护分支 | `fork/3.1.1`（本轮开发分支 `feature/meridian-m2`） |
 | 包名 | `me.rerere.rikkahub.fork`（Debug 变体 `me.rerere.rikkahub.fork.debug`） |
-| 应用名 / 图标 / 签名 | 与 r21 及更早的本分支版本一致，未改 |
+| 应用名 / 图标 / 签名 | 与 m1、r21 及更早的本分支版本一致，未改 |
 | 官方基线 | `3.1.1` / `ad2c4430`，已合入上游 master `5ad19405` |
-| 运行时提交 | `705152840b78ed2e730834271d5cfa5ffc825882`，基线 r22 `712baad2982e9b27e6ba8806bf381938081fc5d6` |
-| 数据库 | schema 36（r21 起 34→35 加会话家族列，本轮 35→36；均为显式迁移，旧行兜底；沿用 r3 起的本分支编号，不与官方编号混用） |
-| 发布标签 / 资产名 | `v3.1.1-m1` / `rikkahub-3.1.1-m1.apk` |
+| 运行时提交 | 本轮开发树**尚未提交**；上一版 m1 为 `705152840b78ed2e730834271d5cfa5ffc825882`（基线 r22 `712baad2982e9b27e6ba8806bf381938081fc5d6`）。m2 的发布提交与 sourceId 见下文「m2 的验证入口」 |
+| 数据库 | schema 36（r21 34→35 加会话家族列，m1 35→36；**m2 无迁移**，分组复用已有文件夹归属，思考档位是 nullable 字段；沿用 r3 起的本分支编号，不与官方编号混用） |
+| 发布标签 / 资产名 | `v3.1.1-m2` / `rikkahub-3.1.1-m2.apk` |
 
 已发布的历史版本各自保留 tag 与资产，不覆盖、不复用版本号。正式下载入口为 [Latest](https://github.com/682012/rikkahub/releases/latest)，固定版本按 tag 取包。
 
-下载侧只有**一个通用 APK**：m1 已合并 r21 的已发布改动、r22 阶段改动与本轮功能，不拆包、不需要依次安装；r21 的 Release/tag/资产保留用于回滚，r22 从未单独发布成包。
+下载侧只有**一个通用 APK**：m2 是建在 m1 之上的增量版本，直接覆盖 m1（或 r21 及更早版本）即可，不拆包、不需要依次安装；m1、r21 的 Release/tag/资产保留用于回滚，r22 从未单独发布成包。
 
 ## 构建环境
 
@@ -69,7 +69,32 @@ GitHub 的 `Fork Verify` 验证流程使用 `KEY_BASE64`、`SIGNING_CONFIG` 与�
 6. 维护分支的 CI 手动触发（`Fork Verify` 只在推送 `ci/**` 或手动运行时构建签名包、跑 JVM 与 API 34 模拟器测试），不自动发 Release；推文档不会顺带发 nightly。
 7. 可见版本号用「上游版本 + 短后缀」（`3.1.1-r10`、`3.1.1-r11`），versionCode 独立递增，不再套早期的 `3000000 + fork.N` 公式。
 
-## m1 的验证入口
+## m2 的验证入口
+
+**本轮不做正式构建与验签**，因此这里没有 APK 字节数、SHA-256、证书指纹和「升级已通过」的记录；正式 R8 + lintVital 构建、验包与覆盖升级验证由维护者在本轮修复收尾之后补记（同样补进 [m2 说明](RELEASE-m2.md) 的版本表）。
+
+本轮实际做过的是源码级验证：
+
+- 整包 Kotlin 编译通过：幂等 job `idem-fdfd182b185f67271c1e05e6`，succeeded，回执 783,684 ms。首轮 `idem-28ffb20b06314b76773892bc` 因三处接线错误失败，修正后重投，两次日志都保留。
+- 定向 Kotlin/JUnit **115 项全部通过**（按源码直编、去重后不叠加历史运行）：手动分组 17、渠道切换 29、渠道设置 13、单对话思考 37、草稿 19；对应 sourceId `4821c665c0489c6cb90a99d65318a8ec81a15170708fd28ea9e9818e719f0751`。m1 的 174 项与 r21 的 167 项各自绑定旧提交，**不计入也不相加**。
+- 构建输入与最终清单比对无漂移；`git diff --check`、资源 XML 解析与重复 key 检查通过。
+- 上述 115 项对应的是 P1 修复之前的树；之后为修两项 P1 还有改动，**最终清单与最终构建回执以维护者记录为准**。
+
+**没有自动安装手机、没有真机 UI 点验**：分组的多选与组头触控、渠道设置页的排序交互、输入栏思考档位、真实 OEM 授权、真实供应商对 MAX 的接受度与真实计费都未端到端验证。文档改动属于 docs-only，运行时代码不变，不改变任何已记录的 sourceId。
+
+## m2 源码对应（维护用）
+
+| 主题 | 主要位置 |
+|---|---|
+| 手动分组策略与组展开状态 | `data/organization/grouping/`（`ConversationGrouping`、`GroupExpansionStore`）、`ui/pages/chat/ConversationGroupItems.kt` |
+| 分组读写路径 | `ConversationDAO` / `ConversationRepository`（复用 `folder_id`，按助手过滤）、`ChatDrawer` 与其 ViewModel、`ConversationList` |
+| 渠道计划解析与执行层 | `data/ai/channel/ChannelFailover.kt`、`data/datastore/ChannelFailoverSettings.kt`、`data/ai/ChatRequestFactory.kt`（`rebuildParamsForChannel`） |
+| 渠道设置页与路由 | `ui/pages/setting/SettingChannelFailoverPage.kt`、`SettingPage.kt`、`RouteActivity.kt`（`Screen.SettingChannelFailover`） |
+| 单对话思考档位 | `data/model/ConversationConfig.kt`、`data/draft/ChatDraftStore.kt`、`ui/pages/chat/ChatVM.kt`、`ui/hooks/ChatInputState.kt`、`AssistantBasicPage.kt` |
+
+改这些区域时留意：分组只改归属，不要碰 `lineageId` 与消息；成员查询必须带助手过滤。渠道切换不能把会话当前渠道插到白名单前面，全失效时要明确报错而不是回退列表外渠道；`prepareStep` 的 `maxTokens`/`tools`/`disableToolCalls`/`reasoningLevel` 必须原样保留。思考档位只落当前会话，别写回助手默认。
+
+## m1 的验证入口（历史）
 
 正式构建同样走 Windows 云节点 `release`（R8 + lintVital），幂等 job `idem-0c72cda63733c87329b243ea`，`sourceId b1ae6585244e06d2054f24766952b9147c7bc36539091895d25a4705393ee21c`，`./gradlew :app:assembleGithubRelease` 一次成功，26m54s（1,614,083 ms），exit 0。产物 `rikkahub-3.1.1-m1.apk` 46,325,122 字节（44.18 MiB），SHA-256 `cc71498019a8db0eb4078499d7c4f7a7cde6d0c8813dfb4238dc18a1b0545bf4`；另产出 mapping 233,748,435 字节（`1cfc00fa…0e45d`）。验包核对：包名 `me.rerere.rikkahub.fork`、`3.1.1-m1` / `3000070`、证书 `cb897a36…15bf89`、`arm64-v8a` + `x86_64`、ZIP CRC、445 个条目、云端与本地 SHA-256 与字节数一致，`apksigner` / `aapt` 版本已记录。
 
@@ -127,7 +152,7 @@ ZIP 迁移只覆盖 `/workspace` 文件区，不含 Rootfs、数据库与整机�
 
 ## 历史与相关文档
 
-- 当前版本：[m1 说明](RELEASE-m1.md) · [r21 说明（历史）](RELEASE-r21.md) · [正式包与验收记录](https://github.com/682012/rikkahub/releases/latest)
+- 当前版本：[m2 说明](RELEASE-m2.md) · [m1 说明（历史）](RELEASE-m1.md) · [r21 说明（历史）](RELEASE-r21.md) · [正式包与验收记录](https://github.com/682012/rikkahub/releases/latest)
 - 功能计数与源码位置：[FEATURES.md](FEATURES.md)；逐版历史：[CHANGES.md](CHANGES.md)
 - r1–r10 的发布说明：`RELEASE-r1.md` … `RELEASE-r10.md`；更早的 fork.38–fork.43 见 `RELEASE-fork38.md` … `RELEASE-fork43.md`
 - 专项记录：[草稿持久化](AGENT-DRAFTS.md) · [工具效率](AGENT-EFFICIENCY-r11.md) · [架构](AGENT-ARCHITECTURE.md) · [工作区权限](WORKSPACE-ACCESS.md) · [网页会话](WEB-ACCOUNTS.md) · [历史维护现场](HANDOFF.md)
