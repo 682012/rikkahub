@@ -21,7 +21,7 @@
 源码分支与下载渠道分开：只有完成正式 R8 构建和验包的版本才标为 Latest；实际发布状态、安装包与校验值以 Release 页面为准。
 
 - 通用 APK 名为 `rikkahub-3.1.1-m2.apk`（tag `v3.1.1-m2`），包名 `me.rerere.rikkahub.fork` 与签名跟 m1 一致，可覆盖升级；含 `arm64-v8a` 与 `x86_64`，手机直接装这一个就行。
-- **本轮没有做正式构建与验签，所以这里不写字节数和 SHA-256**；正式 R8 + lintVital 构建、验包与升级验证完成后由维护者补记到 [m2 说明](fork/RELEASE-m2.md)与 Release 页。
+- 正式 R8 + lintVital 构建通过（job `idem-4fb0edae9da863c46e30033e`）；版本名/码、包名、原证书、双 ABI、ZIP CRC 与云端/本地 SHA-256 已核对。APK 46,373,962 字节；校验见 [m2 说明](fork/RELEASE-m2.md) 与 Release 附件。
 - 从 m1、r21 或更早版本升级直接覆盖；旧版本的包与记录保留在各自 tag 下，需要回退时按旧 tag 取包。
 - 本分支包名与官方不同，**不能覆盖安装官方版**；同包名、同签名的本分支旧版可以按常规覆盖升级。
 - 升级前备份聊天与设置，不要为了升级先卸载（卸载会连应用数据一起丢）。从早期 `fork.*` 版本过来请直接下载安装，旧更新器不认识 `r` / `m` 系列版本号。
@@ -35,9 +35,9 @@
 - **渠道优先级与故障切换**（设置 → 模型与服务 →「渠道优先级与故障切换」，**默认关闭**）：同一个模型挂在多个提供商上时，可以排出显式白名单，主聊天**严格按你排的顺序**调用，第一个不行才换下一个；只认 `modelId` 相同的模型，只**在同一协议族内**切换，跨协议不互换；一旦已经输出正文/思考/工具调用草稿就**不换渠道重发**（交给已有的检查点恢复），用户取消、请求格式错误、整体断网也不切换；每次切换等于用另一个提供商的凭据重新请求，**可能额外计费**，用量记在实际出话的渠道上。
 - **单对话思考强度**（聊天输入栏的思考档位）：只管当前这一条对话，不写回助手；新对话里，声明了 REASONING 的模型默认 **MAX**，没声明的默认 AUTO（不强加参数）；旧会话已保存的显式档位原样保留；首条消息发出前的选择也会存进草稿；助手设置页不再提供全局思考强度项。MAX 仍按各提供商原有映射发送，**没有实测真实服务端是否接受最高档**。
 
-### 同时收尾的 m1 安全缺陷（尚未完成）
+### 两项 m1 安全缺陷修复
 
-m1 审查提出的两项 P1 正在修：MCP 幂等账本遇到**坏账本改为 fail-closed**（保留坏文件、冻结写入、明确返回不可用），持久化改为临时文件 + fsync + 原子替换，替换失败拒绝执行；自动化步骤的**存储失败会阻断 dispatch**，RUNNING 未落盘就不派发写操作，运行账本读坏时禁用写配方。这两项本轮还没完成构建与窄验证，**本页不把它们写成「已修复 / 已验证」**，最终构建与安全验证结论随后补记。
+两项 m1 P1 已修复并通过窄验证：坏账本保留原文件并拒绝写入，持久化采用临时文件 + fsync + 原子替换；自动化写前记录没落盘不派发，写后记录失败保留未知副作用阻塞。没有把纯 JVM 检查说成真实设备端到端验证。
 
 ## m1：对话内的控制、协议档与设备权限（历史）
 
@@ -109,9 +109,9 @@ m1 审查提出的两项 P1 正在修：MCP 幂等账本遇到**坏账本改为 
 
 ## 能力边界（先看这几条）
 
-- **m2 的成绩单只算这一轮的三项功能**：整包 Kotlin 编译通过、定向检查 **115 项**通过（分组 17、渠道 29、渠道设置 13、思考 37、草稿 19）。这些是纯策略/Fake 层的 K2/JUnit，不覆盖 Compose 真实点击、Room Flow 刷新、文件系统损坏与网络竞态，也**不能**和 m1 的 174 项或 r21 的 167 项相加。
-- **m2 没有新 APK**：本轮不做 R8 打包、验签与真机安装，所以没有字节数、SHA-256 与「升级已通过」的结论；正式构建与安全验证稍后补记。m1 的包与哈希仍按旧记录保留，是另一版。
-- **两项 m1 P1 正在修，不算已修好**：MCP 坏账本 fail-closed 与原子持久化、自动化存储失败阻断 dispatch，都还在本轮修复中；在这之前不要把设备写/自动化路径当成可无人值守可靠使用。
+- **m2 验证范围**：三项功能的 115 项定向检查按源文件 SHA 逐一匹配后复用；本次新跑 47 项安全回归（幂等账本 26、自动化 21）全部通过，不叠加历史套件或重复运行。
+- **正式包**：正式 R8 + lintVital 构建通过（job `idem-4fb0edae9da863c46e30033e`）；版本名/码、包名、原证书、双 ABI、ZIP CRC 与云端/本地 SHA-256 已核对。 未自动安装手机，未做真机 UI / OEM 授权、真实供应商 MAX 接受度与计费、完整备份恢复、断电和网络竞态端到端验证。
+- **设备写保护**：两项 m1 P1 已修复并通过窄验证：坏账本保留原文件并拒绝写入，持久化采用临时文件 + fsync + 原子替换；自动化写前记录没落盘不派发，写后记录失败保留未知副作用阻塞。没有把纯 JVM 检查说成真实设备端到端验证。
 - **分组不是混消息**：组内会话各自独立，消息、上下文、用量都不合并；一个组内联显示 60 条，其余走「查看全部」分页。
 - **渠道切换会多花钱**：默认关闭；开启后切换等于用另一个提供商凭据再请求一次，单独计费，且只在同一 `modelId`、同一协议族内生效；设置页文案目前只有中文，英文界面会看到中文说明。
 - **思考档位不等于服务端接受**：MAX 只是沿用各提供商原有映射，未实测真实服务端接受最高档；旧会话的显式选择保留，不会因为升级被改写。
@@ -140,7 +140,7 @@ m1 审查提出的两项 P1 正在修：MCP 幂等账本遇到**坏账本改为 
 
 ### English summary
 
-**Meridian 3.1.1-m2** (versionCode 3000071, tag `v3.1.1-m2`, asset `rikkahub-3.1.1-m2.apk`) is an incremental release on top of m1: install it straight over m1 (or r21 and older) — there is no second package and no install order. m1 and r21 keep their own Releases, tags and assets. This round adds three things, all off/neutral by default: **manual conversation grouping** (long-press a chat in the drawer → multi-select → join or create a group; group header expand/collapse/rename/dissolve; members stay independent conversations with their own messages and context — nothing is merged; assistant-scoped; no schema migration), **per-model channel failover** (settings → models & services → channel priority; a explicit same-`modelId` whitelist called in exactly the order you set, switching only inside one protocol family, never re-sending once any text/thinking/tool draft was emitted, never switching on user cancel or malformed requests, and possibly billed again on each switch), and **per-conversation reasoning level** (only the current conversation; new conversations default to MAX for models that declare REASONING and AUTO otherwise; old explicit choices are kept; MAX uses each provider's existing mapping and real server acceptance is **not** measured). The two P1 defects reported by the m1 review are **being fixed in this round** (MCP idempotency ledger failing closed on a corrupt file plus atomic temp-file+fsync persistence; automation dispatch blocked when the RUNNING record cannot be persisted) and are **not** claimed as fixed or verified here. This round passed a full Kotlin compile and **115 de-duplicated targeted checks** (grouping 17, channels 29, channel settings 13, reasoning 37, drafts 19) that do not cover Compose clicks, Room Flow refreshes, corrupted files or network races. **No APK was built, signed or installed this round**, so no byte size or SHA-256 is given for m2; the formal R8 + lintVital build, package verification and upgrade verification will be recorded later. Nothing here is device-verified.
+**Meridian 3.1.1-m2** (3000071) adds manual conversation groups without merging histories, ordered same-model channel failover within a protocol family, and conversation-only reasoning (MAX by default for models declaring reasoning support). The two m1 write-ledger P1 defects are fixed. A full R8/lintVital release build and package/signature/ABI/hash checks passed. 115 byte-identical feature checks are reused; 47 new ledger and automation checks passed. No device installation, UI/OEM or real-provider billing validation was performed. Earlier releases and assets remain available.
 
 **m1** (3.1.1-m1 / 3000070, one merged universal APK over r21) added per-conversation AI input optimization, reply review, client protocol profiles, steer-while-running, a local assistant-scoped knowledge base, tool-execution guidance, and a device privilege center (not root, no signature-level permissions). It passed 174 targeted checks and a formal R8 + lintVital build with package verification (46,325,122 bytes, SHA-256 `cc714980…545bf4`), and was not installed or UI-tested on a device.
 

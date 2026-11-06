@@ -1,0 +1,88 @@
+{
+  "version": "3.1.1-m2",
+  "versionCode": 3000071,
+  "tag": "v3.1.1-m2",
+  "builtCommit": "885a0c1ea8bc55d34b710b382cbd1b5cd7c76707",
+  "baseCommit": "542f234f629139de98db2b2924accb06103fa957",
+  "sourceId": "06e11458f2592866e92fdf8610d74c9d4e120184b2ba9ca04bdb36fa63396cc0",
+  "singleMergedApk": true,
+  "includes": [
+    "all m1 runtime features",
+    "manual conversation groups",
+    "ordered same-model channels",
+    "conversation-only reasoning",
+    "fail-closed write ledgers"
+  ],
+  "build": {
+    "jobId": "idem-4fb0edae9da863c46e30033e",
+    "state": "succeeded",
+    "projectId": "rikkahub",
+    "task": "release",
+    "sourceId": "06e11458f2592866e92fdf8610d74c9d4e120184b2ba9ca04bdb36fa63396cc0",
+    "createdAt": "2026-11-06T07:15:59.351Z",
+    "startedAt": "2026-11-06T07:15:59.733Z",
+    "finishedAt": "2026-11-06T07:47:29.654Z",
+    "exitCode": 0,
+    "durationMs": 1875900,
+    "artifactCount": 2,
+    "timedOut": false,
+    "cancelled": false
+  },
+  "apk": {
+    "name": "rikkahub-3.1.1-m2.apk",
+    "bytes": 46373962,
+    "sha256": "f42a8b365b71479cbac4c2338850cc40b68b47040f5e6fdf53fc1cc1d5492b80",
+    "package": "me.rerere.rikkahub.fork",
+    "abis": [
+      "arm64-v8a",
+      "x86_64"
+    ],
+    "certificateSha256": "cb897a361d49933cc7d033b7ff05b95fad6483c18bb4134b10119b0f2715bf89",
+    "zipCRCVerified": true
+  },
+  "mapping": {
+    "bytes": 15824271,
+    "sha256": "f47dabe3e4a993cdd96f4dc85841bd8f8be43a1c9f631a411d6c5bba0e6d3df1",
+    "decompressedSha256": "e1514b64bb293f91e3ede405d59cfbdd82305ae605db6e85776f9c03395a54f0"
+  },
+  "targetedChecks": {
+    "passed": 162,
+    "scopes": [
+      {
+        "scope": "grouping",
+        "passed": 17
+      },
+      {
+        "scope": "draft",
+        "passed": 19
+      },
+      {
+        "scope": "channels",
+        "passed": 29
+      },
+      {
+        "scope": "reasoning",
+        "passed": 37
+      },
+      {
+        "scope": "channels-settings-pure",
+        "passed": 13
+      },
+      {
+        "scope": "ledger",
+        "passed": 26
+      },
+      {
+        "scope": "automation",
+        "passed": 21
+      }
+    ],
+    "historicalSuitesNotAdded": true,
+    "newlyExecuted": 47,
+    "reusedByteIdenticalFeatures": 115
+  },
+  "runtimeInputsUnchangedAfterBuild": true,
+  "postBuildChanges": "documentation and verification metadata only",
+  "deviceValidation": "Not run: OEM grants, device UI/animation, real provider auxiliary billing",
+  "installedOnPhone": false
+}
