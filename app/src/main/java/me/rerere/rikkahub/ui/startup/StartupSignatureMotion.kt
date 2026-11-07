@@ -25,7 +25,7 @@ import kotlin.math.sin
  * - 不引新依赖、不用图片资源、不做无限动画：调用方推 [progress]，这里只把某一帧画出来；
  * - 完全由调用方的 [alpha] 决定整体浓淡，最后淡出也交给调用方，这里不自己"消失"；
  * - 绘制调用有界（最多 17 次 draw*），progress = 0 的几何形态已经成立，
- *   280ms 内能看清"从散到聚"的过程，末尾停在一个干净的静态核。
+ *   默认 1500ms（用户可调）内能看清"从散到聚"的过程，末尾停在一个干净的静态核。
  *
  * 这套图形是原创的"开放种子/星核"语言，借鉴极简 AI 品牌的节奏（少笔画、柔光、收束到中心），
  * 不代表、也不描述任何厂商的手机启动行为。
@@ -40,7 +40,13 @@ private val SIGNATURE_RADIUS = 40.dp
  */
 private const val NARROW_VIEWPORT_LIMIT = 0.42f
 
-/** 内建开场时长 280ms（与 StartupIntroRules.BUILTIN_DURATION_MS 一致）；本文件不持有时钟，只标定节奏。 */
+/**
+ * 原始设计时标定节奏用的参考值（初版 280ms）；**不是**运行时时钟。
+ *
+ * m3 起内建风格的时长由用户可调（[me.rerere.rikkahub.startup.StartupIntroRules.BUILTIN_DURATION_MS]，
+ * 默认 1500ms），进度仍然只有 0..1，绘制层按 progress 归一化，所以这个常量不参与计时、
+ * 也不该被任何代码用来换算毫秒。
+ */
 internal const val SIGNATURE_PHASE_MS = 280
 
 /** alpha 低于这个值就当没画，省掉一次没意义的绘制。 */
@@ -68,6 +74,7 @@ internal fun DrawScope.drawSignatureMotion(
     glow: Color,
 ) {
     when (motion) {
+        StartupMotion.RIKKA -> drawRikkaIntro(progress, alpha, accent, glow)
         StartupMotion.RING -> drawSignatureOrbit(progress = progress, alpha = alpha, accent = accent, glow = glow)
         StartupMotion.DOTS -> drawSignatureGather(progress = progress, alpha = alpha, accent = accent, glow = glow)
         StartupMotion.AURORA -> drawSignatureBloom(progress = progress, alpha = alpha, accent = accent, glow = glow)

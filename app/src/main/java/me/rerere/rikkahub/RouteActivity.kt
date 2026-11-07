@@ -331,7 +331,12 @@ class RouteActivity : ComponentActivity() {
     private fun resolveStartupIntroScene(plan: StartupIntroPlan): StartupIntroScene? {
         val motion = plan.overlay ?: return null
         val custom = if (motion == StartupMotion.CUSTOM) StartupPreferences.readCustom(this) else null
-        return StartupIntroSceneResolver.resolve(motion = motion, custom = custom)
+        // 内建时长也在这里读：预览页读的是同一个键，所以"设置里看到的"和"冷启动画的"时长一致。
+        return StartupIntroSceneResolver.resolve(
+            motion = motion,
+            custom = custom,
+            builtinDurationMs = StartupPreferences.readBuiltinDuration(this),
+        )
             .takeIf { !it.isEmpty }
     }
 

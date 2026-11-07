@@ -101,6 +101,15 @@ enum class RetryErrorCategory {
 
     /** 其它（含自定义供应商抛出的自有异常）：不知道原因，默认不猜。 */
     UNKNOWN,
+
+    /**
+     * 命中用户在设置页自己写的「额外重试的错误匹配类型」。
+     *
+     * 它不是一个真实的错误原因，而是「这条失败被用户的自定义规则认领了」这个事实。
+     * 只有用户显式勾上这一类（或打开"任何错误"）才会重试，且永远不会越过
+     * [isSafeToReplay]：已经产生副作用的非幂等写操作不会被自动重试。
+     */
+    CUSTOM_MATCH,
 }
 
 /**
@@ -119,21 +128,79 @@ enum class RetryErrorCategory {
 data class RetryScope(
     val mode: RetryScopeMode = RetryScopeMode.CLASSIFIED,
     val categories: Set<RetryErrorCategory> = emptySet(),
+    /**
+     * 用户自己写的错误匹配规则；空列表等于没配，老配置解码出来就是空的。
+     *
+     * 只要集合里有至少一条通过校验的规则，[RetryScopeMode.CUSTOM] 下就自动视为勾上了
+     * [RetryErrorCategory.CUSTOM_MATCH]（界面不用再手动点一次）。命中规则只换来"允许重试"，
+     * 永远过不了 [isSafeToReplay] 那道写操作边界：已经执行过非幂等写工具的一轮不会被自动重试，
+     * 连 [RetryScopeMode.ANY_ERROR] 也一样。
+     */
+    val customRules: List<CustomRetryRule> = emptyList(),
+    /**
+     * 这次失败能不能安全重放。默认 true = 老行为。
+     *
+     * 调用方已经知道这一轮执行过非幂等写工具时传 false：此时自定义匹配、甚至"任何错误"都不生效，
+     * 免得把一次已经落盘的写操作重发成两次。
+     */
+    val safeToReplay: Boolean = true,
 ) {
     /** 默认就重试的类别：老版本 `retryableFailure` 放行的就是这几类。 */
     val effectiveCategories: Set<RetryErrorCategory>
         get() = when (mode) {
             RetryScopeMode.CLASSIFIED -> LEGACY_CATEGORIES
             // 追加：默认分类永远在，勾选的只是多出来的部分
-            RetryScopeMode.CUSTOM -> LEGACY_CATEGORIES + categories
+            RetryScopeMode.CUSTOM -> LEGACY_CATEGORIES + categories + optionalCategories
             RetryScopeMode.ANY_ERROR -> RetryErrorCategory.entries.toSet()
         }
 
-    /** 这一类的失败要不要再发一次同样的请求。 */
-    fun allows(category: RetryErrorCategory): Boolean = category in effectiveCategories
+    /** CUSTOM 模式下实际追加的类别：[categories] 加上"有可用自定义规则"时的 [RetryErrorCategory.CUSTOM_MATCH]。 */
+    private val optionalCategories: Set<RetryErrorCategory>
+        get() = categories + if (hasUsableCustomRules) setOf(RetryErrorCategory.CUSTOM_MATCH) else emptySet()
 
-    /** 这条错误要不要重试；判定只有 [retryCategoryOf] 一份。 */
-    fun allows(error: Throwable): Boolean = allows(retryCategoryOf(error))
+    /** 有至少一条通过校验且启用的自定义规则。 */
+    val hasUsableCustomRules: Boolean
+        get() = enabledCustomRules.isNotEmpty()
+
+    /** 通过校验且启用的规则（缓存一次，避免每次失败都重算）。 */
+    private val enabledCustomRules: List<CustomRetryRule> by lazy { CustomRetryRules.usable(customRules) }
+
+    /** 这一类的失败要不要再发一次同样的请求。 */
+    fun allows(category: RetryErrorCategory): Boolean {
+        // 写操作边界优先：有副作用时任何类别都不放行，包括"任何错误"
+        if (!safeToReplay) return false
+        if (category == RetryErrorCategory.CUSTOM_MATCH) {
+            return category in effectiveCategories || (mode == RetryScopeMode.CUSTOM && hasUsableCustomRules)
+        }
+        return category in effectiveCategories
+    }
+
+    /**
+     * 这条错误要不要重试。
+     *
+     * 判定顺序：
+     * 1. 写操作边界：不可重放时直接 false；
+     * 2. 用户自定义规则命中 → [RetryErrorCategory.CUSTOM_MATCH]（真实类别是网络/服务端等，
+     *    仍然按真实类别走默认放行，自定义规则只是"额外追加"而不是替换）；
+     * 3. 否则按 [retryCategoryOf] 的真实分类。
+     */
+    fun allows(error: Throwable): Boolean {
+        if (!safeToReplay) return false
+        val category = retryCategoryOf(error)
+        // 真实类别本来就放行（网络/5xx/半截流）时不必看自定义规则
+        if (allows(category)) return true
+        if (!hasUsableCustomRules) return false
+        if (RetryErrorCategory.CUSTOM_MATCH !in effectiveCategories) return false
+        return enabledCustomRules.any { it.matches(error) }
+    }
+
+    /** 这条错误是被哪一类放行的（界面与日志用）；不放行返回 null。 */
+    fun matchedCategory(error: Throwable): RetryErrorCategory? {
+        if (!allows(error)) return null
+        val category = retryCategoryOf(error)
+        if (allows(category)) return category
+        return RetryErrorCategory.CUSTOM_MATCH
+    }
 
     /** 是否是「任何错误都试」模式，界面拿它显示额度风险提示 */
     val triesEverything: Boolean get() = mode == RetryScopeMode.ANY_ERROR

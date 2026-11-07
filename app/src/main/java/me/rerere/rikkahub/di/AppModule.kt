@@ -36,6 +36,34 @@ val appModule = module {
             context = get(), appScope = get(), eventBus = get(), settingsStore = get())
     }
     single { AssistantLearningRepository(File(get<Context>().filesDir, "assistant-learning")) }
+    // 每轮经验总结（真实写入助手记忆文件 + 该助手自己的本地知识库）。
+    // 默认关闭：开关在 LearningState.experienceReflection（每助手一份，额外一次模型请求会计费）。
+    single {
+        me.rerere.rikkahub.data.ai.learning.ExperienceLedger(
+            File(get<Context>().filesDir, "assistant-learning-experience")
+        )
+    }
+    single {
+        me.rerere.rikkahub.data.ai.learning.ExperienceService(
+            appScope = get(),
+            settingsStore = get(),
+            providerManager = get(),
+            usageRecorder = get(),
+            memoryRepository = get(),
+            knowledgeRepository = get(),
+            ledger = get(),
+            flagsOf = { assistantId ->
+                get<AssistantLearningRepository>().experienceSettings(assistantId.toString())
+            },
+        )
+    }
+    // 启动即接线：每轮指标落盘后触发一次经验总结，不需要改 ChatService 的依赖列表
+    single(createdAtStart = true) {
+        me.rerere.rikkahub.data.ai.learning.ExperienceHook(
+            learningRepository = get(),
+            experienceService = get(),
+        )
+    }
     single(createdAtStart = true) {
         me.rerere.rikkahub.data.organization.autofile.ConversationAutoFileController(
             storeDir = File(get<Context>().filesDir, "conversation_autofile"),

@@ -26,6 +26,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import me.rerere.rikkahub.ui.components.ui.switchItem
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.TextButton
+import me.rerere.ai.agent.CustomRetryMatchMode
+import me.rerere.ai.agent.CustomRetryRule
+import me.rerere.ai.agent.CustomRetryRules
 import me.rerere.ai.agent.RetryErrorCategory
 import me.rerere.ai.agent.RetryScope
 import me.rerere.ai.agent.RetryScopeMode
@@ -224,6 +233,32 @@ internal fun CardGroupScope.retryScopeSettingItems(
                     }
                 }
             }
+            // 自定义匹配类型：多选里"自定义匹配"那一行下面就地展开编辑器
+            CustomRetryRulesEditor(
+                rules = setting.retryCustomRules,
+                onChange = { rules ->
+                    onChange(
+                        setting.copy(
+                            retryCustomRules = rules,
+                            // 有规则就自动把 CUSTOM_MATCH 勾上（和 NetworkSetting.retryScope 的判定一致）
+                            retryExtraCategories = if (CustomRetryRules.usable(rules).isEmpty()) {
+                                setting.retryExtraCategories - RetryErrorCategory.CUSTOM_MATCH
+                            } else {
+                                setting.retryExtraCategories + RetryErrorCategory.CUSTOM_MATCH
+                            },
+                            retryScopeMode = if (setting.retryScopeMode == RetryScopeMode.ANY_ERROR) {
+                                RetryScopeMode.ANY_ERROR
+                            } else if (setting.retryExtraCategories.isEmpty() &&
+                                CustomRetryRules.usable(rules).isEmpty()
+                            ) {
+                                RetryScopeMode.CLASSIFIED
+                            } else {
+                                RetryScopeMode.CUSTOM
+                            },
+                        ),
+                    )
+                },
+            )
             // 全选：和上面的"任何错误"开关是同一个含义，方便从多选直接一步拉满
             Row(
                 modifier = Modifier
@@ -275,6 +310,7 @@ private fun retryCategoryTitle(category: RetryErrorCategory): String = when (cat
     RetryErrorCategory.QUOTA -> stringResource(R.string.r22_retry_cat_quota)
     RetryErrorCategory.REQUEST_FORMAT -> stringResource(R.string.r22_retry_cat_format)
     RetryErrorCategory.UNKNOWN -> stringResource(R.string.r22_retry_cat_unknown)
+    RetryErrorCategory.CUSTOM_MATCH -> stringResource(R.string.m3_retry_cat_custom)
     else -> category.name
 }
 
@@ -284,6 +320,7 @@ private fun retryCategoryDescription(category: RetryErrorCategory): String = whe
     RetryErrorCategory.QUOTA -> stringResource(R.string.r22_retry_cat_quota_desc)
     RetryErrorCategory.REQUEST_FORMAT -> stringResource(R.string.r22_retry_cat_format_desc)
     RetryErrorCategory.UNKNOWN -> stringResource(R.string.r22_retry_cat_unknown_desc)
+    RetryErrorCategory.CUSTOM_MATCH -> stringResource(R.string.m3_retry_cat_custom_desc)
     else -> ""
 }
 
@@ -379,5 +416,194 @@ private fun RetrySecondsField(
         },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+    )
+}
+
+/**
+ * 自定义错误匹配类型的编辑器：新增 / 编辑 / 删除 / 启停。
+ *
+ * 三条硬规则，全部在 [CustomRetryRule.validate] 里判定，这里只负责把原因显示出来：
+ * - 空值和超长（> [CustomRetryRule.MAX_PATTERN_LENGTH]）不许保存；
+ * - 默认 literal 子串匹配，正则只是可选项，而且灾难性回溯的形状会被拒绝；
+ * - 保存后立即写进 NetworkSetting.retryCustomRules，重试分类真的读它（不是只存在界面上）。
+ */
+@Composable
+internal fun CustomRetryRulesEditor(
+    rules: List<CustomRetryRule>,
+    onChange: (List<CustomRetryRule>) -> Unit,
+) {
+    // 编辑中的草稿；null = 没在编辑
+    var editing by remember { mutableStateOf<CustomRetryDraft?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (rules.isEmpty()) {
+            Text(
+                text = stringResource(R.string.m3_retry_custom_empty),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        rules.forEach { rule ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Checkbox(
+                    checked = rule.enabled,
+                    onCheckedChange = { checked ->
+                        onChange(rules.map { if (it.id == rule.id) it.copy(enabled = checked) else it })
+                    },
+                )
+                Column(modifier = Modifier.weight(1f).padding(start = 8.dp)) {
+                    Text(rule.displayLabel, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                    Text(
+                        text = if (rule.mode == CustomRetryMatchMode.REGEX) {
+                            stringResource(R.string.m3_retry_custom_mode_regex)
+                        } else {
+                            stringResource(R.string.m3_retry_custom_mode_literal)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // 老配置/手改出来的坏规则不清掉，但也不假装它会生效
+                    rule.validate()?.let { reason ->
+                        Text(
+                            text = stringResource(R.string.m3_retry_custom_invalid).format(reason),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+                IconButton(onClick = { editing = CustomRetryDraft.from(rule) }) {
+                    Text(stringResource(R.string.m3_retry_custom_edit))
+                }
+                IconButton(onClick = { onChange(CustomRetryRules.remove(rules, rule.id)) }) {
+                    Text(stringResource(R.string.m3_retry_custom_delete))
+                }
+            }
+        }
+        if (rules.size < CustomRetryRule.MAX_RULES) {
+            TextButton(onClick = { editing = CustomRetryDraft.empty() }) {
+                Text(stringResource(R.string.m3_retry_custom_add))
+            }
+        }
+        Text(
+            text = stringResource(R.string.m3_retry_custom_hint).format(CustomRetryRule.MAX_PATTERN_LENGTH),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    editing?.let { draft ->
+        CustomRetryRuleDialog(
+            draft = draft,
+            onDismiss = { editing = null },
+            onSave = { rule ->
+                val next = CustomRetryRules.upsert(rules, rule)
+                if (next != null) {
+                    onChange(next)
+                    editing = null
+                }
+            },
+        )
+    }
+}
+
+/** 编辑对话框的草稿状态（Compose 侧可变，保存时才转成不可变的 [CustomRetryRule]）。 */
+internal data class CustomRetryDraft(
+    val id: String,
+    val label: String,
+    val pattern: String,
+    val mode: CustomRetryMatchMode,
+) {
+    fun toRule(): CustomRetryRule = CustomRetryRule(
+        id = id,
+        label = label.trim(),
+        pattern = pattern.trim(),
+        mode = mode,
+        enabled = true,
+    )
+
+    companion object {
+        fun empty() = CustomRetryDraft(id = "", label = "", pattern = "", mode = CustomRetryMatchMode.LITERAL)
+        fun from(rule: CustomRetryRule) = CustomRetryDraft(rule.id, rule.label, rule.pattern, rule.mode)
+    }
+}
+
+/** 保存前把校验原因原样显示出来，不合法的规则根本不落盘。 */
+@Composable
+private fun CustomRetryRuleDialog(
+    draft: CustomRetryDraft,
+    onDismiss: () -> Unit,
+    onSave: (CustomRetryRule) -> Unit,
+) {
+    var label by remember(draft) { mutableStateOf(draft.label) }
+    var pattern by remember(draft) { mutableStateOf(draft.pattern) }
+    var mode by remember(draft) { mutableStateOf(draft.mode) }
+    val rule = CustomRetryRule(
+        id = draft.id,
+        label = label,
+        pattern = pattern,
+        mode = mode,
+    )
+    // 输入时就校验：空值、超长、非法正则都当场拒绝，不给"保存后再报错"的机会
+    val error = rule.validate()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.m3_retry_custom_dialog_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it.take(CustomRetryRule.MAX_LABEL_LENGTH) },
+                    label = { Text(stringResource(R.string.m3_retry_custom_label)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = pattern,
+                    onValueChange = { pattern = it.take(CustomRetryRule.MAX_PATTERN_LENGTH) },
+                    label = { Text(stringResource(R.string.m3_retry_custom_pattern)) },
+                    isError = error != null && pattern.isNotBlank(),
+                    supportingText = {
+                        Text(
+                            when {
+                                pattern.isBlank() -> stringResource(R.string.m3_retry_custom_error_empty)
+                                error != null -> stringResource(R.string.m3_retry_custom_invalid).format(error)
+                                else -> stringResource(R.string.m3_retry_custom_pattern_ok)
+                            },
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                    val modes = CustomRetryMatchMode.entries
+                    modes.forEachIndexed { index, option ->
+                        SegmentedButton(
+                            selected = mode == option,
+                            onClick = { mode = option },
+                            shape = SegmentedButtonDefaults.itemShape(index, modes.size),
+                        ) {
+                            Text(
+                                when (option) {
+                                    CustomRetryMatchMode.LITERAL ->
+                                        stringResource(R.string.m3_retry_custom_mode_literal)
+
+                                    CustomRetryMatchMode.REGEX ->
+                                        stringResource(R.string.m3_retry_custom_mode_regex)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = error == null,
+                onClick = { onSave(rule) },
+            ) { Text(stringResource(R.string.m3_retry_custom_save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.m3_retry_custom_cancel)) }
+        },
     )
 }

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="model_cache_retention_title">Prompt cache retention</string>
+    <string name="model_cache_retention_default">Provider default</string>
+    <string name="model_cache_retention_30m">30 minutes</string>
+    <string name="model_cache_retention_12h">12 hours (Responses API)</string>
+    <string name="model_cache_retention_24h">24 hours (legacy)</string>
+    <string name="model_cache_retention_24h_options">24 hours (GPT-5.5 / 5.5 Pro)</string>
+    <string name="model_cache_retention_desc">Only OpenAI and gateways that implement prompt cache retention accept this. Nothing is sent by default. From GPT-5.6 on, 30m and 12h use prompt_cache_options.ttl (12h is Responses only); GPT-5.5 / 5.5 Pro use a 24h option, and older models use prompt_cache_retention=24h. Cache write pricing follows the provider and model: newer 30m/12h options can carry a write premium (e.g. 1.25x / 2.5x), while legacy prompt caching usually has no extra write fee.</string>
+</resources>

@@ -275,6 +275,12 @@ class ChatCompletionsAPI(
             if (params.maxTokens != null) put("max_tokens", params.maxTokens)
 
             put("stream", stream)
+            // 提示词缓存的保留时长：默认一个字段都不发；显式档位先按本 API 能力校验，
+            // 12h 在 Chat Completions 不被接受，强行配置会明确失败而不是静默缩短
+            putValidatedPromptCacheRetention(
+                params.model.promptCacheRetention,
+                ModelCacheRetentionCapabilities.CHAT_COMPLETIONS,
+            )
             if (stream) {
                 if (host != "api.mistral.ai") { // mistral 不支持 stream_options
                     put("stream_options", buildJsonObject {

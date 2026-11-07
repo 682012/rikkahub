@@ -9,12 +9,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 冷启动开场动效的选项。
  *
  * 内建风格都是用 Canvas 画的，不引额外依赖：
- * [RING] 轨道环 + 沿环走的光点；[DOTS] 几颗光点向中心聚合；[AURORA] 一团很淡的柔光散开。
+ * [RIKKA] 六瓣风车花（默认）；[RING] 轨道环 + 沿环走的光点；[DOTS] 几颗光点向中心聚合；[AURORA] 一团很淡的柔光散开。
  * [CUSTOM] 不用内建画法，改放用户导入的图片/动图/小视频（见 [StartupCustomIntro]）；
  * 素材缺失或解码失败时回落到 [DEFAULT]，不会空着不画。
  */
 enum class StartupMotion {
     OFF,
+    RIKKA,
     RING,
     DOTS,
     AURORA,
@@ -24,19 +25,20 @@ enum class StartupMotion {
     val wireName: String
         get() = when (this) {
             OFF -> "off"
+            RIKKA -> "rikka"
             RING -> "ring"
             DOTS -> "dots"
             AURORA -> "aurora"
             CUSTOM -> "custom"
         }
 
-    /** 只有这四个是能直接画出来的内建风格。 */
+    /** 只有这些是能直接画出来的内建风格。 */
     val isBuiltIn: Boolean
-        get() = this == OFF || this == RING || this == DOTS || this == AURORA
+        get() = this == OFF || this == RIKKA || this == RING || this == DOTS || this == AURORA
 
     companion object {
-        /** 默认给一个最温和的：轨道环。 */
-        val DEFAULT = RING
+        /** 默认六花；已经保存的旧风格不迁移、不覆盖。 */
+        val DEFAULT = RIKKA
 
         /**
          * 从持久化的字符串还原。
@@ -46,6 +48,7 @@ enum class StartupMotion {
          */
         fun fromWire(raw: String?): StartupMotion = when (raw?.trim()?.lowercase()) {
             OFF.wireName -> OFF
+            RIKKA.wireName -> RIKKA
             DOTS.wireName -> DOTS
             RING.wireName -> RING
             AURORA.wireName -> AURORA
@@ -89,6 +92,9 @@ object StartupPreferences {
     private const val KEY_CUSTOM_SCALE = "startup_custom_scale"
     private const val KEY_CUSTOM_FIT = "startup_custom_fit"
 
+    /** 内建风格的时长（m3）。和自定义素材的时长分开存：换素材不会改掉内建那一段。 */
+    private const val KEY_BUILTIN_DURATION = "startup_builtin_duration"
+
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -97,6 +103,21 @@ object StartupPreferences {
 
     fun writeMotion(context: Context, motion: StartupMotion) {
         prefs(context).edit { putString(KEY_MOTION, motion.wireName) }
+    }
+
+    /**
+     * 读内建风格时长。
+     *
+     * 没存过 → [StartupIntroRules.BUILTIN_DURATION_MS]（默认可见的 1500ms）；
+     * 存过但坏了 → 同样回落，并由 [StartupIntroRules.clampBuiltinDuration] 收进范围。
+     */
+    fun readBuiltinDuration(context: Context): Int =
+        StartupIntroRules.clampBuiltinDuration(prefs(context).getInt(KEY_BUILTIN_DURATION, 0))
+
+    fun writeBuiltinDuration(context: Context, durationMs: Int) {
+        prefs(context).edit {
+            putInt(KEY_BUILTIN_DURATION, StartupIntroRules.clampBuiltinDuration(durationMs))
+        }
     }
 
     /**
@@ -239,18 +260,21 @@ object StartupIntroSceneResolver {
         customDurationMs: Int = 0,
         customScalePercent: Int = StartupIntroRules.DEFAULT_SCALE,
         customFit: StartupFit = StartupFit.DEFAULT,
+        builtinDurationMs: Int = 0,
     ): StartupIntroScene {
+        // 内建那一段的时长：同一份设置同时供预览和冷启动使用（m3 起用户可调）。
+        val builtinDuration = StartupIntroRules.clampBuiltinDuration(builtinDurationMs)
         if (motion == StartupMotion.OFF) {
-            return StartupIntroScene(style = StartupMotion.OFF, custom = null, durationMs = StartupIntroRules.BUILTIN_DURATION_MS)
+            return StartupIntroScene(style = StartupMotion.OFF, custom = null, durationMs = builtinDuration)
         }
         if (motion != StartupMotion.CUSTOM) {
-            return StartupIntroScene(style = motion, custom = null, durationMs = StartupIntroRules.BUILTIN_DURATION_MS)
+            return StartupIntroScene(style = motion, custom = null, durationMs = builtinDuration)
         }
         val path = custom?.path?.trim().orEmpty()
         val kind = custom?.kind
         if (path.isEmpty() || kind == null) {
             // 素材不可用：内建默认风格兜底，绝不留一层空白盖在聊天页上
-            return StartupIntroScene(style = StartupMotion.DEFAULT, custom = null, durationMs = StartupIntroRules.BUILTIN_DURATION_MS)
+            return StartupIntroScene(style = StartupMotion.DEFAULT, custom = null, durationMs = builtinDuration)
         }
         val duration = StartupIntroRules.clampDuration(
             if (customDurationMs > 0) customDurationMs else custom.durationMs,

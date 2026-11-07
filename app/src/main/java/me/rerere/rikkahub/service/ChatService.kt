@@ -58,6 +58,7 @@ import me.rerere.rikkahub.AppScope
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.ai.LearningTurnMetrics
 import me.rerere.rikkahub.data.ai.learning.AssistantLearningRepository
+import me.rerere.rikkahub.data.ai.learning.ExperienceTriggers
 import me.rerere.rikkahub.data.ai.ChatRequestFactory
 import me.rerere.rikkahub.data.ai.ChatTurnContext
 import me.rerere.rikkahub.data.ai.ConversationMetaGenerator
@@ -1022,7 +1023,17 @@ class ChatService(
                         ensureInitialized(session)
                         val newApprovalState = when {
                             answer != null -> ToolApprovalState.Answered(answer)
-                            approved -> ToolApprovalState.Approved
+                            approved -> {
+                                val selected = me.rerere.ai.agent.BatchApprovalSelection.decode(reason)
+                                if (selected == null) ToolApprovalState.Approved else {
+                                    val target = session.state.value.currentMessages.flatMap { it.getTools() }
+                                        .firstOrNull { it.toolCallId == toolCallId }
+                                    require(target?.toolName == "tool_batch") { "Member approval requires tool_batch" }
+                                    val calls = target.inputAsJson()["calls"] as? kotlinx.serialization.json.JsonArray
+                                    require(calls != null && selected.all { it in calls.indices }) { "Invalid member selection" }
+                                    ToolApprovalState.ApprovedMembers(selected)
+                                }
+                            }
                             else -> ToolApprovalState.Denied(reason)
                         }
 
@@ -1370,10 +1381,19 @@ class ChatService(
             if (owner != null && reply != null && turnFinishReason !is AgentFinishReason.AwaitingApproval) {
                 val metric = LearningTurnMetrics.from(owner.assistant.id, conversationId, owner.model.id,
                     reply, retries, turnFinishReason)
+                // 每轮终态才有 facts：取消、等待审批、没有落地的回复都会是 null，
+                // 所以「用户点停止」不会被当成一次成功的经验来源。
+                val experienceFacts = ExperienceTriggers.facts(
+                    assistantId = owner.assistant.id,
+                    conversationId = conversationId,
+                    modelId = owner.model.id,
+                    reply = reply,
+                    reason = turnFinishReason,
+                )
                 // No model call and no message body is retained. Repository I/O never blocks reply delivery.
                 appScope.launch(Dispatchers.IO) {
                     try {
-                        learningRepository.recordTurn(owner.assistant.id.toString(), metric)
+                        learningRepository.recordTurn(owner.assistant.id.toString(), metric, experienceFacts)
                     } catch (e: CancellationException) { throw e }
                     catch (e: Exception) { Log.w(TAG, "Could not record learning metrics", e) }
                 }

@@ -69,9 +69,91 @@ interface ConversationDAO {
 
     /** 助手内每个分组的会话数，给组标题上的角标；空 folder_id（未归组）不算。 */
     @Query(
-        "SELECT folder_id AS folderId, COUNT(*) AS count FROM conversationentity WHERE assistant_id = :assistantId AND folder_id != '' GROUP BY folder_id"
+        "SELECT folder_id AS folderId, COUNT(*) AS count, MAX(update_at) AS latestUpdate, MAX(create_at) AS latestCreate, MAX(is_pinned) AS pinned FROM conversationentity WHERE assistant_id = :assistantId AND folder_id != '' GROUP BY folder_id"
     )
     fun observeFolderCounts(assistantId: String): Flow<List<FolderConversationCount>>
+
+    /**
+     * 未归档会话，只出**家族根**（同助手的其它聊天区域里分出去的会话不再平铺到主列表）。
+     *
+     * 家族根的判定是 `COALESCE(NULLIF(lineage_id,''), id) = id`；根已经被删掉的孤儿会话照样出，
+     * 不能因为它指向一个不存在的根就凭空消失。familySize 仍然按家族算，行尾「+N」能点进家族。
+     */
+    @Query(
+        """
+        SELECT
+            s.id AS id,
+            s.assistant_id AS assistantId,
+            s.title AS title,
+            s.is_pinned AS isPinned,
+            s.create_at AS createAt,
+            s.update_at AS updateAt,
+            s.folder_id AS folderId,
+            COALESCE(NULLIF(s.lineage_id, ''), s.id) AS lineageId,
+            s.folder_assignment_locked AS folderAssignmentLocked,
+            (SELECT COUNT(*) FROM conversationentity f
+                WHERE f.assistant_id = s.assistant_id
+                    AND f.folder_id = s.folder_id
+                    AND COALESCE(NULLIF(f.lineage_id, ''), f.id) = COALESCE(NULLIF(s.lineage_id, ''), s.id)
+            ) AS familySize
+        FROM conversationentity s
+        WHERE s.assistant_id = :assistantId
+            AND s.folder_id = ''
+            AND (
+                COALESCE(NULLIF(s.lineage_id, ''), s.id) = s.id
+                OR NOT EXISTS (
+                    SELECT 1 FROM conversationentity r
+                    WHERE r.id = NULLIF(s.lineage_id, '') AND r.assistant_id = s.assistant_id
+                )
+            )
+        ORDER BY s.is_pinned DESC,
+            CASE WHEN :sortByCreateTime THEN s.create_at ELSE s.update_at END DESC,
+            s.id DESC
+        """
+    )
+    fun getUnfiledRootsPaging(
+        assistantId: String,
+        sortByCreateTime: Boolean,
+    ): PagingSource<Int, LightConversationEntity>
+
+    /** 文件夹里的会话，同样只出家族根；助手和文件夹都限定，不串到别的助手。 */
+    @Query(
+        """
+        SELECT
+            s.id AS id,
+            s.assistant_id AS assistantId,
+            s.title AS title,
+            s.is_pinned AS isPinned,
+            s.create_at AS createAt,
+            s.update_at AS updateAt,
+            s.folder_id AS folderId,
+            COALESCE(NULLIF(s.lineage_id, ''), s.id) AS lineageId,
+            s.folder_assignment_locked AS folderAssignmentLocked,
+            (SELECT COUNT(*) FROM conversationentity f
+                WHERE f.assistant_id = s.assistant_id
+                    AND f.folder_id = s.folder_id
+                    AND COALESCE(NULLIF(f.lineage_id, ''), f.id) = COALESCE(NULLIF(s.lineage_id, ''), s.id)
+            ) AS familySize
+        FROM conversationentity s
+        WHERE s.assistant_id = :assistantId
+            AND s.folder_id = :folderId
+            AND (
+                COALESCE(NULLIF(s.lineage_id, ''), s.id) = s.id
+                OR NOT EXISTS (
+                    SELECT 1 FROM conversationentity r
+                    WHERE r.id = NULLIF(s.lineage_id, '') AND r.assistant_id = s.assistant_id
+                )
+            )
+        ORDER BY s.is_pinned DESC,
+            CASE WHEN :sortByCreateTime THEN s.create_at ELSE s.update_at END DESC,
+            s.id DESC
+        """
+    )
+    fun getFolderRootsPaging(
+        assistantId: String,
+        folderId: String,
+        sortByCreateTime: Boolean,
+    ): PagingSource<Int, LightConversationEntity>
 
     @Query("SELECT id, title FROM conversationentity WHERE assistant_id = :assistantId AND id IN (:ids)")
     suspend fun getTitlesByIds(assistantId: String, ids: List<String>): List<ConversationTitleRow>
@@ -344,6 +426,14 @@ interface ConversationDAO {
 data class ConversationDayCount(val day: String, val count: Int)
 
 /** 一个分组（文件夹）里的会话数。 */
-data class FolderConversationCount(val folderId: String, val count: Int)
+data class FolderConversationCount(
+    val folderId: String,
+    val count: Int,
+    /** 组里最新一条会话的排序键，用来把组头就地插到它该在的位置 */
+    val latestUpdate: Long? = null,
+    val latestCreate: Long? = null,
+    /** 组里有没有置顶的会话（置顶区的组排在前面） */
+    val pinned: Boolean? = null,
+)
 
 data class AssistantConversationCount(val assistantId: String, val count: Int)

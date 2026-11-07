@@ -28,7 +28,7 @@ private const val TAG = "InputOptimizer"
  * 把用户这一条真实文本改写成更明确的请求；只走一步文本请求，不碰附件、不碰历史、不碰工具。
  *
  * 口径：
- * - 模型：优先用户已配置的快速模型，没配再用会话当前模型（同一个 provider 解析规则）。
+ * - 模型：会话里单独选了就用它；没选则跟随本会话的聊天模型（m3 起不再回退全局快速模型）。
  * - 用量：[UsageSource.INPUT_OPTIMIZATION] 单独记账，不和主对话混在一起。
  * - 失败/超时/守卫拒绝：一律返回原话可用的结果，调用方继续用用户原话发送。
  * - 取消：用户停止生成时取消照常向上抛，不吞；取消只停止等待，已经发出的请求照样计费。
@@ -47,6 +47,8 @@ class InputOptimizer(
         rawText: String,
         assistantId: Uuid,
         timeoutMillis: Long = InputAssistRules.DEFAULT_TIMEOUT_MILLIS,
+        /** 会话选项里"优化我的原话"单独选的模型；null = 跟随本会话聊天模型。 */
+        explicitModelId: Uuid? = null,
     ): InputOptimizationOutcome {
         val original = rawText.trim()
         val hash = InputAssistRules.inputHash(original)
@@ -57,7 +59,7 @@ class InputOptimizer(
             // 没有请求，也就没有可记的费用；这里不落缓存
             return InputOptimizationOutcome(InputOptimizationStatus.NOT_ELIGIBLE)
         }
-        val choice = chooseModel(settings, conversation)
+        val choice = chooseModel(settings, conversation, explicitModelId)
             ?: return InputOptimizationOutcome(
                 InputOptimizationStatus.FAILED,
                 failureReason = "no fast model and no chat model",
@@ -254,10 +256,22 @@ class InputOptimizer(
         }.onFailure { Log.w(TAG, "could not cache the optimization attempt", it) }
     }
 
-    /** 快速模型优先，没配置就用会话当前的聊天模型：跟标题/建议走同一套解析规则。 */
-    private fun chooseModel(settings: Settings, conversation: Conversation): Pair<Model, ProviderSetting>? {
-        settings.findModelById(settings.fastModelId)?.let { model ->
-            model.findProvider(settings.providers)?.let { return model to it }
+    /**
+     * 模型：会话选项里单独选的优化模型 → 本会话聊天模型 → 全局聊天模型。
+     *
+     * 用户明确给「优化原话」选了模型就用它，不被全局设置顶掉；
+     * 没选时**默认跟随本会话模型**，不再默默退回全局快速模型（m3 口径：审查/优化各自独立，不共用快速模型）。
+     * 显式选的模型已经不存在时也整体失败，不偷偷换成别的模型去跑——那会变成"选了个模型却用另一条"。
+     */
+    private fun chooseModel(
+        settings: Settings,
+        conversation: Conversation,
+        explicitModelId: Uuid?,
+    ): Pair<Model, ProviderSetting>? {
+        if (explicitModelId != null) {
+            val explicit = settings.findModelById(explicitModelId) ?: return null
+            val provider = explicit.findProvider(settings.providers) ?: return null
+            return explicit to provider
         }
         val chat = runCatching { settings.getChatModelOf(conversation) }.getOrNull() ?: return null
         val provider = chat.findProvider(settings.providers) ?: return null

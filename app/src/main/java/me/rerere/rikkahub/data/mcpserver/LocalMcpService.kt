@@ -121,22 +121,29 @@ class LocalMcpService : Service() {
         serviceScope.launch {
             // 启动失败必须让 UI 看到（runtime 状态 + 通知），不能只沉在 Log 里：
             // 这里既兜住异常（否则 SupervisorJob 下会成为未捕获异常），也兜住 start() 返回 false。
+            val plan = planLocalMcpStart(
+                intentAction = intent?.action,
+                startAction = ACTION_START,
+                enabled = manager.settings.value.enabled,
+            )
             val started = runCatching {
-                when (intent?.action) {
-                    ACTION_START -> {
-                        manager.applySettings { it.copy(enabled = true) }
-                        manager.runtime.value.isRunning
-                    }
-
-                    else -> manager.syncWithSettings()
-                }
+                if (plan.writeEnabled) manager.applySettings { it.copy(enabled = true) }
+                // plan.sync 恒为 true：冷启动恢复时 enabled 已经是 true，applySettings 不会同步，
+                // 只靠它就会出现"前台服务在、127.0.0.1 上却什么都没有"。
+                if (plan.sync) manager.syncWithSettings() else manager.runtime.value.isRunning
             }.onFailure { error ->
                 Log.e(TAG, "start local mcp failed: ${error::class.simpleName}: ${error.message}")
-                manager.reportError(getString(R.string.r22_mcp_error_foreground_denied))
             }.getOrDefault(false)
-            if (!started && manager.runtime.value.status != LocalMcpServerStatus.ERROR) {
-                manager.reportError(getString(R.string.r22_mcp_error_foreground_denied))
-            }
+
+            val state = manager.runtime.value
+            // 已经有真实原因（port_in_use / bind_failed / 设置校验）时不要用兜底文案覆盖它。
+            val fallback = localMcpStartFallbackError(
+                running = started && state.isRunning,
+                statusIsError = state.status == LocalMcpServerStatus.ERROR,
+                existingError = state.error,
+                fallback = getString(R.string.r22_mcp_error_foreground_denied),
+            )
+            if (fallback != null) manager.reportError(fallback)
         }
         return START_NOT_STICKY
     }

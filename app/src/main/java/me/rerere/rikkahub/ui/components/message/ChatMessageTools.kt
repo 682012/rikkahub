@@ -60,6 +60,7 @@ import me.rerere.rikkahub.data.model.Assistant
 import me.rerere.rikkahub.ui.components.message.tools.DefaultToolPreview
 import me.rerere.rikkahub.ui.components.message.tools.effectiveTarget
 import me.rerere.rikkahub.ui.components.message.tools.StreamingToolDraftStep
+import me.rerere.rikkahub.ui.components.message.tools.ToolApprovalDisplay
 import me.rerere.rikkahub.ui.components.message.tools.ToolApprovalPreview
 import me.rerere.rikkahub.ui.components.message.tools.ToolInputDraftTracker
 import me.rerere.rikkahub.ui.components.message.tools.ToolUIContext
@@ -204,9 +205,18 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
 
     // 摘要由注册的渲染器决定; 图片输出与拒绝原因为所有工具通用
     // 待审批时必须额外把真实入参算进内容：注册渲染器没有 Summary 的工具（外部 MCP、批量脚本等）
-    // 否则会出现"标题栏有批准按钮、展开后却没有任何参数"的盲签
-    val pendingInput = remember(tool.input, proxyTarget, tool.isPending) {
-        if (tool.isPending) (proxyTarget?.second?.toString() ?: tool.input) else ""
+    // 否则会出现"标题栏有批准按钮、展开后却没有任何参数"的盲签。
+    //
+    // m3: 不再原样贴整段 JSON。改用 ToolApprovalDisplay：首行是精简工具名，
+    // 后面是脱敏后的关键参数（凭据类打码、超长截断、关键项优先）。
+    // 这样既看得到"批准什么"，又不会把 token/密码刷在屏幕上。
+    val pendingInput = remember(tool.toolName, tool.input, proxyTarget, tool.isPending) {
+        if (!tool.isPending) {
+            ""
+        } else {
+            val args = proxyTarget?.second ?: tool.inputAsJson()
+            ToolApprovalDisplay.previewText(effectiveName, args)
+        }
     }
     val showsApproval = isPending && onToolApproval != null
     val hasPendingInput = showsApproval && pendingInput.isNotBlank()
@@ -288,6 +298,10 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
                     if (hasPendingInput) {
                         // 与悬浮窗审批卡共用同一个组件：完整、可滚动、等宽
                         ToolApprovalPreview(text = pendingInput)
+                        me.rerere.rikkahub.ui.components.message.tools.BatchMemberApprovalList(tool) { index ->
+                            onToolApproval?.invoke(tool.toolCallId, true,
+                                me.rerere.ai.agent.BatchApprovalSelection.encode(setOf(index)))
+                        }
                     }
                     renderer.Summary(context)
                     if (images.isNotEmpty()) {

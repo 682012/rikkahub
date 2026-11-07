@@ -88,6 +88,7 @@ import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
 import me.rerere.ai.provider.filterByKeywords
+import me.rerere.ai.provider.providers.openai.ModelCacheRetentionCapabilities
 import me.rerere.ai.provider.supportsQuota
 import me.rerere.ai.registry.ModelRegistry
 import me.rerere.ai.ui.UIMessage
@@ -666,6 +667,15 @@ private fun ModelSettingsForm(
                             model = model,
                             onModelChange = onModelChange,
                             globalAutoCompress = globalAutoCompress,
+                            cacheRetentionCapabilities = if (parentProvider is ProviderSetting.OpenAI) {
+                                if (parentProvider.useResponseApi) {
+                                    ModelCacheRetentionCapabilities.RESPONSES
+                                } else {
+                                    ModelCacheRetentionCapabilities.CHAT_COMPLETIONS
+                                }
+                            } else {
+                                ModelCacheRetentionCapabilities()
+                            },
                             onValidityChange = onValidityChange,
                         )
                     }

@@ -126,6 +126,8 @@ fun ChatMessage(
     onClearTranslation: (UIMessage) -> Unit = {},
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
+    /** tool_batch 逐条批准：只执行被勾选的成员下标；null = 界面不提供逐条批准（仍可整批批准/拒绝）。 */
+    onToolMembersApproval: ((toolCallId: String, indices: Set<Int>) -> Unit)? = null,
 ) {
     val message = node.messages[node.selectIndex]
     if (message.isContextCheckpoint) {
@@ -196,6 +198,7 @@ fun ChatMessage(
                 model = model,
                 onToolApproval = onToolApproval,
                 onToolAnswer = onToolAnswer,
+                onToolMembersApproval = onToolMembersApproval,
                 onUserMessageClick = if (message.role == MessageRole.USER) onEdit else null,
             )
 
@@ -307,6 +310,7 @@ private fun MessagePartsBlock(
     loading: Boolean,
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
+    onToolMembersApproval: ((toolCallId: String, indices: Set<Int>) -> Unit)? = null,
     onUserMessageClick: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
@@ -569,6 +573,7 @@ private fun MessagePartsBlock(
                                         assistant = assistant,
                                         onToolApproval = onToolApproval,
                                         onToolAnswer = onToolAnswer,
+                                        onToolMembersApproval = onToolMembersApproval,
                                     )
                                 }
                             }

@@ -1,8 +1,12 @@
 # 与原版的差异 / Differences from upstream
 
-基线：RikkaHub `3.1.1`（commit `ad2c4430`）；当前版本 `3.1.1-m2`。运行时构建提交 `885a0c1ea8bc55d34b710b382cbd1b5cd7c76707`，最终 sourceId `06e11458f2592866e92fdf8610d74c9d4e120184b2ba9ca04bdb36fa63396cc0`。旧版记录保留。
+基线：RikkaHub `3.1.1`（commit `ad2c4430`）；当前版本 `3.1.1-m3`。构建来源与校验见本版 Release 的 BUILT-SOURCE-MANIFEST.json / m3.json；旧版记录保留。
 
 当前能力对比统一见 [FEATURES.md](FEATURES.md)：工作流、体验增强、稳定性修复与继承官方的能力分开说明。下面是按版本保留的历史记录，旧版本的行为不代表当前实现。
+
+## Meridian 3.1.1-m3：工具审批与会话修复
+
+详见 [m3 说明](RELEASE-m3.md)：统一可配置设备工具审批、批内成员批准、审批参数脱敏、原位分组、会话状态修复、独立优化/审查模型、本地知识库默认开启、六花启动时长、本机 MCP 恢复、每轮经验入库、自定义重试匹配和按协议缓存保留。正式验包与定向检查以 Release 附件为准；不冒称真机端到端通过。
 
 ## Meridian 3.1.1-m2：手动分组、渠道优先级与单对话思考（正式版）
 

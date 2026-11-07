@@ -1673,6 +1673,7 @@
   <string name="stats_page_source_suggestion">Suggestions</string>
   <string name="stats_page_source_translation">Translation</string>
   <string name="stats_page_source_memory">Memory</string>
+  <string name="r23_learning_usage_source">Experience learning</string>
   <string name="stats_page_source_ocr">OCR</string>
   <string name="image_preview_saving">Saving…</string>
   <string name="image_preview_saved">Image saved</string>
@@ -1813,4 +1814,7 @@
   <string name="setting_model_page_memory_model">Memory Consolidation Model</string>
   <string name="setting_model_page_memory_model_desc">Model used to organize conversations into long-term memory in the background; uses the fast model when not set</string>
   <string name="setting_model_page_memory_model_follow_fast">Same as fast model</string>
+    <string name="r21_learning_experience_switch">Learn from each turn</string>
+    <string name="r21_learning_experience_switch_desc">After every finished turn, one extra model request summarizes a reusable lesson and appends it to this assistant’s memory file and its own knowledge base. This extra request is billed like any other.</string>
+    <string name="r21_learning_experience_switch_off_hint">Off: nothing is summarized, no extra model request is made, and no file is written.</string>
 </resources>

@@ -119,7 +119,15 @@ class InputAssistService(
                 InputOptimizationStatus.NOT_ELIGIBLE,
                 failureReason = "text parts are interleaved with attachments",
             )
-            else -> optimizeCancellable(settings, conversation, messageId, text, assistantId, timeoutMillis)
+            else -> optimizeCancellable(
+                settings = settings,
+                conversation = conversation,
+                messageId = messageId,
+                rawText = text,
+                assistantId = assistantId,
+                timeoutMillis = timeoutMillis,
+                explicitModelId = options.optimizerModelId,
+            )
         }
         val state = InputAssistTurnState(
             conversationId = conversation.id,
@@ -148,6 +156,7 @@ class InputAssistService(
         rawText: String,
         assistantId: Uuid,
         timeoutMillis: Long,
+        explicitModelId: Uuid?,
     ): InputOptimizationOutcome = supervisorScope {
         val conversationId = conversation.id
         val token = Uuid.random()
@@ -160,6 +169,7 @@ class InputAssistService(
                 rawText = rawText,
                 assistantId = assistantId,
                 timeoutMillis = timeoutMillis,
+                explicitModelId = explicitModelId,
             )
         }
         val stale = synchronized(lifecycleLock) {
@@ -316,6 +326,7 @@ class InputAssistService(
                         replyMessageId = replyMessageId,
                         key = key,
                         token = token,
+                        explicitModelId = options.reviewerModelId,
                     )
                 }
                 reviewJobs[conversationId] = started
@@ -341,6 +352,7 @@ class InputAssistService(
         replyMessageId: Uuid?,
         key: String,
         token: Uuid,
+        explicitModelId: Uuid?,
     ) {
         val outcome = try {
             reviewer.review(
@@ -349,6 +361,7 @@ class InputAssistService(
                 assistantId = assistantId,
                 userText = userText,
                 replyText = replyText,
+                explicitModelId = explicitModelId,
             )
         } catch (e: CancellationException) {
             throw e

@@ -123,6 +123,7 @@ private fun BuiltInIntroLayer(style: StartupMotion, progress: Animatable<Float, 
         if (glyphAlpha <= 0.01f) return@Canvas
 
         when (style) {
+            StartupMotion.RIKKA -> drawRikkaIntro(p, glyphAlpha, accentColor, glowColor, fadeStart = 1f)
             StartupMotion.RING -> drawSignatureOrbit(p, glyphAlpha, accentColor, glowColor)
             StartupMotion.DOTS -> drawSignatureGather(p, glyphAlpha, accentColor, glowColor)
             StartupMotion.AURORA -> drawSignatureBloom(p, glyphAlpha, accentColor, glowColor)

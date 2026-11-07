@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="model_cache_retention_title">提示詞快取保留時長</string>
+    <string name="model_cache_retention_default">通路預設</string>
+    <string name="model_cache_retention_30m">30 分鐘</string>
+    <string name="model_cache_retention_12h">12 小時（僅 Responses）</string>
+    <string name="model_cache_retention_24h">24 小時（舊欄位）</string>
+    <string name="model_cache_retention_24h_options">24 小時（GPT-5.5 / 5.5 Pro）</string>
+    <string name="model_cache_retention_desc">只有 OpenAI 官方及實作了提示詞快取保留的閘道接受該欄位，預設一個參數都不送出。GPT-5.6 及以後用 prompt_cache_options.ttl 表達 30 分鐘 / 12 小時（12 小時僅 Responses 可用）；GPT-5.5 / 5.5 Pro 只有 24 小時；舊模型用 prompt_cache_retention=24h。寫入價格依廠商與模型而定，不能一概說 24 小時較貴：較新的 30 分鐘 / 12 小時檔可能有寫入溢價（如 1.25x / 2.5x），舊的提示詞快取寫入通常不額外收費。</string>
+</resources>

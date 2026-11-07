@@ -22,6 +22,17 @@ sealed class ToolApprovalState {
     @SerialName("approved")
     data object Approved : ToolApprovalState()
 
+    /**
+     * 只批准了 `tool_batch` 里的部分成员：只有 [indices] 这些下标会执行，其余成员不执行。
+     *
+     * 为什么不复用 [Approved]：整批批准与逐条批准在**执行语义**上不同（一个跑全部、一个只跑子集），
+     * 必须能区分，否则用户点了"只批准这一条"，其余成员照样会跑。
+     * 旧记录里没有这个变体，反序列化时不受影响（默认还是 auto/approved/denied）。
+     */
+    @Serializable
+    @SerialName("approved_members")
+    data class ApprovedMembers(val indices: Set<Int> = emptySet()) : ToolApprovalState()
+
     @Serializable
     @SerialName("denied")
     data class Denied(val reason: String = "") : ToolApprovalState()
@@ -34,6 +45,7 @@ sealed class ToolApprovalState {
 fun ToolApprovalState.canResumeToolExecution(): Boolean {
     return when (this) {
         ToolApprovalState.Approved -> true
+        is ToolApprovalState.ApprovedMembers -> true
         is ToolApprovalState.Denied -> true
         is ToolApprovalState.Answered -> true
         ToolApprovalState.Auto,
@@ -258,6 +270,7 @@ sealed class UIMessagePart {
         val toolName: String,
         val input: String,
         val output: List<UIMessagePart> = emptyList(),
+        val approvalRequiredMembers: Set<Int>? = null,
         val approvalState: ToolApprovalState = ToolApprovalState.Auto,
         override var metadata: JsonObject? = null,
         // 本地执行的起止时间，只统计真正运行工具的耗时；拒绝、问答和旧消息都为空

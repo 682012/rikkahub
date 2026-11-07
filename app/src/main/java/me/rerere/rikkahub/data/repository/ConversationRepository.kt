@@ -35,6 +35,23 @@ import kotlin.uuid.Uuid
 
 private const val TAG = "ConversationRepository"
 
+/**
+ * 一个分组里「最靠前那条会话」的排序锚点。
+ *
+ * 组内会话不在未归类列表里，组头的位置只能靠它算：置顶的组排在全部未置顶会话之前，
+ * 其余按更新时间/创建时间降序（跟 [ConversationSortOrder] 一致）。
+ */
+data class GroupAnchor(
+    val latestUpdate: Long,
+    val latestCreate: Long,
+    val pinned: Boolean,
+) {
+    fun sortKeyOf(sortOrder: ConversationSortOrder): Long = when (sortOrder) {
+        ConversationSortOrder.UPDATE_TIME -> latestUpdate
+        ConversationSortOrder.CREATE_TIME -> latestCreate
+    }
+}
+
 class ConversationRepository(
     private val conversationDAO: ConversationDAO,
     private val messageNodeDAO: MessageNodeDAO,
@@ -110,6 +127,26 @@ class ConversationRepository(
         .map { rows ->
             rows.mapNotNull { row ->
                 runCatching { Uuid.parse(row.folderId) }.getOrNull()?.let { it to row.count }
+            }.toMap()
+        }
+
+    /**
+     * 每个分组里「最靠前那条会话」的排序键，用来把组头就地插到原列表里它该在的位置。
+     *
+     * 组内会话不在「未归类」列表里（它们有 folder_id），所以落点只能由这份锚点决定；
+     * 查询和角标共用一条 SQL，不做 N 次按组查询。
+     */
+    fun getGroupAnchors(assistantId: Uuid): Flow<Map<Uuid, GroupAnchor>> = conversationDAO
+        .observeFolderCounts(assistantId.toString())
+        .map { rows ->
+            rows.mapNotNull { row ->
+                runCatching { Uuid.parse(row.folderId) }.getOrNull()?.let { id ->
+                    id to GroupAnchor(
+                        latestUpdate = row.latestUpdate ?: 0L,
+                        latestCreate = row.latestCreate ?: 0L,
+                        pinned = row.pinned == true,
+                    )
+                }
             }.toMap()
         }
 
@@ -232,6 +269,11 @@ class ConversationRepository(
         assistantId: Uuid,
         sortOrder: ConversationSortOrder = ConversationSortOrder.UPDATE_TIME,
         collapseFamilies: Boolean = false,
+        /**
+         * 只出家族根：同助手「其它聊天区域」（分支/家族里分出去的会话）不再平铺到主列表里。
+         * 抽屉主列表用 true；需要逐条列全部会话的场景（比如导出/整理）保持 false。
+         */
+        rootsOnly: Boolean = false,
     ): Flow<PagingData<Conversation>> = Pager(
         config = PagingConfig(
             pageSize = PAGE_SIZE,
@@ -241,6 +283,9 @@ class ConversationRepository(
         pagingSourceFactory = {
             if (collapseFamilies) conversationDAO.getCollapsedUnfiledPaging(
                 assistantId.toString(), sortOrder == ConversationSortOrder.CREATE_TIME,
+            ) else if (rootsOnly) conversationDAO.getUnfiledRootsPaging(
+                assistantId = assistantId.toString(),
+                sortByCreateTime = sortOrder == ConversationSortOrder.CREATE_TIME,
             ) else conversationDAO.getUnfiledConversationsOfAssistantPaging(
                 assistantId = assistantId.toString(),
                 sortByCreateTime = sortOrder == ConversationSortOrder.CREATE_TIME,
@@ -257,6 +302,8 @@ class ConversationRepository(
         sortOrder: ConversationSortOrder = ConversationSortOrder.UPDATE_TIME,
         collapseFamilies: Boolean = false,
         assistantId: Uuid? = null,
+        /** 只出家族根，理由同 [getUnfiledConversationsOfAssistantPaging] */
+        rootsOnly: Boolean = false,
     ): Flow<PagingData<Conversation>> = Pager(
         config = PagingConfig(
             pageSize = PAGE_SIZE,
@@ -266,6 +313,10 @@ class ConversationRepository(
         pagingSourceFactory = {
             if (collapseFamilies && assistantId != null) conversationDAO.getCollapsedFolderPaging(
                 assistantId.toString(), folderId.toString(), sortOrder == ConversationSortOrder.CREATE_TIME,
+            ) else if (rootsOnly && assistantId != null) conversationDAO.getFolderRootsPaging(
+                assistantId = assistantId.toString(),
+                folderId = folderId.toString(),
+                sortByCreateTime = sortOrder == ConversationSortOrder.CREATE_TIME,
             ) else conversationDAO.getConversationsOfFolderPaging(
                 folderId = folderId.toString(),
                 sortByCreateTime = sortOrder == ConversationSortOrder.CREATE_TIME,

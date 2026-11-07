@@ -219,8 +219,15 @@ class ChatRequestFactory(
                 // 知识库工具只在这个会话真的开启后才进工具目录；scope 固定为当前助手
                 knowledgeEnabled = runtimeOptions.knowledgeEnabled,
             ).let { tools ->
-                if (provider is ProviderSetting.WebAccount) tools.map { it.copy(needsApproval = { true }) }
-                else tools
+                // m3: WebAccount 不再无条件把所有工具改成"需要审批"。
+                // 旧行为是 provider is WebAccount -> tools.map { needsApproval = { true } }，
+                // 结果是只读查询（device_snapshot / workspace_read_file / memory_read…）也逐个弹窗，
+                // 用户在工具表里关掉审批完全无效，而且界面不说为什么。
+                // 现在统一跟随各工具自己的可配置策略（见 ToolApprovalPolicy）：只读默认免交互，
+                // 写操作按 workspace.toolApprovalOverrides() 生效。
+                // 如果以后要恢复"Web 会话一律强制审批"，必须做成显式开关并在设置页提示来源
+                // （ToolApprovalPolicy.webAccountForcesApproval），不能在这里写死 true。
+                tools
             }
         }
         return ChatTurnContext(

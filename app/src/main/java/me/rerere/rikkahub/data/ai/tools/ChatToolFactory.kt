@@ -109,15 +109,31 @@ class ChatToolFactory(
                 addAll(createSearchTools(settings))
             }
             addAll(localTools.getTools(assistant.localTools))
-            addAll(createDeviceControlTools(deviceBridge, localMcpSettings, assistant.id))
+            // 设备工具审批可配置：用户在工作区卡片里的覆盖项对所有设备工具生效，
+            // 不再由代码写死 `!descriptor.readOnly`。
+            addAll(
+                createDeviceControlTools(
+                    bridge = deviceBridge,
+                    settings = localMcpSettings,
+                    assistantId = assistant.id,
+                    approvalOverrides = workspace?.toolApprovalOverrides().orEmpty(),
+                )
+            )
             if (assistant.enableRecentChatsReference) {
                 addAll(createConversationTools(conversationRepository, assistant.id))
             }
             addAll(workspaceTools)
             // m1 高权限工具：opt-in。未开启 / 未绑定 / 绑的是别的助手 → 这里返回空，
             // 工具名与既有工具集完全不变（最终顺序由 prepareEfficientTools 的 sortedBy 决定）。
+            // m3: 审批与设备/workspace 工具共用同一张可配置表；关审批不解除任何权限门禁。
             if (highPrivilegeToolHost != null) {
-                addAll(createHighPrivilegeTools(highPrivilegeToolHost, assistant.id.toString()))
+                addAll(
+                    createHighPrivilegeTools(
+                        host = highPrivilegeToolHost,
+                        assistantId = assistant.id.toString(),
+                        approvalOverrides = workspace?.toolApprovalOverrides().orEmpty(),
+                    )
+                )
             }
             if (assistant.enabledSkills.isNotEmpty()) {
                 addAll(
@@ -235,6 +251,8 @@ class ChatToolFactory(
         val backgroundTools = background?.controlTools(outputAware) ?: emptyList()
         // A single structured call can execute an already planned set without extra model round trips.
         return (readable + outputStore.wrap(createToolBatch(readable)) + scriptTools + backgroundTools)
+            // tool_batch 成员粒度：整批只弹一次审批（任一成员需审批即整批拦），
+            // 批准后只有被批准的成员执行，被拒绝的成员拿到结构化 tool_denied（见 ToolBatch.executeBatch）。
             .sortedBy { it.name }
     }
 

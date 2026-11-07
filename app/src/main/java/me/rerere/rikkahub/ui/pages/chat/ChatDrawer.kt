@@ -125,6 +125,8 @@ fun ChatDrawerContent(
     val selectedFolderId by drawerVm.selectedFolderId.collectAsStateWithLifecycle()
     val selectedLineageId by drawerVm.selectedLineageId.collectAsStateWithLifecycle()
     val groups by drawerVm.groups.collectAsStateWithLifecycle()
+    // 就地折叠的组头（位置由组里最靠前的那条会话决定），和分组本身分开取，改分组不会重建分页查询
+    val inlineGroups by drawerVm.inlineGroups.collectAsStateWithLifecycle()
     val selectionMode by drawerVm.selectionMode.collectAsStateWithLifecycle()
     val selectedConversationIds by drawerVm.selectedConversationIds.collectAsStateWithLifecycle()
     val groupActionMessage by drawerVm.groupActionMessage.collectAsStateWithLifecycle()
@@ -380,6 +382,7 @@ fun ChatDrawerContent(
                     .weight(1f),
                 // 手动分组：只在最外层显示，进组/进家族后是组内视角，不再叠组头
                 groups = if (shouldShowGroups(selectedFolderId, selectedLineageId)) groups else emptyList(),
+                inlineGroups = if (shouldShowGroups(selectedFolderId, selectedLineageId)) inlineGroups else emptyList(),
                 groupConversations = drawerVm::groupConversations,
                 onToggleGroup = { drawerVm.toggleGroupExpanded(it) },
                 onOpenGroup = { folderId -> drawerVm.selectFolder(folderId) },

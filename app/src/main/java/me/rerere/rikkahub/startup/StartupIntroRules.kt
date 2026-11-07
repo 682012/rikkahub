@@ -104,14 +104,21 @@ object StartupIntroRules {
     /** 解码像素上限：只按这个长边解码，几 MB 的图不会解成几十 MB 的位图。 */
     const val MAX_DECODE_PX = 1536
 
-    /** 内建风格的时长，保持 a75335a 的 280ms。 */
-    const val BUILTIN_DURATION_MS = 280
+    /**
+     * 内建风格的默认时长（m3）。
+     *
+     * 以前内建风格是写死的 280ms：用户反馈"实际启动时太快闪过去、像没画"。
+     * 现在内建风格有自己可选的时长（StartupPreferences 的 KEY_BUILTIN_DURATION），
+     * 默认给 1500ms —— 够看清一层收束动效，又不至于挡住下面的聊天页。
+     * 这个值只用于"用户从没调过"的情况，调过就一律以存下来的为准。
+     */
+    const val BUILTIN_DURATION_MS = 1500
 
     /** 自定义素材默认稍长一点，但仍在"不挡内容"的量级。 */
     const val CUSTOM_DURATION_DEFAULT_MS = 600
 
     const val MIN_DURATION_MS = 200
-    const val MAX_DURATION_MS = 1500
+    const val MAX_DURATION_MS = 2300
 
     const val DEFAULT_SCALE = 100
     const val MIN_SCALE = 60
@@ -182,6 +189,17 @@ object StartupIntroRules {
 
     fun clampDuration(millis: Int, kind: StartupMediaKind): Int {
         if (millis <= 0) return customDurationDefault(kind)
+        return millis.coerceIn(MIN_DURATION_MS, MAX_DURATION_MS)
+    }
+
+    /**
+     * 内建风格的时长收敛。
+     *
+     * 和 [clampDuration] 的区别只有默认值：坏值（没存过、被清掉、读到 0/负数）
+     * 一律回到 [BUILTIN_DURATION_MS]，而不是某个素材类型的默认值。
+     */
+    fun clampBuiltinDuration(millis: Int): Int {
+        if (millis <= 0) return BUILTIN_DURATION_MS
         return millis.coerceIn(MIN_DURATION_MS, MAX_DURATION_MS)
     }
 

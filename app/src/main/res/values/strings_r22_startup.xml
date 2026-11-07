@@ -3,6 +3,7 @@
     <string name="r22_startup_title">Startup animation</string>
     <string name="r22_startup_desc">A short layer drawn over the chat screen on a cold launch. You can already tap and scroll underneath. Shares, notifications and links skip it.</string>
     <string name="r22_startup_reduced">System animations are off, so nothing is drawn on cold launch.</string>
+    <string name="r22_startup_style_rikka">Rikka</string>
     <string name="r22_startup_style_ring">Ring</string>
     <string name="r22_startup_style_dots">Gather</string>
     <string name="r22_startup_style_aurora">Glow</string>
@@ -17,6 +18,7 @@
     <string name="r22_startup_media_clear">Clear</string>
     <string name="r22_startup_duration_title">Duration</string>
     <string name="r22_startup_duration_desc">%1$d ms. Never blocks the content underneath.</string>
+    <string name="r22_startup_builtin_duration_desc">%1$d ms. How long this plays on a cold launch. Shorter is snappier, longer is easier to see.</string>
     <string name="r22_startup_scale_title">Size</string>
     <string name="r22_startup_scale_desc">%1$d%% of the screen</string>
     <string name="r22_startup_fit_title">Fit</string>

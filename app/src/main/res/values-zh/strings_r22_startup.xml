@@ -3,6 +3,7 @@
     <string name="r22_startup_title">启动动效</string>
     <string name="r22_startup_desc">只在冷启动时画一小段，底下的聊天页照常可以点、可以滑；分享、通知、链接进来不画。</string>
     <string name="r22_startup_reduced">系统动画已关闭，冷启动不会绘制任何动效。</string>
+    <string name="r22_startup_style_rikka">六花</string>
     <string name="r22_startup_style_ring">轨道环</string>
     <string name="r22_startup_style_dots">光点聚合</string>
     <string name="r22_startup_style_aurora">柔光</string>
@@ -17,6 +18,7 @@
     <string name="r22_startup_media_clear">清除</string>
     <string name="r22_startup_duration_title">时长</string>
     <string name="r22_startup_duration_desc">%1$d 毫秒，不会挡住下面的内容。</string>
+    <string name="r22_startup_builtin_duration_desc">%1$d 毫秒。冷启动时这一段播多久。短一点更快，长一点更容易看清。</string>
     <string name="r22_startup_scale_title">大小</string>
     <string name="r22_startup_scale_desc">屏幕的 %1$d%%</string>
     <string name="r22_startup_fit_title">适配方式</string>

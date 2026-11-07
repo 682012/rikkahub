@@ -54,15 +54,32 @@ val WorkspaceToolDefaultApprovals: Map<String, Boolean> = mapOf(
     "workspace_glob" to false,
     "workspace_write_file" to false,
     "workspace_edit_file" to false,
-    "workspace_shell" to true,
-    "workspace_android_shell" to true,
+    "workspace_shell" to false,
+    // 原生 Android shell 与自由 shell 共用审批键 (见 ToolApprovalPolicy): 关掉 shell 审批
+    // 不会只关掉其中一个入口。两者都在同一张可配置表里，UI 直接改这里的值。
+    "workspace_android_shell" to false,
 )
 
 /** 直接写文件的工具, 只在支持 [WorkspaceCapabilities.fileWriteTools] 的工作区提供 */
 val WorkspaceFileWriteToolNames: Set<String> = setOf("workspace_write_file", "workspace_edit_file")
 
-fun resolveWorkspaceToolApproval(name: String, overrides: Map<String, Boolean>): Boolean =
-    overrides[name] ?: WorkspaceToolDefaultApprovals[name] ?: false
+/**
+ * 解析 workspace 工具审批。统一走 [ToolApprovalPolicy]：
+ * - shell 家族（workspace_shell / workspace_android_shell / job 工具）共用一个审批键，
+ *   用户在前台 shell 关掉审批时，后台 job 与 Android 原生 shell 也一起放行/收紧；
+ * - 其余工具按工具名查覆盖表，再回落到默认值。
+ *
+ * 注意这只决定"要不要弹审批"，不代表权限：真正执行仍受 Workspace 后端与
+ * (对 android shell) 权限中心/Shizuku 授权约束。
+ */
+fun resolveWorkspaceToolApproval(name: String, overrides: Map<String, Boolean>): Boolean {
+    val key = ToolApprovalPolicy.workspaceApprovalKey(name) ?: name
+    return ToolApprovalPolicy.resolve(
+        toolName = key,
+        overrides = overrides,
+        default = WorkspaceToolDefaultApprovals[name] ?: WorkspaceToolDefaultApprovals[key] ?: false,
+    )
+}
 
 suspend fun createWorkspaceTools(
     workspaceId: String?,

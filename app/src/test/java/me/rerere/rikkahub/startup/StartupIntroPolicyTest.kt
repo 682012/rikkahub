@@ -28,16 +28,16 @@ class StartupIntroPolicyTest {
     )
 
     @Test
-    fun `default is the gentle ring`() {
-        assertEquals(StartupMotion.RING, StartupMotion.DEFAULT)
+    fun `default is rikka`() {
+        assertEquals(StartupMotion.RIKKA, StartupMotion.DEFAULT)
     }
 
     @Test
-    fun `cold launcher start draws ring and hands over the system splash exit`() {
+    fun `cold launcher start draws rikka and hands over the system splash exit`() {
         val result = planFor()
 
         assertFalse(result.isEmpty)
-        assertEquals(StartupMotion.RING, result.overlay)
+        assertEquals(StartupMotion.RIKKA, result.overlay)
         assertTrue(result.splashExitAnimation)
     }
 
@@ -78,7 +78,7 @@ class StartupIntroPolicyTest {
         val result = planFor(splashExitSupported = false)
 
         assertFalse(result.splashExitAnimation)
-        assertEquals(StartupMotion.RING, result.overlay)
+        assertEquals(StartupMotion.RIKKA, result.overlay)
     }
 
     @Test
@@ -125,9 +125,9 @@ class StartupIntroPolicyTest {
 
     @Test
     fun `unreadable stored value falls back to the default`() {
-        assertEquals(StartupMotion.RING, StartupMotion.fromWire(null))
-        assertEquals(StartupMotion.RING, StartupMotion.fromWire(""))
-        assertEquals(StartupMotion.RING, StartupMotion.fromWire("paper"))
+        assertEquals(StartupMotion.RIKKA, StartupMotion.fromWire(null))
+        assertEquals(StartupMotion.RIKKA, StartupMotion.fromWire(""))
+        assertEquals(StartupMotion.RIKKA, StartupMotion.fromWire("paper"))
     }
 
     @Test

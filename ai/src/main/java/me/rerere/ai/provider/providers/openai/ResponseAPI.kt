@@ -307,6 +307,11 @@ class ResponseAPI(
             }
             // 会话 ID 作为 prompt_cache_key，同一会话的请求能命中提示缓存
             params.sessionId?.let { put("prompt_cache_key", it) }
+            // 提示词缓存保留时长：默认一个字段都不发；新协议的 30m/12h 走 prompt_cache_options.ttl
+            putValidatedPromptCacheRetention(
+                params.model.promptCacheRetention,
+                ModelCacheRetentionCapabilities.RESPONSES,
+            )
 
             // tools
             // Response API 的 tools 是扁平数组, 函数工具和内置工具可以共存, 必须写在同一个 key 下,

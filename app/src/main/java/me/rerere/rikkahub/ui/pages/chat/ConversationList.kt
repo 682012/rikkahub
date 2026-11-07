@@ -52,6 +52,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import me.rerere.rikkahub.R
@@ -80,6 +81,21 @@ sealed class ConversationListItem {
     data class Item(
         val conversation: Conversation
     ) : ConversationListItem()
+
+    /**
+     * 手动分组组头，插在**原列表**里组内第一条会话的位置上（不是另开一个区）。
+     *
+     * 组内成员不复制一份：展开后由组自己渲染成员行，主列表里对应的那几行让位（见
+     * [visibleListRows]），所以「原列表折成组」和「关掉组回到原列表」是同一份顺序。
+     */
+    data class GroupHeader(
+        val summary: GroupSummary,
+        /** 组里成员的排序键最大的一条，用来在锚点消失时决定插在哪 */
+        val anchorAt: Long,
+        /** 组里最靠前那条是置顶的：置顶区排在所有未置顶会话之前 */
+        val pinned: Boolean = false,
+        val sortOrder: ConversationSortOrder = ConversationSortOrder.UPDATE_TIME,
+    ) : ConversationListItem()
 }
 
 @Composable
@@ -98,9 +114,12 @@ fun ColumnScope.ConversationList(
     onMoveToFolder: (Conversation) -> Unit = {},
     // 折叠后同族还有别的会话时，行尾的数字角标点进来；null 表示这个场景不折叠（比如搜索结果）
     onOpenFamily: ((Conversation) -> Unit)? = null,
-    // ---- 手动分组：列表顶部的可展开组 ----
+    // ---- 手动分组：原列表里的可展开组（就地折叠，不另开区）----
     // 为空表示不显示组（组内视角、家族视角、搜索结果都不显示）
     groups: List<GroupSummary> = emptyList(),
+    /** 行内出现的组头 key（由 ViewModel 按成员锚点算出），点一下就地展开/收起 */
+    inlineGroups: List<ConversationListItem.GroupHeader> = emptyList(),
+    /** 某个组展开后要渲染的成员；纯展示层收集，不占种子的实时查询 */
     groupConversations: (Uuid) -> Flow<List<Conversation>> = { flowOf(emptyList()) },
     onToggleGroup: (Uuid) -> Unit = {},
     onOpenGroup: (Uuid) -> Unit = {},
@@ -112,23 +131,49 @@ fun ColumnScope.ConversationList(
     onStartSelection: (Conversation) -> Unit = {},
     onToggleSelection: (Conversation) -> Unit = {},
 ) {
-    var hasScrolledToCurrent by remember(current.id) { mutableStateOf(false) }
-    // 列表顶部若放了 header 和分组，会话项在 LazyColumn 中的位置要整体往后挪
-    val headerCount = (if (header != null) 1 else 0) + groups.size
+    // 组头现在插在列表内部（inlineGroups），列表顶部只有 header，位置计算不再跟着组数漂
+    val headerCount = if (header != null) 1 else 0
 
-    LaunchedEffect(current.id, conversations.itemCount, hasScrolledToCurrent) {
-        if (hasScrolledToCurrent) return@LaunchedEffect
-        val itemIndex = conversations.itemSnapshotList.items.indexOfFirst {
-            (it as? ConversationListItem.Item)?.conversation?.id == current.id
-        }
-        if (itemIndex >= 0) {
-            val currentIndex = itemIndex + headerCount
-            val isVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == currentIndex }
-            if (!isVisible) {
-                listState.scrollToItem(currentIndex)
+    // 只在「换了会话」或「第一次拿到这条会话的行」时定位一次。
+    // 以前把 itemCount 也算进 key，每次分页刷新都会重新跑一遍并可能硬拽列表，点一下就是一次卡顿。
+    var scrollKey by remember { mutableStateOf<Uuid?>(null) }
+    val rows = conversations.itemSnapshotList.items
+    LaunchedEffect(current.id, rows.size) {
+        if (scrollKey == current.id) return@LaunchedEffect
+        val target = scrollTargetForKey(rows, headerCount, current.id, listState) ?: return@LaunchedEffect
+        listState.scrollToItem(target)
+        scrollKey = current.id
+    }
+
+    // 组头就地插在「组里最靠前那条会话」的位置上：先算好每个 index 上面该画哪个组
+    // （index == 行数表示画在末尾），渲染时仍按分页的 index 走，不重建查询、不闪空
+    val snapshotRows = conversations.itemSnapshotList.items
+    // 分组头和列表用同一份排序依据：按创建时间排序时就按 create_at 定位，否则按 update_at
+    val listSortOrder = inlineGroups.firstOrNull()?.sortOrder ?: ConversationSortOrder.UPDATE_TIME
+    val groupPlacement = remember(snapshotRows, inlineGroups, listSortOrder) {
+        inlineGroupPlacement(snapshotRows, inlineGroups) { conversation ->
+            when (listSortOrder) {
+                ConversationSortOrder.CREATE_TIME -> conversation.createAt.toEpochMilli()
+                ConversationSortOrder.UPDATE_TIME -> conversation.updateAt.toEpochMilli()
             }
-            hasScrolledToCurrent = true
         }
+    }
+    val groupSection: @Composable (ConversationListItem.GroupHeader, Modifier) -> Unit = { header, sectionModifier ->
+        ConversationGroupSection(
+            summary = header.summary,
+            conversations = groupConversations,
+            current = current,
+            selectionMode = selectionMode,
+            selectedIds = selectedIds,
+            onToggleGroup = onToggleGroup,
+            onOpenGroup = onOpenGroup,
+            onRenameGroup = onRenameGroup,
+            onDissolveGroup = onDissolveGroup,
+            onClick = onClick,
+            onToggleSelection = onToggleSelection,
+            onStartSelection = onStartSelection,
+            modifier = sectionModifier,
+        )
     }
 
     LazyColumn(
@@ -142,26 +187,10 @@ fun ColumnScope.ConversationList(
             }
         }
 
-        // 手动分组的可展开组：在「未归组」视角下先列出来，展开后直接看到组内的独立会话
-        items(groups, key = { "group_${it.id}" }, contentType = { "group" }) { group ->
-            ConversationGroupSection(
-                summary = group,
-                conversations = groupConversations,
-                current = current,
-                selectionMode = selectionMode,
-                selectedIds = selectedIds,
-                onToggleGroup = onToggleGroup,
-                onOpenGroup = onOpenGroup,
-                onRenameGroup = onRenameGroup,
-                onDissolveGroup = onDissolveGroup,
-                onClick = onClick,
-                onToggleSelection = onToggleSelection,
-                onStartSelection = onStartSelection,
-                modifier = Modifier.animateItem(),
-            )
-        }
-
-        if (conversations.itemCount == 0 && groups.isEmpty()) {
+        if (conversations.itemCount == 0 &&
+            inlineGroups.isEmpty() &&
+            conversations.loadState.refresh is LoadState.NotLoading
+        ) {
             item {
                 Surface(
                     modifier = Modifier
@@ -188,10 +217,16 @@ fun ColumnScope.ConversationList(
                     is ConversationListItem.DateHeader -> "date_${item.sortOrder}_${item.date}"
                     is ConversationListItem.PinnedHeader -> "pinned_header"
                     is ConversationListItem.Item -> item.conversation.id.toString()
+                    is ConversationListItem.GroupHeader -> "inline_group_${item.summary.id}"
                 }
             }
         ) { index ->
-            when (val item = conversations[index]) {
+            // 组头画在它锚点那行的上面，跟这一行同属一个 lazy item：
+            // 组的位置永远守住「原列表里的位置」，展开/收起只改这一项的高度
+            val rowGroups = groupPlacement[index].orEmpty()
+            Column {
+                rowGroups.forEach { header -> groupSection(header, Modifier.animateItem()) }
+                when (val item = conversations[index]) {
                 is ConversationListItem.DateHeader -> {
                     DateHeaderItem(
                         label = item.label,
@@ -202,6 +237,24 @@ fun ColumnScope.ConversationList(
                 is ConversationListItem.PinnedHeader -> {
                     PinnedHeader(
                         modifier = Modifier.animateItem()
+                    )
+                }
+
+                is ConversationListItem.GroupHeader -> {
+                    ConversationGroupSection(
+                        summary = item.summary,
+                        conversations = groupConversations,
+                        current = current,
+                        selectionMode = selectionMode,
+                        selectedIds = selectedIds,
+                        onToggleGroup = onToggleGroup,
+                        onOpenGroup = onOpenGroup,
+                        onRenameGroup = onRenameGroup,
+                        onDissolveGroup = onDissolveGroup,
+                        onClick = onClick,
+                        onToggleSelection = onToggleSelection,
+                        onStartSelection = onStartSelection,
+                        modifier = Modifier.animateItem(),
                     )
                 }
 
@@ -227,6 +280,17 @@ fun ColumnScope.ConversationList(
 
                 null -> {
                     // Placeholder for loading state
+                }
+                }
+            }
+        }
+
+        // 组里最新的一条比已加载的会话都旧：组头落到列表末尾，仍然在原列表里，不开新区
+        val tailGroups = groupPlacement[conversations.itemCount].orEmpty()
+        if (tailGroups.isNotEmpty()) {
+            item(key = "inline_group_tail") {
+                Column {
+                    tailGroups.forEach { header -> groupSection(header, Modifier.animateItem()) }
                 }
             }
         }

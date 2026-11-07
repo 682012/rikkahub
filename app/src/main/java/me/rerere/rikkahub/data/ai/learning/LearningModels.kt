@@ -96,6 +96,11 @@ data class LearningStorageInfo(
 data class LearningState(
     val assistantId: String,
     val enabled: Boolean,
+    /**
+     * 「每轮让模型总结经验」：额外一次模型请求（会计费），默认关闭。
+     * 与 [enabled] 是「与」的关系：[enabled] 关掉后，这里开着也不总结、不注入。
+     */
+    val experienceReflection: Boolean = false,
     val revision: Long,
     val updatedAt: Long,
     val turns: List<LearningTurn>,

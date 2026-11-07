@@ -138,7 +138,18 @@ fun LocalMcpSettingsCard(
                         }
                     }
                 },
-                supportingContent = { Text(stringResource(R.string.r22_mcp_enable_note)) },
+                supportingContent = {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(stringResource(R.string.r22_mcp_enable_note))
+                        // 开关是"开"但服务没在跑（启动失败 / 被系统收掉）时给一条一键重试的路：
+                        // 之前只能先关再开，或者干脆以为这个功能废了。
+                        if (settings.enabled && !runtime.isRunning) {
+                            TextButton(onClick = { LocalMcpService.requestStart(context) }) {
+                                Text(stringResource(R.string.r22_mcp_retry_start))
+                            }
+                        }
+                    }
+                },
                 headlineContent = { Text(stringResource(R.string.r22_mcp_enable)) },
             )
         }

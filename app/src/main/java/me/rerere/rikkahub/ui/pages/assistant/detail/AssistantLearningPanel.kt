@@ -176,6 +176,26 @@ internal fun AssistantLearningTab(
                 },
                 headlineContent = { Text(stringResource(R.string.r21_learning_switch)) },
             )
+            // 每轮经验总结：额外一次模型请求（会计费），所以单独一个开关，默认关闭
+            switchItem(
+                checked = current.experienceReflection,
+                onCheckedChange = { enabled ->
+                    perform { repository.setExperienceReflection(assistantId, enabled) }
+                },
+                enabled = !busy,
+                supportingContent = {
+                    Text(
+                        stringResource(
+                            if (current.experienceReflection) {
+                                R.string.r21_learning_experience_switch_desc
+                            } else {
+                                R.string.r21_learning_experience_switch_off_hint
+                            }
+                        )
+                    )
+                },
+                headlineContent = { Text(stringResource(R.string.r21_learning_experience_switch)) },
+            )
         }
 
         LearningMetricsSection(stats = current.stats)

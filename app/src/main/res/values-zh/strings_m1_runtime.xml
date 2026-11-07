@@ -69,4 +69,29 @@
     <string name="m1_runtime_optimized_note">只是请求副本：消息列表、编辑和重新生成都还是你的原话。</string>
     <string name="m1_runtime_optimized_copy">复制请求副本</string>
     <string name="m1_runtime_optimized_copied">已复制</string>
+    <!-- m3: 优化原话/回复审查各自独立模型 -->
+    <string name="m3_runtime_optimizer_model">优化原话使用的模型</string>
+    <string name="m3_runtime_reviewer_model">回复审查使用的模型</string>
+    <string name="m3_runtime_model_default_desc">跟随本会话的模型。单独选一个只会改这里。</string>
+    <string name="m3_runtime_model_explicit_desc">使用你在这里选的模型；清空后重新跟随本会话模型。</string>
+    <string name="m3_runtime_reviewer_model_off">仅在独立审查模式下才用得上。</string>
+    <string name="m3_runtime_summary_model">模型 %1$s</string>
+    <!-- m3: 自定义重试类型 -->
+    <string name="m3_retry_cat_custom">自定义匹配</string>
+    <string name="m3_retry_cat_custom_desc">重试符合你自己规则的失败。已经执行过的写操作永远不会被重放。</string>
+    <string name="m3_retry_custom_empty">还没有自定义规则。加一条，让你认得的错误也能重试。</string>
+    <string name="m3_retry_custom_add">添加规则</string>
+    <string name="m3_retry_custom_edit">编辑</string>
+    <string name="m3_retry_custom_delete">删除</string>
+    <string name="m3_retry_custom_dialog_title">自定义错误匹配</string>
+    <string name="m3_retry_custom_label">名称（可不填）</string>
+    <string name="m3_retry_custom_pattern">要匹配的错误文本</string>
+    <string name="m3_retry_custom_pattern_ok">可以保存。</string>
+    <string name="m3_retry_custom_error_empty">请填写这条规则要匹配的错误文本。</string>
+    <string name="m3_retry_custom_invalid">规则不可用：%1$s</string>
+    <string name="m3_retry_custom_hint">按文本包含匹配，不区分大小写。每条最多 %1$d 个字符。</string>
+    <string name="m3_retry_custom_mode_literal">普通文本</string>
+    <string name="m3_retry_custom_mode_regex">正则表达式</string>
+    <string name="m3_retry_custom_save">保存</string>
+    <string name="m3_retry_custom_cancel">取消</string>
 </resources>

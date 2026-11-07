@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.dp
 import java.text.NumberFormat
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelType
+import me.rerere.ai.provider.PromptCacheRetention
+import me.rerere.ai.provider.providers.openai.ModelCacheRetentionCapabilities
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.AutoCompressSettings
 import me.rerere.rikkahub.ui.components.ui.ConnectedChoiceButtons
@@ -86,6 +88,12 @@ fun ModelRuntimeSettingsForm(
     model: Model,
     onModelChange: (Model) -> Unit,
     globalAutoCompress: AutoCompressSettings = AutoCompressSettings(),
+    /**
+     * 只有 OpenAI 系渠道认识缓存保留字段，其它渠道不显示这一项。
+     * 具体能选哪些档位由渠道 API 决定（Chat Completions 没有 12h，Responses 有）。
+     */
+    cacheRetentionCapabilities: ModelCacheRetentionCapabilities =
+        ModelCacheRetentionCapabilities(),
     modifier: Modifier = Modifier,
     onValidityChange: (Boolean) -> Unit = {},
 ) {
@@ -292,5 +300,33 @@ fun ModelRuntimeSettingsForm(
             singleLine = true,
             isError = !concurrencyValid,
         )
+
+        if (isChat && cacheRetentionCapabilities.supportsAny) {
+            Text(
+                stringResource(R.string.model_cache_retention_title),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            ConnectedChoiceButtons(
+                options = cacheRetentionCapabilities.selectable(),
+                selected = model.promptCacheRetention,
+                onSelect = { retention ->
+                    onModelChange(model.copy(promptCacheRetention = retention))
+                },
+            ) { retention, _ ->
+                stringResource(
+                    when (retention) {
+                        PromptCacheRetention.DEFAULT -> R.string.model_cache_retention_default
+                        PromptCacheRetention.THIRTY_MINUTES -> R.string.model_cache_retention_30m
+                        PromptCacheRetention.TWELVE_HOURS -> R.string.model_cache_retention_12h
+                        PromptCacheRetention.ONE_DAY -> R.string.model_cache_retention_24h
+                    }
+                )
+            }
+            Text(
+                stringResource(R.string.model_cache_retention_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }

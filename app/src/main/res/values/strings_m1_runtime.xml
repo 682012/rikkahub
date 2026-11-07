@@ -70,4 +70,29 @@
     <string name="m1_runtime_optimized_note">Request copy only: the message list, edits and regenerate all still use your original text.</string>
     <string name="m1_runtime_optimized_copy">Copy request copy</string>
     <string name="m1_runtime_optimized_copied">Copied</string>
+    <!-- m3: 优化原话/回复审查各自独立模型 -->
+    <string name="m3_runtime_optimizer_model">Model for rewriting my text</string>
+    <string name="m3_runtime_reviewer_model">Model for reply review</string>
+    <string name="m3_runtime_model_default_desc">Follows this conversation\'s model. Pick one to override it only here.</string>
+    <string name="m3_runtime_model_explicit_desc">Uses the model you picked here; clearing it follows this conversation\'s model again.</string>
+    <string name="m3_runtime_reviewer_model_off">Only used in independent review mode.</string>
+    <string name="m3_runtime_summary_model">model %1$s</string>
+    <!-- m3: 自定义重试类型 -->
+    <string name="m3_retry_cat_custom">Custom match</string>
+    <string name="m3_retry_cat_custom_desc">Retry failures matching your own rules. Writes that already happened are never replayed.</string>
+    <string name="m3_retry_custom_empty">No custom rules yet. Add one to retry errors you recognize.</string>
+    <string name="m3_retry_custom_add">Add rule</string>
+    <string name="m3_retry_custom_edit">Edit</string>
+    <string name="m3_retry_custom_delete">Delete</string>
+    <string name="m3_retry_custom_dialog_title">Custom error match</string>
+    <string name="m3_retry_custom_label">Name (optional)</string>
+    <string name="m3_retry_custom_pattern">Error text to match</string>
+    <string name="m3_retry_custom_pattern_ok">Looks valid.</string>
+    <string name="m3_retry_custom_error_empty">Enter the error text this rule should match.</string>
+    <string name="m3_retry_custom_invalid">Invalid rule: %1$s</string>
+    <string name="m3_retry_custom_hint">Substring match, case-insensitive. Up to %1$d characters per rule.</string>
+    <string name="m3_retry_custom_mode_literal">Plain text</string>
+    <string name="m3_retry_custom_mode_regex">Regular expression</string>
+    <string name="m3_retry_custom_save">Save</string>
+    <string name="m3_retry_custom_cancel">Cancel</string>
 </resources>

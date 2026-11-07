@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <!-- 本机 MCP：开关已经是"开"但服务没在跑（失败/被系统收掉）时的一键重试。 -->
+  <string name="r22_mcp_retry_start">Start again</string>
+</resources>

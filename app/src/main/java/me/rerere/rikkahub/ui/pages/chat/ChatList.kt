@@ -148,6 +148,8 @@ fun ChatList(
     onJumpToMessage: (Int) -> Unit = {},
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
+    /** tool_batch 逐条批准：只执行被勾选的成员下标 */
+    onToolMembersApproval: ((toolCallId: String, indices: Set<Int>) -> Unit)? = null,
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
 ) {
@@ -239,6 +241,8 @@ private fun ChatListNormal(
     animatedVisibilityScope: AnimatedVisibilityScope,
     onToolApproval: ((toolCallId: String, approved: Boolean, reason: String) -> Unit)? = null,
     onToolAnswer: ((toolCallId: String, answer: String) -> Unit)? = null,
+    /** tool_batch 逐条批准：只执行被勾选的成员下标 */
+    onToolMembersApproval: ((toolCallId: String, indices: Set<Int>) -> Unit)? = null,
     onToggleFavorite: ((MessageNode) -> Unit)? = null,
     onConversationSystemPromptChange: ((String?) -> Unit)? = null,
 ) {
@@ -409,6 +413,7 @@ private fun ChatListNormal(
                             onClearTranslation = onClearTranslation,
                             onToolApproval = onToolApproval,
                             onToolAnswer = onToolAnswer,
+                            onToolMembersApproval = onToolMembersApproval,
                             lastMessage = index == lastMessageIndex,
                         )
                     }

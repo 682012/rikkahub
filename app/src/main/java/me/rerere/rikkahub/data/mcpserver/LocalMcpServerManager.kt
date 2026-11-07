@@ -135,30 +135,55 @@ class LocalMcpServerManager(
         return after
     }
 
-    /** 把真实运行状态拉回与用户意图一致（幂等）。UI / FGS / 恢复入口都可以反复调。 */
-    suspend fun syncWithSettings(): Boolean {
+    /**
+     * 用户显式打开（设置开关 / 前台服务 ACTION_START / 启动恢复）：先落盘 `enabled = true`，
+     * 然后**无条件**对齐一次运行状态。
+     *
+     * 不能只调 [applySettings]：它只在"设置真的变了"时才同步，而冷启动恢复时 `enabled` 早就是
+     * `true`，`before == after` → 一个字节都没启动，前台服务却已经常驻、通知停在"正在启动"。
+     */
+    suspend fun enableAndStart(): Boolean = lifecycleMutex.withLock {
+        val before = settingsStore.current()
+        if (!before.enabled) settingsStore.update { it.copy(enabled = true) }
+        syncLocked()
+    }
+
+    /**
+     * 把真实运行状态拉回与用户意图一致（幂等）。UI / FGS / 恢复入口都可以反复调。
+     *
+     * 整段在 [lifecycleMutex] 里做决策：否则两次并发 sync（UI 一次、FGS 一次）可以一个走 stop、
+     * 一个走 start，留下"引擎停了但仍显示 RUNNING / 端口被自己占着"的中间态。
+     */
+    suspend fun syncWithSettings(): Boolean = lifecycleMutex.withLock { syncLocked() }
+
+    /** [lifecycleMutex] 已持有时使用的版本，**不要**在里面再调 start/stop/restart（不可重入）。 */
+    private suspend fun syncLocked(): Boolean {
         val current = settingsStore.current()
         val running = server != null && accepting.get()
         return when {
             !current.enabled -> {
-                if (server != null) stop()
+                if (server != null) stopLocked()
                 false
             }
 
             !running -> {
                 // 引擎还在、但已经不接连接（半死状态）时先收干净再起，避免端口被自己占着。
-                if (server != null) stop()
-                start()
+                if (server != null) stopLocked()
+                startLocked()
             }
 
-            _runtime.value.port != current.port -> restart()
+            _runtime.value.port != current.port -> {
+                stopLocked()
+                startLocked()
+            }
+
             else -> true
         }
     }
 
     /** App 正常前台启动时恢复用户此前显式打开的服务；没有 enabled 就什么都不做。 */
     suspend fun restoreIfEnabled(): Boolean =
-        if (settingsStore.current().enabled) start() else false
+        if (settingsStore.current().enabled) syncWithSettings() else false
 
     /**
      * FGS 被系统杀掉 / onDestroy 时调用：同步兜底停服，保证不留"还在接请求"的状态、不留 RUNNING。

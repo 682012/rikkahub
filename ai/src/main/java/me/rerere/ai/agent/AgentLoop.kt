@@ -7,6 +7,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
@@ -121,15 +122,35 @@ internal class AgentLoop(
                 // 既不能拿它去问"要不要执行"，也就不会在批准后被拿去执行
                 if (!part.isInputRunnable) return@map part
                 if (part.approvalState != ToolApprovalState.Auto) return@map part
-                // 审批判定用解析成功的参数；解析不出来时根本没有可判定的入参，不放行
+                // 审批判定用解析成功的参数；解析不出来时根本没有可判定的入参，不放行。
                 val args = part.parseInputOrNull() ?: return@map part
-                val needsApproval = request.providerSetting is me.rerere.ai.provider.ProviderSetting.WebAccount ||
-                    findTool(part.toolName)?.needsApproval?.invoke(args) == true
-                if (needsApproval) part.copy(approvalState = ToolApprovalState.Pending) else part
+                // m3: WebAccount 不再在这里无条件强制审批——那是供应商级策略，不该绕开工具自己的
+                // 可配置审批表（只读查询被逐个弹窗、用户配置失效）。工具级策略是唯一来源；
+                // 需要强制时由 ChatRequestFactory 侧的显式策略注入（默认关闭）。
+                val needsApproval = findTool(part.toolName)?.needsApproval?.invoke(args) == true
+                if (!needsApproval) return@map part
+                // tool_batch：只有"含需审批成员"时才整批停下。全免审批的批直接跑（不打断），
+                // 含需审批成员的批整批停下、拿到一个 Pending id，批准后只有被批准的成员执行。
+                val batchPlan = planBatchApproval(part, args)
+                if (batchPlan != null && !batchPlan.anyNeedsApproval) return@map part
+                part.copy(approvalState = ToolApprovalState.Pending,
+                    approvalRequiredMembers = batchPlan?.requiringApproval?.mapTo(linkedSetOf()) { it.index })
             }
         )
         if (updated != current) update(updated)
         return updated.getTools().filter { it.isPending }.mapTo(LinkedHashSet()) { it.toolCallId }
+    }
+
+    /**
+     * tool_batch 的成员审批计划；不是 tool_batch / 参数解析不出成员时返回 null。
+     *
+     * 计划在**执行时**重新计算（[createToolBatch] 的 memberApproval 回调），
+     * 而不是在这里把结论缓存进消息：用户批准后编辑过工具表也不会用到旧结论。
+     */
+    private fun planBatchApproval(part: UIMessagePart.Tool, args: JsonObject): BatchApprovalPlan? {
+        if (part.toolName != TOOL_BATCH_NAME) return null
+        val calls = parseBatchCalls(part.toolName, args) ?: return null
+        return approvalPlan(calls) { findTool(it) }
     }
 
     private suspend fun generateStep() {
@@ -333,11 +354,15 @@ internal class AgentLoop(
     }
 
     private fun UIMessagePart.Tool.runs() =
-        approvalState == ToolApprovalState.Auto || approvalState == ToolApprovalState.Approved
+        approvalState == ToolApprovalState.Auto ||
+            approvalState == ToolApprovalState.Approved ||
+            approvalState is ToolApprovalState.ApprovedMembers
 
     private fun canRunInParallel(tool: UIMessagePart.Tool, blocked: Set<String>): Boolean =
         tool.toolCallId !in blocked &&
-            (tool.approvalState == ToolApprovalState.Auto || tool.approvalState == ToolApprovalState.Approved) &&
+            (tool.approvalState == ToolApprovalState.Auto ||
+                tool.approvalState == ToolApprovalState.Approved ||
+                tool.approvalState is ToolApprovalState.ApprovedMembers) &&
             findTool(tool.toolName)?.executionMode?.allowsParallelExecution() == true &&
             !(tool.startedAt != null && findTool(tool.toolName)?.executionMode != ToolExecutionMode.PARALLEL_DEDUPLICATED)
 
@@ -463,11 +488,24 @@ internal class AgentLoop(
 
     private suspend fun execute(tool: UIMessagePart.Tool): List<UIMessagePart> =
         when (val state = tool.approvalState) {
-            is ToolApprovalState.Denied -> errorOutput(
+            is ToolApprovalState.Denied -> if (tool.toolName == TOOL_BATCH_NAME) {
+                withContext(BatchApprovalContext(BatchMemberApproval.None)) { runTool(tool) }
+            } else errorOutput(
                 "Tool execution denied by user. Reason: ${state.reason.ifBlank { "No reason provided" }}"
             )
 
             is ToolApprovalState.Answered -> listOf(UIMessagePart.Text(state.answer))
+            // 只批准了批内一部分成员：把结论通过协程上下文交给 tool_batch 执行器，
+            // 未获批准的成员不执行、只产出结构化 tool_denied。
+            is ToolApprovalState.ApprovedMembers -> withContext(
+                BatchApprovalContext(
+                    BatchMemberApproval(
+                        approved = false,
+                        members = state.indices.associateWith { true },
+                    )
+                )
+            ) { runTool(tool) }
+
             ToolApprovalState.Auto, ToolApprovalState.Approved -> runTool(tool)
             ToolApprovalState.Pending -> error("Tool ${tool.toolCallId} is still waiting for approval")
         }

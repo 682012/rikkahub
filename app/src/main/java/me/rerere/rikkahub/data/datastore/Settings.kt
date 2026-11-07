@@ -3,6 +3,8 @@ package me.rerere.rikkahub.data.datastore
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
+import me.rerere.ai.agent.CustomRetryRule
+import me.rerere.ai.agent.CustomRetryRules
 import me.rerere.ai.agent.RetryErrorCategory
 import me.rerere.ai.agent.RetryScope
 import me.rerere.ai.agent.RetryScopeMode
@@ -155,11 +157,20 @@ data class NetworkSetting(
     val retryExtraCategories: Set<RetryErrorCategory> = emptySet(),
     /** 一直重试到用户停止（取消生成 / 关闭总开关）。默认 false，仍然受 [maxRetries] 限制。 */
     val retryUnlimited: Boolean = false,
+    /**
+     * 用户自己写的「额外重试的错误匹配类型」，默认空 = 老行为一个字都不变。
+     *
+     * 规则只在 [RetryErrorCategory.CUSTOM_MATCH] 被勾选时才生效；命中后仍然不能越过
+     * `isSafeToReplay`：已经执行过非幂等写工具的一轮不会被自动重试。
+     */
+    val retryCustomRules: List<CustomRetryRule> = emptyList(),
 ) {
     /** 这个设置对应的重试范围。判定只有 [RetryScope] 一份，[toRetryPolicy] 和自动恢复都读它。 */
     fun retryScope(): RetryScope = RetryScope(
         mode = retryScopeMode,
-        categories = retryExtraCategories,
+        // 有可用自定义规则时自动补上 CUSTOM_MATCH，用户不用再额外勾一次"自定义匹配"
+        categories = retryExtraCategories.withCustomMatchIfNeeded(retryCustomRules),
+        customRules = retryCustomRules,
     )
 
     /**
@@ -186,6 +197,20 @@ data class NetworkSetting(
         const val DEFAULT_RETRY_DELAY_MIN_SECONDS = 30
         const val DEFAULT_RETRY_DELAY_MAX_SECONDS = 60
     }
+}
+
+/**
+ * 有可用自定义规则时把 [RetryErrorCategory.CUSTOM_MATCH] 补进追加集合。
+ *
+ * 界面把"自定义匹配"和那四个内置类别放在同一组多选里；用户只要加了至少一条有效规则，
+ * 就默认视为勾上了这一类，不必再手动点一次，避免"规则写了但没生效"的困惑。
+ */
+private fun Set<RetryErrorCategory>.withCustomMatchIfNeeded(
+    rules: List<CustomRetryRule>,
+): Set<RetryErrorCategory> = if (CustomRetryRules.usable(rules).isEmpty()) {
+    this
+} else {
+    this + RetryErrorCategory.CUSTOM_MATCH
 }
 
 @Serializable

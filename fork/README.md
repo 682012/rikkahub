@@ -1,19 +1,19 @@
 # 个人分支：构建、发布与维护
 
-本页只讲**怎么把这个分支构建出来、怎么发、出问题怎么回退**。用户功能与安装说明在 [仓库首页](../README.md) 与 [功能对比](FEATURES.md)，当前版本的变化见 [m2 说明](RELEASE-m2.md)。
+本页只讲**怎么把这个分支构建出来、怎么发、出问题怎么回退**。用户功能与安装说明在 [仓库首页](../README.md) 与 [功能对比](FEATURES.md)，当前版本的变化见 [m3 说明](RELEASE-m3.md)。
 
 ## 当前状态
 
 | 项目 | 值 |
 |---|---|
-| 版本 | `3.1.1-m2` / `3000071` |
-| 维护分支 | `fork/3.1.1`（本轮开发分支 `feature/meridian-m2`） |
+| 版本 | `3.1.1-m3` / `3000072` |
+| 维护分支 | `fork/3.1.1`（本轮开发分支 `release/meridian-m3`） |
 | 包名 | `me.rerere.rikkahub.fork`（Debug 变体 `me.rerere.rikkahub.fork.debug`） |
 | 应用名 / 图标 / 签名 | 与 m1、r21 及更早的本分支版本一致，未改 |
 | 官方基线 | `3.1.1` / `ad2c4430`，已合入上游 master `5ad19405` |
-| 运行时构建提交 | `885a0c1ea8bc55d34b710b382cbd1b5cd7c76707`；sourceId `06e11458f2592866e92fdf8610d74c9d4e120184b2ba9ca04bdb36fa63396cc0`；发布提交只补文档和验收元数据 |
+| 运行时构建提交 | 见本版 Release 的 `BUILT-SOURCE-MANIFEST.json` / `m3.json`，不沿用历史收据 |
 | 数据库 | schema 36（r21 34→35 加会话家族列，m1 35→36；**m2 无迁移**，分组复用已有文件夹归属，思考档位是 nullable 字段；沿用 r3 起的本分支编号，不与官方编号混用） |
-| 发布标签 / 资产名 | `v3.1.1-m2` / `rikkahub-3.1.1-m2.apk` |
+| 发布标签 / 资产名 | `v3.1.1-m3` / `rikkahub-3.1.1-m3.apk` |
 
 已发布的历史版本各自保留 tag 与资产，不覆盖、不复用版本号。正式下载入口为 [Latest](https://github.com/682012/rikkahub/releases/latest)，固定版本按 tag 取包。
 

@@ -172,6 +172,7 @@ internal val SETTINGS_FIELDS: List<SettingsField<*, *>> = with(SettingsStore) {
         json(WORKSPACE_RUNTIME, Settings::workspaceRuntime) { copy(workspaceRuntime = it) },
         json(SUBAGENT, Settings::subagent) { copy(subagent = it) },
         json(AUTO_COMPRESS, Settings::autoCompress) { copy(autoCompress = it) },
+        json(CHANNEL_FAILOVER, Settings::channelFailover) { copy(channelFailover = it) },
         json(BACKGROUND_TOOL_SETTINGS, Settings::backgroundToolSettings) { copy(backgroundToolSettings = it) },
 
         // 备份提醒

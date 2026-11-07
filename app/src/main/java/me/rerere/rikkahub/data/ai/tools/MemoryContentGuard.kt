@@ -10,7 +10,7 @@ private val ssnRegex = Regex("""(?<![\d-])(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!
  *
  * @return 命中时返回内容类别的描述，否则返回 null
  */
-internal fun findForbiddenMemoryContent(text: String): String? = when {
+fun findForbiddenMemoryContent(text: String): String? = when {
     chineseIdRegex.findAll(text).any { isValidChineseId(it.value) } -> "an ID number"
     ssnRegex.containsMatchIn(text) -> "a social security number"
     paymentCardRegex.findAll(text).any { isLuhnValid(it.value.filter(Char::isDigit)) } -> "a bank card number"

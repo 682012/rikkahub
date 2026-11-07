@@ -149,10 +149,17 @@ class StartupIntroCustomTest {
         // 0/负数是"没设置过"，用类型默认值而不是最小值
         assertEquals(StartupIntroRules.customDurationDefault(StartupMediaKind.IMAGE), StartupIntroRules.clampDuration(0, StartupMediaKind.IMAGE))
         assertEquals(StartupIntroRules.customDurationDefault(StartupMediaKind.VIDEO), StartupIntroRules.clampDuration(-5, StartupMediaKind.VIDEO))
-        // 内建风格仍然是 a75335a 的 280ms
-        assertEquals(280, StartupIntroRules.BUILTIN_DURATION_MS)
+        // 内建风格默认给一个"看得见"的时长（m3：以前写死 280ms，太短像没画）
+        assertEquals(1500, StartupIntroRules.BUILTIN_DURATION_MS)
         // 上限必须小于"用户会觉得卡住"的量级
-        assertTrue(StartupIntroRules.MAX_DURATION_MS <= 2_000)
+        assertTrue(StartupIntroRules.MAX_DURATION_MS <= 2_500)
+        // 内建时长的坏值一律回落到默认，而不是最小值
+        assertEquals(StartupIntroRules.BUILTIN_DURATION_MS, StartupIntroRules.clampBuiltinDuration(0))
+        assertEquals(StartupIntroRules.BUILTIN_DURATION_MS, StartupIntroRules.clampBuiltinDuration(-1))
+        assertEquals(StartupIntroRules.MIN_DURATION_MS, StartupIntroRules.clampBuiltinDuration(1))
+        assertEquals(StartupIntroRules.MAX_DURATION_MS, StartupIntroRules.clampBuiltinDuration(60_000))
+        // 用户能选的中间值原样保留
+        assertEquals(1200, StartupIntroRules.clampBuiltinDuration(1200))
     }
 
     @Test
@@ -244,13 +251,38 @@ class StartupIntroCustomTest {
     }
 
     @Test
-    fun `built-in styles keep the 280ms timeline`() {
-        listOf(StartupMotion.RING, StartupMotion.DOTS, StartupMotion.AURORA).forEach { style ->
+    fun `built-in styles use the configurable duration and default to 1500ms`() {
+        listOf(StartupMotion.RIKKA, StartupMotion.RING, StartupMotion.DOTS, StartupMotion.AURORA).forEach { style ->
             val scene = StartupIntroSceneResolver.resolve(style, material())
             assertEquals(style, scene.style)
             assertNull(scene.custom)
             assertEquals(StartupIntroRules.BUILTIN_DURATION_MS, scene.durationMs)
         }
+        // 用户调过就按存的来；坏值仍回到默认（不会变成 200ms 一闪而过）
+        val tuned = StartupIntroSceneResolver.resolve(
+            motion = StartupMotion.RING,
+            custom = null,
+            builtinDurationMs = 2000,
+        )
+        assertEquals(2000, tuned.durationMs)
+        val bad = StartupIntroSceneResolver.resolve(
+            motion = StartupMotion.RING,
+            custom = null,
+            builtinDurationMs = -7,
+        )
+        assertEquals(StartupIntroRules.BUILTIN_DURATION_MS, bad.durationMs)
+    }
+
+    @Test
+    fun `custom material still owns its own duration`() {
+        val custom = material()
+        val scene = StartupIntroSceneResolver.resolve(
+            motion = StartupMotion.CUSTOM,
+            custom = custom,
+            builtinDurationMs = 2000,
+        )
+        // 自定义素材用素材自己的时长，不被内建时长覆盖
+        assertEquals(custom.durationMs, scene.durationMs)
     }
 
     // ------------------------------------------------------------- 偏好取值表 ----

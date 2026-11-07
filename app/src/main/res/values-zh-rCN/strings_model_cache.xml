@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="model_cache_retention_title">提示词缓存保留时长</string>
+    <string name="model_cache_retention_default">渠道默认</string>
+    <string name="model_cache_retention_30m">30 分钟</string>
+    <string name="model_cache_retention_12h">12 小时（仅 Responses）</string>
+    <string name="model_cache_retention_24h">24 小时（旧字段）</string>
+    <string name="model_cache_retention_24h_options">24 小时（GPT-5.5 / 5.5 Pro）</string>
+    <string name="model_cache_retention_desc">只有 OpenAI 官方及实现了提示词缓存保留的网关接受该字段，默认一个参数都不发送。GPT-5.6 及以后用 prompt_cache_options.ttl 表达 30 分钟 / 12 小时（12 小时仅 Responses 可用）；GPT-5.5 / 5.5 Pro 只有 24 小时；旧模型用 prompt_cache_retention=24h。写入价格按厂商与模型而定，不能一概说 24 小时更贵：较新的 30 分钟 / 12 小时档可能有写入溢价（如 1.25x / 2.5x），旧的提示词缓存写入通常不额外收费。</string>
+</resources>

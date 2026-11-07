@@ -109,6 +109,9 @@ import me.rerere.hugeicons.stroke.Wrench01
 import me.rerere.rikkahub.Screen
 import me.rerere.rikkahub.data.ai.tools.WorkspaceFileWriteToolNames
 import me.rerere.rikkahub.data.ai.tools.resolveWorkspaceToolApproval
+import me.rerere.rikkahub.data.ai.tools.ToolApprovalPolicy
+import me.rerere.rikkahub.data.devicecontrol.DeviceAction
+import me.rerere.rikkahub.data.devicecontrol.DeviceCapability
 import me.rerere.rikkahub.data.db.entity.WorkspaceEntity
 import androidx.compose.ui.res.stringResource
 import me.rerere.rikkahub.R
@@ -570,6 +573,7 @@ private fun WorkspaceToolApprovalCard(
         (fileWriteTools || toolName !in WorkspaceFileWriteToolNames) &&
             (toolName != "workspace_android_shell" || workspace?.isSsh() != true)
     }
+    val deviceTools = workspaceDeviceApprovalItems()
 
     CardGroup(
         title = {
@@ -584,14 +588,21 @@ private fun WorkspaceToolApprovalCard(
         },
     ) {
         tools.forEach { (toolName, label, icon) ->
+            // shell 家族共用审批键：workspace_shell 的开关同时管住 workspace_android_shell
+            // 与后台 job 工具，所以这里显式标注，避免用户以为只改了 Linux shell。
+            val sharedShell = toolName in ToolApprovalPolicy.WorkspaceShellApprovalKeys
             switchItem(
                 checked = resolveWorkspaceToolApproval(toolName, overrides),
                 onCheckedChange = { onToolApprovalChange(toolName, it) },
                 enabled = workspace != null,
                 supportingContent = {
                     Text(
-                        text = toolName,
-                        maxLines = 1,
+                        text = if (sharedShell) {
+                            "$toolName · ${stringResource(R.string.workspace_detail_tool_approval_shell_shared)}"
+                        } else {
+                            toolName
+                        },
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
                 },
@@ -600,7 +611,58 @@ private fun WorkspaceToolApprovalCard(
             )
         }
     }
+
+    if (deviceTools.isNotEmpty()) {
+        CardGroup(
+            title = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(stringResource(R.string.workspace_detail_device_approval))
+                    Text(
+                        text = stringResource(R.string.workspace_detail_device_approval_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
+        ) {
+            deviceTools.forEach { (toolName, label, icon) ->
+                switchItem(
+                    checked = ToolApprovalPolicy.resolve(
+                        toolName = toolName,
+                        overrides = overrides,
+                        default = ToolApprovalPolicy.deviceToolApprovalDefault(toolName),
+                    ),
+                    onCheckedChange = { onToolApprovalChange(toolName, it) },
+                    enabled = workspace != null,
+                    supportingContent = {
+                        Text(text = toolName, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
+                    leadingContent = { CardGroupIcon(icon) },
+                    headlineContent = { Text(label) },
+                )
+            }
+        }
+    }
 }
+
+/**
+ * 设备工具（device_*）的审批项。默认值来自 [ToolApprovalPolicy]：
+ * 只读查询（快照/列 App）免交互，点按、滑动、导航与启动 App 默认需审批。
+ * 这里只控制"要不要弹审批"，真正的设备授权仍在权限中心（白名单 / Shizuku / 助手绑定）。
+ */
+@Composable
+private fun workspaceDeviceApprovalItems(): List<Triple<String, String, ImageVector>> =
+    DeviceAction.entries.map { action ->
+        val label = when (action.capability) {
+            DeviceCapability.READ -> stringResource(R.string.workspace_detail_device_read)
+            DeviceCapability.ACT -> stringResource(R.string.workspace_detail_device_act)
+            DeviceCapability.GLOBAL -> stringResource(R.string.workspace_detail_device_global)
+        } + " · " + action.wire
+        Triple(action.wire, label, HugeIcons.ComputerTerminal01)
+    } + me.rerere.rikkahub.data.deviceprivilege.HighPrivilegeTooling.all.map { name ->
+        Triple(name, name, HugeIcons.ComputerTerminal01)
+    }
+
 
 @Composable
 private fun workspaceToolApprovalItems() = listOf(

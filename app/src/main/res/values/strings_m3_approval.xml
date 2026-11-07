@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="workspace_detail_device_read">Device query</string>
+    <string name="workspace_detail_device_act">Device action</string>
+    <string name="workspace_detail_device_global">Device navigation</string>
+    <string name="workspace_detail_device_approval">Device tool approval</string>
+    <string name="workspace_detail_device_approval_desc">Control confirmation prompts for device and privilege tools here. Actual grants, bound assistant and the write switch are still checked separately.</string>
+    <string name="workspace_detail_tool_approval_shell_shared">Arbitrary commands can write. This controls confirmation, not system permissions.</string>
+</resources>

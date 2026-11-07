@@ -4,30 +4,32 @@
 
 与官方团队没有隶属关系；上游版权与 AGPL-3.0 许可保持不变；不提供官方或面向终端用户的技术支持。
 
-当前版本 **Meridian `3.1.1-m2` / `3000071`** · 包名 `me.rerere.rikkahub.fork`。
+当前版本 **Meridian `3.1.1-m3` / `3000072`** · 包名 `me.rerere.rikkahub.fork`。
 
 > ### 一个包，覆盖升级即可
 >
-> **m2 是建在 m1 之上的增量版本**：手动分组、渠道优先级、单对话思考三项加在 m1 的完整能力之上，所以版本号从 m1 走到 m2。
-> **不存在「先装哪个包」的问题**：直接用 `rikkahub-3.1.1-m2.apk` 覆盖 m1（或 r21 及更早的本分支版本）即可，不需要先卸载。
-> m1、r21 的 Release / tag / 资产原样保留（回滚与历史对照用）。
+> **m3 包含 m2 的完整能力与本轮修复**，直接用 `rikkahub-3.1.1-m3.apk` 覆盖本分支同签名旧版，不需要卸载。m2 及更早的 Release、tag、附件原样保留。
 
-这一版新增**手动对话归组、同模型多渠道优先级与故障切换、单对话思考强度**；m1 的输入优化、回复审查、客户端协议档、运行中插话、本地知识库、工具执行短指引和高级权限与设备能力中心，r21 的 Agent 主循环、助手隔离、断线恢复、经验学习、家族折叠、自动归库、工具草稿、时间与字符统计、工作区网页渲染，以及轨道风格、启动动效和小宠物磁贴全部保留。应用名、图标、六只角色原图、人设与签名不变。
+这一版集中修复工具反复审批、会话列表闪空/假加载、原位折叠分组与分支会话混入主列表；接入真正的六花启动动画和可调时长，补充独立优化/审查模型、可编辑重试规则、每轮经验入库与厂商缓存保留档位。完整入口与边界见 [m3 说明](fork/RELEASE-m3.md)。
 
 ## 下载与安装
 
-**[下载最新正式 APK](https://github.com/682012/rikkahub/releases/latest)** · [m2 更新说明](fork/RELEASE-m2.md) · [m1 说明（历史）](fork/RELEASE-m1.md) · [r21 说明（历史）](fork/RELEASE-r21.md) · [历史版本](https://github.com/682012/rikkahub/releases)
+**[下载最新正式 APK](https://github.com/682012/rikkahub/releases/latest)** · [m3 更新说明](fork/RELEASE-m3.md) · [m2 说明（历史）](fork/RELEASE-m2.md) · [m1 说明（历史）](fork/RELEASE-m1.md) · [r21 说明（历史）](fork/RELEASE-r21.md) · [历史版本](https://github.com/682012/rikkahub/releases)
 
 源码分支与下载渠道分开：只有完成正式 R8 构建和验包的版本才标为 Latest；实际发布状态、安装包与校验值以 Release 页面为准。
 
-- 通用 APK 名为 `rikkahub-3.1.1-m2.apk`（tag `v3.1.1-m2`），包名 `me.rerere.rikkahub.fork` 与签名跟 m1 一致，可覆盖升级；含 `arm64-v8a` 与 `x86_64`，手机直接装这一个就行。
-- 正式 R8 + lintVital 构建通过（job `idem-4fb0edae9da863c46e30033e`）；版本名/码、包名、原证书、双 ABI、ZIP CRC 与云端/本地 SHA-256 已核对。APK 46,373,962 字节；校验见 [m2 说明](fork/RELEASE-m2.md) 与 Release 附件。
+- 通用 APK 名为 `rikkahub-3.1.1-m3.apk`（tag `v3.1.1-m3`），包名 `me.rerere.rikkahub.fork` 与签名跟 m1 一致，可覆盖升级；含 `arm64-v8a` 与 `x86_64`，手机直接装这一个就行。
+- 正式发布门禁：R8 + lintVital、版本/包名/原证书/双 ABI/CRC/SHA-256。以本版 Release 的机器可读附件为验收依据，历史收据不冒充本次验证。
 - 从 m1、r21 或更早版本升级直接覆盖；旧版本的包与记录保留在各自 tag 下，需要回退时按旧 tag 取包。
 - 本分支包名与官方不同，**不能覆盖安装官方版**；同包名、同签名的本分支旧版可以按常规覆盖升级。
 - 升级前备份聊天与设置，不要为了升级先卸载（卸载会连应用数据一起丢）。从早期 `fork.*` 版本过来请直接下载安装，旧更新器不认识 `r` / `m` 系列版本号。
 - 下载安装不需要构建环境；聊天模型与服务账号仍由你自己配置，不提供共享 API 额度。
 
-## m2：手动分组、渠道优先级与单对话思考（当前版本）
+## m3：工具审批、会话与六花修复
+
+详见 [m3 更新说明](fork/RELEASE-m3.md)：设备工具可配置审批、批内成员选择、脱敏参数预览、原位折叠组、完成状态修复、优化/审查独立模型、本地知识库默认开启、六花时长、每轮经验、重试规则与按协议缓存。
+
+## m2：手动分组、渠道优先级与单对话思考（历史）
 
 三项都放在你已有的位置，默认不改变现有行为。
 
@@ -125,7 +127,7 @@
 
 ## 文档导航
 
-- 当前版本：[m2 说明与边界](fork/RELEASE-m2.md) · [m1 说明（历史）](fork/RELEASE-m1.md) · [r21 说明（历史）](fork/RELEASE-r21.md) · [正式包与机器可读验收](https://github.com/682012/rikkahub/releases/latest)
+- 当前版本：[m3 说明与边界](fork/RELEASE-m3.md) · 历史：[m2 说明与边界](fork/RELEASE-m2.md) · [m1 说明（历史）](fork/RELEASE-m1.md) · [r21 说明（历史）](fork/RELEASE-r21.md) · [正式包与机器可读验收](https://github.com/682012/rikkahub/releases/latest)
 - 横向对比：[完整功能对比](fork/FEATURES.md) · [版本历史](fork/CHANGES.md)
 - 维护：[构建、签名与回退](fork/README.md) · [修改声明](NOTICE.md) · [免责声明](DISCLAIMER.md)
 - r21 维护记录：[Agent 能力、入口与限制](docs/r21-agent-core/CAPABILITIES-r21.md) · [验证范围](docs/r21-agent-core/VALIDATION.md)
@@ -139,6 +141,8 @@
 上游项目与官方下载渠道：[rikkahub/rikkahub](https://github.com/rikkahub/rikkahub)。本分支保留上游版权声明与 **AGPL-3.0** 许可（见 [LICENSE](LICENSE)）；上游的赞助、贡献者与支持渠道不属于本分支。
 
 ### English summary
+
+**Meridian 3.1.1-m3** (3000072) fixes configurable device approvals, per-member batch approval, conversation grouping/loading, local MCP cold start, and adds independent input/review models, turn reflection, custom retry matching, provider cache retention and the Rikka startup motion. See [m3 notes](fork/RELEASE-m3.md) and release verification assets. Older releases remain intact.
 
 **Meridian 3.1.1-m2** (3000071) adds manual conversation groups without merging histories, ordered same-model channel failover within a protocol family, and conversation-only reasoning (MAX by default for models declaring reasoning support). The two m1 write-ledger P1 defects are fixed. A full R8/lintVital release build and package/signature/ABI/hash checks passed. 115 byte-identical feature checks are reused; 47 new ledger and automation checks passed. No device installation, UI/OEM or real-provider billing validation was performed. Earlier releases and assets remain available.
 

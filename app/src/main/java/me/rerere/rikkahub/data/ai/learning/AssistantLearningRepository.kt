@@ -42,6 +42,8 @@ internal data class LearningFile(
     val assistantId: String = "",
     val revision: Long = 0L,
     val enabled: Boolean = true,
+    /** 每轮经验总结（额外一次模型请求，会计费）。默认关闭，必须用户显式打开。 */
+    val experienceReflection: Boolean = false,
     val updatedAt: Long = 0L,
     val turns: List<LearningTurn> = emptyList(),
     val guidances: List<UserGuidanceRecord> = emptyList(),
@@ -142,6 +144,28 @@ class AssistantLearningRepository(
         mutate(assistantId) { data, _ -> if (data.enabled == enabled) null else data.copy(enabled = enabled) }
 
     /**
+     * 打开/关闭「每轮让模型总结经验」。
+     *
+     * 关闭时不动任何已写下的经验；打开前界面必须明确告诉用户这会多花一次模型请求（会计费）。
+     */
+    suspend fun setExperienceReflection(assistantId: String, enabled: Boolean): LearningState =
+        mutate(assistantId) { data, _ ->
+            if (data.experienceReflection == enabled) null else data.copy(experienceReflection = enabled)
+        }
+
+    /** 经验学习的生效开关：本助手的自我学习总开关 + 显式的经验总结开关。 */
+    suspend fun experienceSettings(assistantId: String): ExperienceSettings =
+        experienceSettingsOf(snapshot(assistantId))
+
+    /**
+     * 每轮终态的经验入口，由 DI（ExperienceHook）接到 [ExperienceService.onTurnFinished]。
+     *
+     * 这里是唯一接缝：没接线时为 null，指标照常记录，只是不做经验总结。
+     */
+    @Volatile
+    var experience: ((TurnFacts) -> Unit)? = null
+
+    /**
      * 记录一轮生成的指标。
      *
      * - 关闭时直接返回，不写盘（`revision` 不变）；
@@ -149,12 +173,24 @@ class AssistantLearningRepository(
      *   用户反馈必须由 markRegenerated 显式记录；
      * - 只保留最近 [LearningLimits.MAX_TURNS] 轮，最旧的丢掉。
      */
-    suspend fun recordTurn(assistantId: String, turn: LearningTurn): LearningState =
-        mutate(assistantId) { data, now ->
+    suspend fun recordTurn(
+        assistantId: String,
+        turn: LearningTurn,
+        facts: TurnFacts? = null,
+    ): LearningState {
+        val state = mutate(assistantId) { data, now ->
             require(turn.assistantId.isBlank() || turn.assistantId == assistantId) { "Learning metrics belong to another assistant" }
             if (!data.enabled) return@mutate null
             data.withTurn(LearningAnalyzer.sanitizeTurn(turn, assistantId, now), now)
         }
+        // 只有调用方给了终态 facts（成功/终止，取消与等待审批为 null）才触发一次经验总结。
+        // 触发本身不阻塞：ExperienceService.onTurnFinished 立刻返回 Job，失败在那边可见。
+        if (facts != null) {
+            runCatching { experience?.invoke(facts) }
+                .onFailure { android.util.Log.w("AssistantLearning", "Could not start experience reflection", it) }
+        }
+        return state
+    }
 
     /** Only an explicit regenerate button action is a feedback signal, never duplicate delivery. */
     suspend fun markRegenerated(assistantId: String, messageId: String): LearningState =
@@ -310,6 +346,7 @@ class AssistantLearningRepository(
         return LearningState(
             assistantId = assistantId,
             enabled = data.enabled,
+            experienceReflection = data.experienceReflection,
             revision = data.revision,
             updatedAt = data.updatedAt,
             turns = data.turns,

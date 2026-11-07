@@ -72,6 +72,10 @@ fun StartupIntroSettingsSection(modifier: Modifier = Modifier) {
     var custom by remember { mutableStateOf(StartupPreferences.readCustom(context)) }
     var busy by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<StartupImportFailure?>(null) }
+    // 内建风格的时长单独一份：换/清素材不会改掉它，预览和冷启动都读这一个值。
+    var builtinDurationMs by remember {
+        mutableIntStateOf(StartupPreferences.readBuiltinDuration(context))
+    }
     var durationMs by remember(custom) {
         mutableIntStateOf(custom?.durationMs ?: StartupIntroRules.CUSTOM_DURATION_DEFAULT_MS)
     }
@@ -106,13 +110,14 @@ fun StartupIntroSettingsSection(modifier: Modifier = Modifier) {
     }
 
     // 内建风格 + 素材一起收成"要画什么"，预览画的和冷启动画的是同一份场景
-    val previewScene: StartupIntroScene = remember(motion, custom, durationMs, scalePercent, fit) {
+    val previewScene: StartupIntroScene = remember(motion, custom, durationMs, scalePercent, fit, builtinDurationMs) {
         StartupIntroSceneResolver.resolve(
             motion = motion,
             custom = custom,
             customDurationMs = durationMs,
             customScalePercent = scalePercent,
             customFit = fit,
+            builtinDurationMs = builtinDurationMs,
         )
     }
 
@@ -129,6 +134,7 @@ fun StartupIntroSettingsSection(modifier: Modifier = Modifier) {
                 },
             ) {
                 val options = listOf(
+                    StartupMotion.RIKKA to R.string.r22_startup_style_rikka,
                     StartupMotion.RING to R.string.r22_startup_style_ring,
                     StartupMotion.DOTS to R.string.r22_startup_style_dots,
                     StartupMotion.AURORA to R.string.r22_startup_style_aurora,
@@ -151,6 +157,27 @@ fun StartupIntroSettingsSection(modifier: Modifier = Modifier) {
                             Text(stringResource(label))
                         }
                     }
+                }
+            }
+
+            // 时长对三种内建风格和自定义素材都生效：用户反馈"太快闪过看不到"，所以不再写死。
+            if (motion != StartupMotion.OFF && motion != StartupMotion.CUSTOM) {
+                formItem(
+                    headlineContent = { Text(stringResource(R.string.r22_startup_duration_title)) },
+                    supportingContent = {
+                        Text(stringResource(R.string.r22_startup_builtin_duration_desc, builtinDurationMs))
+                    },
+                ) {
+                    Slider(
+                        value = builtinDurationMs.toFloat(),
+                        onValueChange = { builtinDurationMs = it.toInt() },
+                        onValueChangeFinished = {
+                            StartupPreferences.writeBuiltinDuration(context, builtinDurationMs)
+                            previewTick++
+                        },
+                        valueRange = StartupIntroRules.MIN_DURATION_MS.toFloat()..
+                            StartupIntroRules.MAX_DURATION_MS.toFloat(),
+                    )
                 }
             }
 
@@ -240,6 +267,8 @@ fun StartupIntroSettingsSection(modifier: Modifier = Modifier) {
                         onValueChange = { durationMs = it.toInt() },
                         onValueChangeFinished = {
                             StartupIntroMaterialStore.updateTuning(context, durationMs, scalePercent, fit)
+                            // 改完立刻重播：预览看到的就是刚存下的时长
+                            previewTick++
                         },
                         valueRange = StartupIntroRules.MIN_DURATION_MS.toFloat()..
                             StartupIntroRules.MAX_DURATION_MS.toFloat(),

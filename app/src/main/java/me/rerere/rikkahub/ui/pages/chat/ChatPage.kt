@@ -583,7 +583,8 @@ private fun ChatPageContent(
                 conversation = conversation,
                 state = chatListState,
                 // 内容还没就绪时的空列表只是占位：当成单独的加载态，不能把已有消息换成空
-                loading = loadingJob != null || !contentReady,
+                loading = loadingJob != null ||
+                    me.rerere.rikkahub.service.stability.chatShowsContentLoading(contentReady, conversation.currentMessages.size),
                 processingStatus = processingStatus,
                 previewMode = previewMode,
                 settings = setting,
@@ -665,6 +666,8 @@ private fun ChatPageContent(
                 ConversationRuntimePanel(
                     options = runtimeOptions,
                     busy = runtimeBusy,
+                    // 优化原话/回复审查各自选模型的可选项：和本会话可用模型同一份列表
+                    providers = setting.providers,
                     clientProfileDecision = clientProfileDecision,
                     originalText = latestUserText,
                     optimizedInput = optimizedInput,

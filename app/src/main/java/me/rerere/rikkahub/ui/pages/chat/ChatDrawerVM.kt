@@ -47,6 +47,7 @@ import me.rerere.rikkahub.data.organization.grouping.visibleGroups
 import me.rerere.rikkahub.data.model.Folder
 import me.rerere.rikkahub.data.repository.ConversationRepository
 import me.rerere.rikkahub.data.repository.FolderRepository
+import me.rerere.rikkahub.data.repository.GroupAnchor
 import me.rerere.rikkahub.data.repository.memoryId
 import me.rerere.rikkahub.service.ChatService
 import me.rerere.rikkahub.utils.toLocalString
@@ -158,6 +159,31 @@ class ChatDrawerVM(
     val groups: StateFlow<List<GroupSummary>> =
         combine(folders, groupCounts, expandedGroupIds) { folders, counts, expanded ->
             visibleGroups(folders, counts, expanded)
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** 当前助手每个分组的会话锚点（最新一条的时间 + 是否有置顶），给就地折叠的组头定位用。 */
+    val groupAnchors: StateFlow<Map<Uuid, GroupAnchor>> = assistantIdFlow
+        .flatMapLatest { conversationRepo.getGroupAnchors(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    /**
+     * 未归组视角里就地折叠的组头。
+     *
+     * 位置由组里最靠前那条会话决定（GroupHeader 的 anchorAt / pinned），渲染时由
+     * inlineGroupPlacement 插到原列表对应行上面——不是列表顶部的另一个区。
+     * 组头只跟着 groups/anchors/sortOrder 变，不碰分页查询，所以增删组不会让列表重新查一遍（不闪空）。
+     */
+    val inlineGroups: StateFlow<List<ConversationListItem.GroupHeader>> =
+        combine(groups, groupAnchors, sortOrderFlow) { groups, anchors, sortOrder ->
+            groups.mapNotNull { summary ->
+                val anchor = anchors[summary.id] ?: return@mapNotNull null
+                ConversationListItem.GroupHeader(
+                    summary = summary,
+                    anchorAt = anchor.sortKeyOf(sortOrder),
+                    pinned = anchor.pinned,
+                    sortOrder = sortOrder,
+                )
+            }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
@@ -374,9 +400,11 @@ class ChatDrawerVM(
                 val paging = if (lineageId != null) {
                     conversationRepo.getConversationLineagePaging(assistantId, lineageId, ownedFolder, sortOrder)
                 } else if (ownedFolder == null) {
-                    conversationRepo.getUnfiledConversationsOfAssistantPaging(assistantId, sortOrder, collapse)
+                    // 主列表只出家族根：同一助手在「其它聊天区域」（分支/家族）里新开的会话
+                    // 不该平铺到主会话列表，行尾「+N」还能点进家族里去看
+                    conversationRepo.getUnfiledConversationsOfAssistantPaging(assistantId, sortOrder, collapse, rootsOnly = true)
                 } else {
-                    conversationRepo.getConversationsOfFolderPaging(ownedFolder, sortOrder, collapse, assistantId)
+                    conversationRepo.getConversationsOfFolderPaging(ownedFolder, sortOrder, collapse, assistantId, rootsOnly = true)
                 }
                 paging.map { pagingData ->
                     pagingData

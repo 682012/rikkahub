@@ -45,7 +45,11 @@ import me.rerere.rikkahub.data.model.ConversationClientProfile
 import me.rerere.rikkahub.data.model.ConversationReviewMode
 import me.rerere.rikkahub.data.model.ConversationRuntimeOptions
 import me.rerere.rikkahub.data.model.RunningMessageDelivery
+import me.rerere.ai.provider.ModelType
+import me.rerere.ai.provider.ProviderSetting
 import me.rerere.rikkahub.ui.components.ai.InputAssistReviewCard
+import me.rerere.rikkahub.ui.components.ai.ModelSelector
+import me.rerere.rikkahub.ui.components.ui.formItem
 import me.rerere.rikkahub.ui.components.ui.CardGroup
 import me.rerere.rikkahub.ui.components.ui.switchItem
 import kotlin.uuid.Uuid
@@ -248,6 +252,7 @@ fun InputAssistReviewSection(
 fun ConversationRuntimePanel(
     options: ConversationRuntimeOptions,
     busy: Boolean,
+    providers: List<ProviderSetting>,
     clientProfileDecision: ClientProfileDecision?,
     originalText: String?,
     optimizedInput: OptimizedInputUiState,
@@ -296,6 +301,37 @@ fun ConversationRuntimePanel(
                 headlineContent = { Text(stringResource(R.string.m1_runtime_optimize_title)) },
                 supportingContent = { Text(stringResource(R.string.m1_runtime_optimize_desc)) },
             )
+            // 优化原话用哪个模型：和回复审查各选各的，清空了就跟随全局快速模型
+            formItem(
+                headlineContent = { Text(stringResource(R.string.m3_runtime_optimizer_model)) },
+                supportingContent = {
+                    Text(
+                        if (options.optimizerModelId == null) {
+                            stringResource(R.string.m3_runtime_model_default_desc)
+                        } else {
+                            stringResource(R.string.m3_runtime_model_explicit_desc)
+                        },
+                    )
+                },
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ModelSelector(
+                        modelId = options.optimizerModelId,
+                        providers = providers,
+                        type = ModelType.CHAT,
+                        modifier = Modifier.weight(1f),
+                        allowClear = options.optimizerModelId != null,
+                        onSelect = { model ->
+                            // 清除按钮给的是 Model()（没有 modelId）：等于"跟随默认"
+                            val nextId = model.id.takeIf { model.modelId.isNotBlank() }
+                            commit(options.copy(optimizerModelId = nextId))
+                        },
+                    )
+                }
+            }
             formItem(
                 headlineContent = { Text(stringResource(R.string.m1_runtime_review_title)) },
                 supportingContent = { Text(reviewModeDescription(options.reviewMode)) },
@@ -325,6 +361,35 @@ fun ConversationRuntimePanel(
                         onClick = { commit(options.copy(reviewMode = ConversationReviewMode.INDEPENDENT)) },
                     )
                 }
+            }
+            // 独立审查用哪个模型：只在真的会发请求的模式下才值得配置，其它模式置灰而不是隐藏
+            formItem(
+                headlineContent = { Text(stringResource(R.string.m3_runtime_reviewer_model)) },
+                supportingContent = {
+                    Text(
+                        when {
+                            options.reviewMode != ConversationReviewMode.INDEPENDENT ->
+                                stringResource(R.string.m3_runtime_reviewer_model_off)
+
+                            options.reviewerModelId == null ->
+                                stringResource(R.string.m3_runtime_model_default_desc)
+
+                            else -> stringResource(R.string.m3_runtime_model_explicit_desc)
+                        },
+                    )
+                },
+            ) {
+                ModelSelector(
+                    modelId = options.reviewerModelId,
+                    providers = providers,
+                    type = ModelType.CHAT,
+                    modifier = Modifier.fillMaxWidth(),
+                    allowClear = options.reviewerModelId != null,
+                    onSelect = { model ->
+                        val nextId = model.id.takeIf { model.modelId.isNotBlank() }
+                        commit(options.copy(reviewerModelId = nextId))
+                    },
+                )
             }
         }
 
@@ -488,12 +553,20 @@ private fun runtimeOptionsSummary(
     val knowledge = stringResource(R.string.m1_runtime_summary_knowledge)
     val toolsOff = stringResource(R.string.m1_runtime_summary_tools_off)
     val profileTemplate = stringResource(R.string.m1_runtime_summary_profile)
+    val modelSummaryTemplate = stringResource(R.string.m3_runtime_summary_model)
     return buildList {
         if (options.optimizeUserInput) add(optimize)
+        // 单独选过模型是用户明确做的决定，值得在摘要里说出来（没选就不占地方）
+        if (options.optimizeUserInput && options.optimizerModelId != null) {
+            add(modelSummaryTemplate.format(options.optimizerModelId.toString().take(8)))
+        }
         when (options.reviewMode) {
             ConversationReviewMode.OFF -> Unit
             ConversationReviewMode.SELF_CHECK -> add(reviewSelf)
             ConversationReviewMode.INDEPENDENT -> add(reviewIndependent)
+        }
+        if (options.reviewMode == ConversationReviewMode.INDEPENDENT && options.reviewerModelId != null) {
+            add(modelSummaryTemplate.format(options.reviewerModelId.toString().take(8)))
         }
         if (options.messageDelivery == RunningMessageDelivery.NEXT_STEP) add(nextStep)
         if (options.clientProfile != ConversationClientProfile.NATIVE) {

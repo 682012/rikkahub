@@ -100,7 +100,13 @@ class ConversationSession(
         create: suspend () -> Conversation = { throw IllegalStateException("Conversation $id not found") },
     ) {
         initializationMutex.withLock {
-            if (isInitialized) return
+            if (isInitialized) {
+                // 已经初始化过：就绪标记必须是 true。之前这里直接 return，任何让标记停在 false
+                // 的路径（新建会话对象后页面复用旧引用、上次初始化被取消）都会让页面永远显示
+                // 「内容加载中」——已经结束的会话再点进去就一直转圈。
+                _contentReady.value = true
+                return
+            }
             val loaded = load()
             val conversation = loaded ?: create()
             require(conversation.id == id)

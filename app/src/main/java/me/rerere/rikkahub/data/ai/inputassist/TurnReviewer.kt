@@ -32,7 +32,8 @@ data class ReviewOutcome(
 )
 
 /**
- * INDEPENDENT 审查：回复写完之后，用快速模型独立读一遍"用户要求 / 助手回答"。
+ * INDEPENDENT 审查：回复写完之后，用一个独立模型再读一遍"用户要求 / 助手回答"。
+ * 模型独立可选：没选时跟随本会话聊天模型（不回退快速模型），选了就用选中的那条。
  *
  * 硬边界：
  * - 只发文本，不带工具定义（`disableToolCalls`），**不执行任何工具、不重放任务**；
@@ -50,13 +51,15 @@ class TurnReviewer(
         userText: String,
         replyText: String,
         timeoutMillis: Long = InputAssistRules.REVIEW_TIMEOUT_MILLIS,
+        /** 会话选项里"回复审查"单独选的模型；null = 跟随本会话聊天模型。 */
+        explicitModelId: Uuid? = null,
     ): ReviewOutcome {
         val user = userText.trim()
         val reply = replyText.trim()
         if (user.isEmpty() || reply.isEmpty()) {
             return ReviewOutcome(parsed = null, modelName = null, failureReason = "nothing to review")
         }
-        val choice = chooseModel(settings, conversation)
+        val choice = chooseModel(settings, conversation, explicitModelId)
             ?: return ReviewOutcome(parsed = null, modelName = null, failureReason = "no review model")
         if (choice.second is ProviderSetting.WebAccount) {
             return ReviewOutcome(
@@ -98,9 +101,22 @@ class TurnReviewer(
         )
     }
 
-    private fun chooseModel(settings: Settings, conversation: Conversation): Pair<Model, ProviderSetting>? {
-        settings.findModelById(settings.fastModelId)?.let { model ->
-            model.findProvider(settings.providers)?.let { return model to it }
+    /**
+     * 模型：会话选项里单独选的审查模型 → 本会话聊天模型 → 全局聊天模型。
+     *
+     * 和输入优化各选各的：两者互不读取对方的模型，换掉其中一个不会影响另一个。
+     * 没选时默认跟随本会话模型，不默默退回全局快速模型；显式选了但模型已删除时整体失败，
+     * 不偷偷换别的模型去"审查"，否则用户以为在用强模型，实际跑的是另一条。
+     */
+    private fun chooseModel(
+        settings: Settings,
+        conversation: Conversation,
+        explicitModelId: Uuid?,
+    ): Pair<Model, ProviderSetting>? {
+        if (explicitModelId != null) {
+            val explicit = settings.findModelById(explicitModelId) ?: return null
+            val provider = explicit.findProvider(settings.providers) ?: return null
+            return explicit to provider
         }
         val chat = runCatching { settings.getChatModelOf(conversation) }.getOrNull() ?: return null
         val provider = chat.findProvider(settings.providers) ?: return null
