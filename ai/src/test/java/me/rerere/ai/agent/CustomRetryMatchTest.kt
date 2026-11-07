@@ -78,7 +78,7 @@ class CustomRetryMatchTest {
         // ids 稳定可复现（不依赖时间/随机）
         assertEquals(second, CustomRetryRules.upsert(first, rule("beta", id = "")))
         // 重复添加同一条不会膨胀
-        assertEquals(2, CustomRetryRules.upsert(second, rule("beta", id = "")).size)
+        assertEquals(2, CustomRetryRules.upsert(second, rule("beta", id = ""))!!.size)
     }
 
     @Test

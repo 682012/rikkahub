@@ -104,6 +104,7 @@ interface ConversationDAO {
                 OR NOT EXISTS (
                     SELECT 1 FROM conversationentity r
                     WHERE r.id = NULLIF(s.lineage_id, '') AND r.assistant_id = s.assistant_id
+                        AND r.folder_id = s.folder_id
                 )
             )
         ORDER BY s.is_pinned DESC,
@@ -142,6 +143,7 @@ interface ConversationDAO {
                 OR NOT EXISTS (
                     SELECT 1 FROM conversationentity r
                     WHERE r.id = NULLIF(s.lineage_id, '') AND r.assistant_id = s.assistant_id
+                        AND r.folder_id = s.folder_id
                 )
             )
         ORDER BY s.is_pinned DESC,

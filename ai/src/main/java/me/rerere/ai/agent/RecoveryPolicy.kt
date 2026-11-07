@@ -161,6 +161,7 @@ object RecoveryPolicy {
         RetryErrorCategory.REQUEST_FORMAT -> "请求格式或响应格式错误"
         RetryErrorCategory.EMPTY_RESPONSE -> "空响应或回复中断"
         RetryErrorCategory.UNKNOWN -> "未知错误"
+        RetryErrorCategory.CUSTOM_MATCH -> "自定义错误匹配"
     }
 }
 
