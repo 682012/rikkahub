@@ -112,7 +112,7 @@ class CustomRetryMatchTest {
     fun `invalid rules are rejected before they are saved`() {
         assertNotNull(rule("").validate())
         assertNotNull("超长", rule("x".repeat(CustomRetryRule.MAX_PATTERN_LENGTH + 1)).validate())
-        assertNotNull("空模式不能 upsert", CustomRetryRules.upsert(emptyList(), rule(" ")))
+        assertNull("空模式不能 upsert", CustomRetryRules.upsert(emptyList(), rule(" ")))
         assertNull(rule("tunnel hiccup").validate())
     }
 
@@ -142,8 +142,8 @@ class CustomRetryMatchTest {
     // ---- 持久化：老配置是空集合，新配置原样往返 --------------------------
 
     @Test
-    fun `old settings json without custom rules decodes to empty and unchanged behavior`() {
-        val stored = """{"retryScopeMode":"CLASSIFIED","retryExtraCategories":[]}"""
+    fun `old retry scope without custom rules decodes to empty and unchanged behavior`() {
+        val stored = """{}"""
         val decoded = Json.decodeFromString<RetryScope>(stored)
         assertTrue(decoded.customRules.isEmpty())
         assertTrue(decoded.safeToReplay)

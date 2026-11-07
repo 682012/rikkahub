@@ -8,6 +8,7 @@ import me.rerere.rikkahub.data.ai.learning.AssistantLearningRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import me.rerere.ai.agent.AgentHooks
 import me.rerere.ai.agent.AgentRequest
+import me.rerere.ai.agent.NudgePrompt
 import me.rerere.ai.agent.RetryBudget
 import me.rerere.ai.agent.RetryDelay
 import me.rerere.ai.agent.RetryGate
@@ -121,6 +122,15 @@ class ChatTurnContext(
      * （OpenAI 兼容与 Claude 的档位不一样），所以这里保留原始选择而不是只留解析结果。
      */
     val clientProfilePreference: ConversationClientProfile = ConversationClientProfile.NATIVE,
+    /**
+     * m3「会话鞭策」配置；null = 关闭（默认路径逐字节不变）。
+     *
+     * 由 ChatService 在 `createAgent` 时按**当前**会话 runtime 取值传入，
+     * ChatRequestFactory 自己不去读会话配置（这里是纯组装）。
+     */
+    val reviewerSystemPrompt: String = "",
+    val naturalRolePresence: Boolean = true,
+    val nudge: ConversationNudgeOptions? = null,
 ) {
     // The memory snapshot is fixed for this turn; avoid rebuilding it on every tool step.
     val memoryPrompt: String by lazy { if (assistant.enableMemory) buildMemoryPrompt(memories) else "" }
@@ -191,8 +201,14 @@ class ChatRequestFactory(
             context.getString(R.string.r21_assistant_missing)
         }
         val assistant = settings.getAssistantOf(conversation)
-        val model = modelOverride ?: settings.getChatModelOf(conversation)
-            ?: throw IllegalStateException("No chat model selected")
+        val requestedModel = modelOverride ?: settings.getChatModelOf(conversation)
+        // Choose the custom pool head before profiles/tools/model parameters are built.
+        val model = if (modelOverride == null && settings.channelFailover.customPoolEnabled) {
+            settings.channelFailover.orderedPool.asSequence().mapNotNull { slot ->
+                me.rerere.rikkahub.data.ai.channel.channelTargetOfSlot(settings.providers, slot)
+            }.firstOrNull()?.model
+                ?: throw IllegalStateException("自建排序池为空或成员已失效，请重新选择模型；不会借用池外模型。")
+        } else requestedModel ?: throw IllegalStateException("No chat model selected")
         val provider = model.findProvider(settings.providers) ?: error("Provider not found")
         // 客户端兼容档：纯本地判断（provider 类型 / Responses 开关 / 模型名族），不发探测请求；
         // 一轮只算一次，所以自动选择的档位在本轮所有工具步骤里保持恒定。
@@ -236,6 +252,7 @@ class ChatRequestFactory(
             model = model,
             providerSetting = provider,
             conversationId = conversation.id,
+            reviewerSystemPrompt = conversation.runtime.reviewerSystemPrompt,
             conversationSystemPrompt = conversation.customSystemPrompt,
             workspaceCwd = conversation.workspaceCwd,
             memories = if (assistant.enableMemory) memoryRepository.getFiles(assistant.memoryId) else emptyList(),
@@ -257,6 +274,8 @@ class ChatRequestFactory(
                 emptyList()
             },
             clientProfilePreference = conversation.runtime.clientProfile,
+            nudge = if (mainTurn) conversation.nudgeOptions() else null,
+            naturalRolePresence = conversation.runtime.naturalRolePresence,
             // 一轮只查一次知识库，片段挂在用户请求尾部（不可信引用），工具步骤里原样复用
             knowledgeContext = if (mainTurn && runtimeOptions.knowledgeEnabled) {
                 knowledgeContextFor(assistant, requestMessages)
@@ -338,6 +357,7 @@ class ChatRequestFactory(
                     messages = rewriteRequestMessages(
                         messages,
                         InputAssistRuntime.stateFor(turn.conversationId)?.takeIf { it.assistantId == turn.assistant.id },
+                        reviewerRole = turn.reviewerSystemPrompt,
                     ),
                     processingStatus = processingStatus,
                 )
@@ -358,6 +378,20 @@ class ChatRequestFactory(
             override suspend fun pendingParts() = takePendingParts()
 
             override suspend fun pendingUserParts() = takePendingUserParts()
+
+            /**
+             * m3 会话鞭策：只有会话开关打开时才有内容。`turn.nudge` 为 null 时直接返回 null，
+             * AgentLoop 就当没有这个钩子：不追加 part、不多走一步。
+             *
+             * 判断只用会话里已有的证据（本轮用户请求 + 这条回复有没有工具调用 / 是不是重复计划），
+             * 不额外发评审请求，因此不产生额外费用；误判方向保守，宁可少提醒。
+             */
+            override suspend fun completionNudge(message: UIMessage): NudgePrompt? =
+                completionNudgePrompt(
+                    messages = if (message.role == MessageRole.ASSISTANT) messages else messages + message,
+                    message = message,
+                    options = turn.nudge,
+                )
         }
         return request to hooks
     }
@@ -599,6 +633,7 @@ class ChatRequestFactory(
             turn.conversationSystemPrompt else assistant.systemPrompt
         val sections = buildList {
             add("主提示词" to effective)
+            if (turn.naturalRolePresence && effective.isNotBlank()) add("角色自然表达" to RolePresenceGuidance.TEXT)
             if (assistant.enableMemory) add("记忆" to turn.memoryPrompt)
             if (turn.learningPrompt.isNotBlank()) add("经验学习" to turn.learningPrompt)
             tools.forEach { tool ->

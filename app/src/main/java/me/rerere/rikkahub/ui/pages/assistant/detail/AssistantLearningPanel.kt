@@ -20,6 +20,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -84,6 +85,8 @@ internal fun AssistantLearningTab(
     modifier: Modifier = Modifier,
 ) {
     val repository = koinInject<AssistantLearningRepository>()
+    val experienceService = koinInject<me.rerere.rikkahub.data.ai.learning.ExperienceService>()
+    val lastExperience by experienceService.lastReport.collectAsState()
     val scope = rememberCoroutineScope()
     var state by remember(assistantId) { mutableStateOf<LearningState?>(null) }
     var loadError by remember(assistantId) { mutableStateOf<String?>(null) }
@@ -196,6 +199,14 @@ internal fun AssistantLearningTab(
                 },
                 headlineContent = { Text(stringResource(R.string.r21_learning_experience_switch)) },
             )
+        }
+
+        lastExperience?.takeIf { it.assistantId == assistantId }?.let { report ->
+            val details = listOfNotNull(report.error, report.skipped, report.write?.memoryRejected,
+                report.write?.knowledgeRejected).joinToString("；")
+            Text(if (details.isNotBlank()) "最近一次经验总结：$details"
+                else "最近一次经验总结：${if (report.write?.wroteAnything == true) "已写入" else "无新增可复用经验"}",
+                style = MaterialTheme.typography.bodySmall)
         }
 
         LearningMetricsSection(stats = current.stats)

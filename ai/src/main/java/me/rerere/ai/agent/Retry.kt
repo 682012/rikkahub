@@ -170,7 +170,7 @@ data class RetryScope(
         // 写操作边界优先：有副作用时任何类别都不放行，包括"任何错误"
         if (!safeToReplay) return false
         if (category == RetryErrorCategory.CUSTOM_MATCH) {
-            return category in effectiveCategories || (mode == RetryScopeMode.CUSTOM && hasUsableCustomRules)
+            return hasUsableCustomRules && mode != RetryScopeMode.CLASSIFIED
         }
         return category in effectiveCategories
     }

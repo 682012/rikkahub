@@ -18,6 +18,7 @@ import me.rerere.rikkahub.data.ai.retryPolicy
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
+import me.rerere.rikkahub.data.model.runtime
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.getChatModelOf
 import kotlin.uuid.Uuid
@@ -75,6 +76,7 @@ class TurnReviewer(
         val params = backgroundTextGenerationParams(choice.first, conversation.id, ReasoningLevel.OFF)
             .copy(temperature = 0.1f, disableToolCalls = true)
         val messages = listOf(
+            UIMessage.system(AssistRolePrompts.compose("你是独立回复审查员。依据用户要求审查现有回答；不执行工具，不声称没有验证过的事实，严格遵守审查输出格式。", conversation.runtime.reviewerSystemPrompt)),
             UIMessage.user(InputAssistRules.reviewPrompt(user, reply)),
         )
         val raw = try {

@@ -239,7 +239,7 @@ class ChatService(
             // delay 本身可取消，用户停止生成不会被这里拖住。
             var remaining = wait.inWholeMilliseconds
             while (remaining > 0) {
-                if (!RetrySwitch.isEnabled()) {
+                if (if (ticket.autoContinuation) !settingsStore.settingsFlow.value.networkSetting.autoResumeEnabled else !RetrySwitch.isEnabled()) {
                     synchronized(session) {
                         if (reconnectTickets[session.id] === ticket) {
                             clearRecovery(session.id)
@@ -1285,16 +1285,56 @@ class ChatService(
                     )
                 }
             }
-            // 等待审批时这一轮还没结束，标题、建议和记忆整理等审批之后再做
-            if (reason !is AgentFinishReason.AwaitingApproval) {
+            // m3「异常停止自动续接」：只认有证据的一类异常结束（StepLimitReached）。动作全部复用 r21 的
+            // ticket + scheduleRecovery + tryReconnect：不 append 新的 user「继续」消息、不另开会话、
+            // 不 regenerate 覆盖已写完的内容（inserterruptedMessageId 保持 null，旧分支原样保留）。
+            // 用户点停止走 CancellationException 分支：那里会 clearRecovery 取消待续接，不会到这里。
+            val autoResumeConfig = AutoResumeConfig.of(settingsStore.settingsFlow.value)
+            val resumeBlock = ChatAutoResume.blockReason(
+                enabled = autoResumeConfig.enabled,
+                cancelled = currentCoroutineContext()[Job]?.isActive == false,
+                reason = reason,
+                awaitingApproval = session.state.value.isAwaitingToolApproval,
+                canResume = reconnectCheckpoint?.canResume == true,
+                hasReplyNode = activeReplyNodeId != null,
+                attemptsUsed = recoveryLedger.attempts(conversationId),
+                attemptLimit = autoResumeConfig.maxAttempts,
+            )
+            // 决策放行后再记账：noteFailure 返回 false 说明这一轮的次数刚好用完了，必须停
+            val resuming = resumeBlock == null &&
+                recoveryLedger.noteFailure(conversationId, autoResumeConfig.maxAttempts)
+            // 等待审批时这一轮还没结束，标题、建议和记忆整理等审批之后再做；
+            // 要自动续接的这一轮同样还没结束，等真正写完再补标题与建议
+            if (reason !is AgentFinishReason.AwaitingApproval && !resuming) {
                 // 标题：发消息时已经按原话起过就用那个；这里只在还没有标题时才补一个，
                 // 有临时标题时看内容是否真的往前走了、再精修一次，已经精修过的会话不重复起标题
                 launchEndOfTurnTitle(conversationId)
                 sessionManager.launchWithSession(conversationId) { generateSuggestion(conversationId) }
                 if (turn.assistant.enableMemory) memoryConsolidationScheduler.onTurnFinished(session.state.value)
             }
-            clearRecovery(conversationId)
-            session.awaitingNetworkRecovery = false
+            if (resuming) {
+                // 检查点就是当前尾部：续接时模型看到的是已经落库的工具结果，不会重放已经执行的调用
+                val current = session.state.value.currentMessages
+                reconnectTickets[conversationId] = ChatReconnectTicket(
+                    failedEpoch = attemptEpoch, incarnation = session.incarnation,
+                    userMessage = current.lastOrNull { it.role == MessageRole.USER },
+                    replyNodeId = checkNotNull(activeReplyNodeId), checkpoint = reconnectCheckpoint?.message,
+                    failedTail = current.lastOrNull(), interruptedMessageId = null,
+                    regenerateNodeId = regenerateNodeId, previousSelectIndex = previousReplySelectIndex,
+                    autoContinuation = true,
+                )
+                session.awaitingNetworkRecovery = true
+                session.inbox.pause(InboxPauseReason.NETWORK)
+                scheduleRecovery(
+                    session,
+                    checkNotNull(reconnectTickets[conversationId]),
+                    senderName,
+                    RetryErrorCategory.UNKNOWN,
+                )
+            } else {
+                clearRecovery(conversationId)
+                session.awaitingNetworkRecovery = false
+            }
             return TurnResult.Finished(reason)
         } catch (e: CancellationException) {
             clearRecovery(conversationId)
@@ -1383,7 +1423,7 @@ class ChatService(
                     reply, retries, turnFinishReason)
                 // 每轮终态才有 facts：取消、等待审批、没有落地的回复都会是 null，
                 // 所以「用户点停止」不会被当成一次成功的经验来源。
-                val experienceFacts = ExperienceTriggers.facts(
+                val experienceFacts = if (session.awaitingNetworkRecovery) null else ExperienceTriggers.facts(
                     assistantId = owner.assistant.id,
                     conversationId = conversationId,
                     modelId = owner.model.id,
@@ -1413,7 +1453,11 @@ class ChatService(
             val unchanged = session.incarnation == ticket.incarnation && user == ticket.userMessage &&
                 current.lastOrNull() == ticket.failedTail
             val expired = !force && !recoveryLedger.resumeAllowed(session.id)
-            if (!unchanged || ChatAutoRecovery.retryDisabled(settingsStore.settingsFlow.value.retryPolicy()) || expired) {
+            val disabled = if (ticket.autoContinuation) {
+                val config = AutoResumeConfig.of(settingsStore.settingsFlow.value)
+                !config.enabled || recoveryLedger.attempts(session.id) > config.maxAttempts
+            } else ChatAutoRecovery.retryDisabled(settingsStore.settingsFlow.value.retryPolicy())
+            if (!unchanged || disabled || expired) {
                 clearRecovery(session.id)
                 session.awaitingNetworkRecovery = false
                 session.processingStatus.value = null

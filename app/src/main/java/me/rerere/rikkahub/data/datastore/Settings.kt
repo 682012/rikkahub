@@ -158,6 +158,17 @@ data class NetworkSetting(
     /** 一直重试到用户停止（取消生成 / 关闭总开关）。默认 false，仍然受 [maxRetries] 限制。 */
     val retryUnlimited: Boolean = false,
     /**
+     * m3「异常停止自动续接」总开关，默认关闭。
+     *
+     * 打开后，一轮以 [me.rerere.ai.agent.AgentFinishReason.StepLimitReached] 结束（或 r21 已标记为可恢复的
+     * 传输失败）时，从原会话已有的检查点继续写同一条回复：不插入新的 user「继续」消息、不另开会话、
+     * 不 regenerate 覆盖已落地内容。次数、等待时长分别沿用 [maxRetries] 那张网段的既有设置与
+     * [autoResumeMaxAttempts]；用户点停止立刻取消等待中的续接。
+     */
+    val autoResumeEnabled: Boolean = false,
+    /** 一整轮最多自动续接几次，有界 1..10，默认 3（传越界值会被夹到区间里，不是无上限）。 */
+    val autoResumeMaxAttempts: Int = 3,
+    /**
      * 用户自己写的「额外重试的错误匹配类型」，默认空 = 老行为一个字都不变。
      *
      * 规则只在 [RetryErrorCategory.CUSTOM_MATCH] 被勾选时才生效；命中后仍然不能越过

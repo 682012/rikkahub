@@ -18,6 +18,7 @@ import me.rerere.rikkahub.data.ai.retryPolicy
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.datastore.findModelById
 import me.rerere.rikkahub.data.datastore.findProvider
+import me.rerere.rikkahub.data.model.runtime
 import me.rerere.rikkahub.data.model.Conversation
 import me.rerere.rikkahub.data.model.getChatModelOf
 import kotlin.uuid.Uuid
@@ -51,7 +52,8 @@ class InputOptimizer(
         explicitModelId: Uuid? = null,
     ): InputOptimizationOutcome {
         val original = rawText.trim()
-        val hash = InputAssistRules.inputHash(original)
+        val hash = InputAssistRules.inputHash(AssistRolePrompts.cacheInput(original,
+            conversation.runtime.optimizerSystemPrompt, explicitModelId?.toString()))
         // 先查缓存：重连/重新生成/重开 App 都不该为同一句话再付一次钱，
         // 上一次的 UNCHANGED / FAILED 结论也算数（它们各自的状态不会被说成成功）
         cache.get(conversation.id, messageId, hash, assistantId)?.let { hit -> return cachedOutcome(hit) }
@@ -79,7 +81,8 @@ class InputOptimizer(
         val params = backgroundTextGenerationParams(choice.first, conversation.id, ReasoningLevel.OFF)
             .copy(temperature = 0.2f)
         val messages = listOf(
-            UIMessage.system(InputAssistRules.optimizationSystemPrompt()),
+            UIMessage.system(AssistRolePrompts.compose(InputAssistRules.optimizationSystemPrompt(),
+                conversation.runtime.optimizerSystemPrompt)),
             UIMessage.user(InputAssistRules.optimizationUserPrompt(masked)),
         )
         val raw = try {

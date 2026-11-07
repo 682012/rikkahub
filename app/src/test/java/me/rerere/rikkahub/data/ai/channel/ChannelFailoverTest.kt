@@ -701,6 +701,112 @@ class ChannelFailoverTest {
         assertTrue(failover.routes.isEmpty())
     }
 
+    // ---- 自建排序池（独立模式） ----
+
+    private fun expectFailure(block: () -> Unit): Throwable {
+        try {
+            block()
+        } catch (e: Throwable) {
+            return e
+        }
+        throw AssertionError("expected the plan to fail loudly, but it returned normally")
+    }
+
+    @Test
+    fun `custom pool ignores the conversation model and keeps user order across model ids`() {
+        val mini = Model(modelId = "gpt-4o-mini", displayName = "B-mini")
+        val list = listOf(
+            providerA.copy(models = listOf(modelA)),
+            providerB.copy(models = listOf(modelB, mini)),
+        )
+        val failover = ChannelFailoverSettings(
+            customPoolEnabled = true,
+            orderedPool = listOf(
+                ModelChannelSlot(providerB.id.toString(), "gpt-4o-mini"),
+                ModelChannelSlot(providerA.id.toString(), "gpt-4o"),
+            ),
+        )
+        // 会话选的是 A/gpt-4o，池首项是 B/mini：仍然严格按池顺序，mini 先试
+        val plan = resolveChannelPlan(list, modelA, failover)
+        assertEquals(listOf(mini.id, modelA.id), plan.map { it.model.id })
+        assertEquals(providerB.id.toString(), plan.first().providerId)
+    }
+
+    @Test
+    fun `an empty custom pool fails loudly instead of falling back to the single channel path`() {
+        val error = expectFailure {
+            resolveChannelPlan(providers, modelA, ChannelFailoverSettings(customPoolEnabled = true))
+        }
+        assertTrue(error.message.orEmpty().contains("自建排序池为空"))
+    }
+
+    @Test
+    fun `a fully stale custom pool fails instead of borrowing a channel outside the pool`() {
+        val failover = ChannelFailoverSettings(
+            customPoolEnabled = true,
+            orderedPool = listOf(ModelChannelSlot("00000000-0000-0000-0000-000000000000", "gpt-4o")),
+        )
+        val error = expectFailure { resolveChannelPlan(providers, modelA, failover) }
+        assertTrue(error.message.orEmpty().contains("全部失效"))
+    }
+
+    @Test
+    fun `a pool head in another protocol family is rejected instead of silently skipped`() {
+        val failover = ChannelFailoverSettings(
+            customPoolEnabled = true,
+            orderedPool = listOf(
+                ModelChannelSlot(providerC.id.toString(), "gpt-4o"), // Claude
+                ModelChannelSlot(providerB.id.toString(), "gpt-4o"), // OpenAI 兼容
+            ),
+        )
+        // 会话模型是 OpenAI 兼容的 A：不能偷偷丢掉 Claude 首项直接用 B
+        val error = expectFailure { resolveChannelPlan(providers, modelA, failover) }
+        assertTrue(error.message.orEmpty().contains("不互通"))
+        // 会话模型换成 C（Claude）时同族首项可用，跨族的 B 不参与切换
+        assertEquals(
+            listOf(modelC.id),
+            resolveChannelPlan(providers, modelC, failover).map { it.model.id },
+        )
+    }
+
+    @Test
+    fun `the custom pool wins over grouped routes and turning it off restores them`() {
+        val both = ChannelFailoverSettings(
+            enabled = true,
+            routes = listOf(
+                ModelChannelRoute("gpt-4o", listOf(ModelChannelSlot(providerA.id.toString(), "gpt-4o"))),
+            ),
+            customPoolEnabled = true,
+            orderedPool = listOf(ModelChannelSlot(providerB.id.toString(), "gpt-4o")),
+        )
+        assertEquals(listOf(modelB.id), resolveChannelPlan(providers, modelA, both).map { it.model.id })
+        assertEquals(
+            listOf(modelA.id),
+            resolveChannelPlan(providers, modelA, both.copy(customPoolEnabled = false)).map { it.model.id },
+        )
+    }
+
+    @Test
+    fun `pool slots can be pinned by model uuid and reordered`() {
+        var failover = ChannelFailoverSettings(customPoolEnabled = true)
+        val slotB = ModelChannelSlot(modelUuid = modelB.id.toString())
+        failover = failover.withPoolSlotAdded(slotB)
+        failover = failover.withPoolSlotAdded(ModelChannelSlot(providerA.id.toString(), "gpt-4o"))
+        failover = failover.withPoolSlotAdded(slotB).normalized()
+        assertEquals(2, failover.orderedPool.size)
+        assertEquals(
+            listOf(modelB.id, modelA.id),
+            resolveChannelPlan(providers, modelA, failover).map { it.model.id },
+        )
+        failover = failover.withPoolSlotMoved(1, 0)
+        assertEquals(
+            listOf(modelA.id, modelB.id),
+            resolveChannelPlan(providers, modelA, failover).map { it.model.id },
+        )
+        failover = failover.withPoolSlotRemoved(slotB)
+        assertEquals(listOf(modelA.id), resolveChannelPlan(providers, modelA, failover).map { it.model.id })
+    }
+
     @Test
     fun `routes are matched ignoring case and trimmed`() {
         val failover = ChannelFailoverSettings(

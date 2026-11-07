@@ -103,6 +103,9 @@ internal class AgentLoop(
                 // 再生成一步，让它看见。预算用完时一次都不问，队列留给之后的新一轮（不吞用户输入）。
                 if (steps < request.maxSteps && appendPendingUserParts(requireModelTurn = false)) {
                     // 已经追加，落到下面的 generateStep
+                } else if (steps < request.maxSteps && appendCompletionNudge(current)) {
+                    // m3 会话鞭策：只追加一句推进语，然后仍然走下面同一个 generateStep，
+                    // 步数从同一个预算里扣。不新增 user 消息、不新建会话、不重放工具、不改权限。
                 } else {
                     return finish(AgentFinishReason.Completed)
                 }
@@ -198,6 +201,26 @@ internal class AgentLoop(
         if (parts.isEmpty()) return false
         val base = current ?: UIMessage(role = MessageRole.ASSISTANT, parts = emptyList())
         update(base.copy(parts = base.parts + parts))
+        return true
+    }
+
+    /**
+     * m3 会话鞭策：在**正常结束之前**给一次额外机会，把一句推进语作为 [UIMessagePart.Notice]
+     * 追加到当前这条助手消息末尾，返回是否真的追加了。
+     *
+     * 只在真正的安全点调用（[run] 里"模型已给出最终回复"那个分支）：此时没有待执行的工具、
+     * 不在一轮工具执行中间、也没有半截回复要续写。开了开关才会有钩子（[AgentHooks.completionNudge]
+     * 默认返回 null），关着时这里第一次调用就返回 false，行为和没有这个功能完全一致。
+     *
+     * 追加之后循环照常进 [generateStep]，用的还是同一个 `steps` 计数和同一个
+     * [AgentRequest.maxSteps]，所以这部分最多只会多用掉正常预算里剩的那几步。
+     */
+    private suspend fun appendCompletionNudge(current: UIMessage): Boolean {
+        // 冗余保险：有待执行工具、或在等审批时绝不追加（调用点已经保证，这里不依赖调用点）
+        if (current.getTools().any { !it.isExecuted }) return false
+        val prompt = hooks.completionNudge(current) ?: return false
+        if (prompt.noticeText.isBlank()) return false
+        update(current.copy(parts = current.parts + prompt.toNoticePart()))
         return true
     }
 

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="m3_auto_resume_title">异常停止自动续接</string>
+    <string name="m3_auto_resume_desc">默认关闭。一轮因为达到步数上限而结束时，从原会话已有的检查点接着写同一条回复：不插入新的\"继续\"消息，不另开会话，已写完的内容不重新生成。沿用上面的自动重试开关与等待时长，点停止立刻取消待续接，不会替你审批工具，也不重放结果未知的写入。</string>
+    <string name="m3_auto_resume_limit_title">每轮最多续接次数</string>
+    <string name="m3_auto_resume_limit_desc">1 到 10，默认 3。次数用完就按正常错误停下，交回给你。</string>
+</resources>

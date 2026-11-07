@@ -135,6 +135,8 @@ fun resolveChannelPlan(
     model: Model,
     failover: ChannelFailoverSettings,
 ): List<ChannelTarget> {
+    // 自建排序池是独立模式：开了就只按用户排的池子走，分类组（routes）不参与
+    if (failover.customPoolEnabled) return resolveCustomPoolPlan(providers, model, failover)
     if (!failover.enabled) return emptyList()
     val route = failover.routeFor(model.modelId) ?: return emptyList()
 
@@ -156,6 +158,96 @@ fun resolveChannelPlan(
     check(ordered.isNotEmpty()) { "该模型没有与当前会话协议相同的可用渠道，请调整渠道优先级。" }
     // 配置了白名单就始终用它，只有一个渠道也不回退到白名单外的原渠道。
     return ordered
+}
+
+/**
+ * 自建排序池（独立模式）的有序渠道计划。
+ *
+ * 与分类组模式的区别只有两条：池的成员由用户从**所有**已配置聊天模型里自己挑，不限 modelId；
+ * 池只对用户排的顺序负责，会话当前选中的模型不参与排序。
+ *
+ * 边界（和分类组一致，都是为了让请求真的能发对）：
+ * - 仍然只调用池里的渠道，绝不从池外借一个兜底；
+ * - 池为空、池内全部失效、池首项与当前会话协议族不一致时**明确抛错**，不静默丢首项换下一个；
+ * - 历史/工具是按当前会话模型所属协议族准备的（见文件头第 4 条），所以池内跨协议族的成员不参与切换。
+ */
+fun resolveCustomPoolPlan(
+    providers: List<ProviderSetting>,
+    model: Model,
+    failover: ChannelFailoverSettings,
+): List<ChannelTarget> {
+    if (!failover.customPoolEnabled) return emptyList()
+    val pool = failover.orderedPool.map { it.normalized() }.filter { it.isIdentifiable }
+    check(pool.isNotEmpty()) {
+        "自建排序池为空：请先在「渠道优先级 → 自建排序池」里加入至少一个聊天模型，或关闭自建排序池。"
+    }
+
+    // 会话模型属于 web 账号：登录态会话不是可互换的 API 渠道，一律不切换
+    val currentEntry = model.findProvider(providers, checkOverwrite = false)
+    if (currentEntry is ProviderSetting.WebAccount) return emptyList()
+
+    val resolved = pool
+        .mapNotNull { slot -> channelTargetOfSlot(providers, slot) }
+        .distinctBy { it.providerSetting.id to it.model.id }
+    check(resolved.isNotEmpty()) {
+        "自建排序池里的渠道全部失效（提供商或模型已被删除/禁用），请重新配置；不会回退到池外的渠道。"
+    }
+
+    val sessionEntry = model.findProvider(providers) ?: currentEntry
+    val family = sessionEntry?.let { channelProtocolFamily(it) } ?: resolved.first().protocolFamily
+    val head = resolved.first()
+    check(head.protocolFamily == family) {
+        "自建排序池的首选项（${head.providerSetting.name} / ${head.model.displayName.ifBlank { head.model.modelId }}）" +
+            "是${head.protocolFamilyLabel}，与当前会话模型的" +
+            "${channelProtocolFamilyLabel(family)}不互通，不能安全发送这次请求；" +
+            "请把同协议的模型排到第一，或改用同协议的会话模型。"
+    }
+    return resolved.filter { it.protocolFamily == family }
+}
+
+/**
+ * 把池里的一个槽解析成可调用的渠道：优先按模型实例 UUID 精确定位（[ModelChannelSlot.modelUuid]），
+ * 没有 UUID 时退回 provider 实例 + modelId。解析不到返回 null（失效槽位跳过，不猜别的模型）。
+ */
+fun channelTargetOfSlot(
+    providers: List<ProviderSetting>,
+    slot: ModelChannelSlot,
+): ChannelTarget? {
+    val normalized = slot.normalized()
+    val uuid = normalized.modelUuid
+    if (uuid.isNotBlank()) {
+        val candidates = providers.filter { entry ->
+            normalized.providerId.isBlank() ||
+                entry.id.toString().equals(normalized.providerId, ignoreCase = true)
+        }
+        candidates.forEach { entry ->
+            val model = entry.models.firstOrNull {
+                it.id.toString().equals(uuid, ignoreCase = true)
+            } ?: return@forEach
+            channelTargetOf(providers, entry, model)?.let { return it }
+        }
+        if (normalized.providerId.isBlank() && normalized.modelId.isBlank()) return null
+    }
+    if (normalized.providerId.isBlank() || normalized.modelId.isBlank()) return null
+    return channelTarget(providers, normalized.providerId, normalized.modelId)
+}
+
+/**
+ * 自建排序池的候选：所有启用提供商里的全部聊天模型，**不按 modelId 分组**。
+ * 用户自己挑成员、自己排序，这里只负责把可调用的模型列全（含协议族，界面要标出来）。
+ */
+fun poolCandidates(providers: List<ProviderSetting>): List<ChannelTarget> = buildList {
+    providers
+        .filter { it.enabled && it !is ProviderSetting.WebAccount }
+        .forEach { entry ->
+            entry.models
+                .filter { it.type == ModelType.CHAT && it.modelId.isNotBlank() }
+                .forEach { model ->
+                    channelTargetOf(providers, entry, model)?.let { target ->
+                        if (none { existing -> existing.sameChannelAs(target) }) add(target)
+                    }
+                }
+        }
 }
 
 /**

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- m3: 会话鞭策 / 推进提醒。只说真实行为，不声称能可靠识别"偷懒"。 -->
+    <string name="m3_nudge_group">Nudges</string>
+    <string name="m3_nudge_title">Remind the agent to actually act</string>
+    <string name="m3_nudge_desc">Off by default. Only for this conversation. When your request clearly asks for real work (fix, build, run, deploy, write code…) and the reply is only a plan with no tool call, one internal notice asks it to do the shortest next step now. Your goal and existing permissions do not change: no new \"continue\" message, no new chat, no tool replay, and the step limit is never raised.</string>
+    <string name="m3_nudge_limits">Heuristic, not a mind reader: it may misjudge, so it ignores chit-chat, short answers, creative writing, missing permissions, requests for more information and explicit refusals. It can add model steps, but only inside the normal step budget. No extra review request is sent.</string>
+    <string name="m3_nudge_attempts_title">Nudges per reply</string>
+    <string name="m3_nudge_attempts_desc">1 to 3, default 1. Counted per reply and kept after the conversation is reloaded.</string>
+    <string name="m3_nudge_tone_title">Wording</string>
+    <string name="m3_nudge_tone_encouraging">Encouraging</string>
+    <string name="m3_nudge_tone_neutral">Neutral</string>
+    <string name="m3_nudge_tone_encouraging_desc">Acknowledges the work so far and asks for the shortest real next step. Never shames the model.</string>
+    <string name="m3_nudge_tone_neutral_desc">States only the current state and the next step, without encouragement.</string>
+    <string name="m3_nudge_custom_title">Extra instruction (optional)</string>
+    <string name="m3_nudge_custom_desc">Appended to the default wording. Empty uses the default.</string>
+    <string name="m3_nudge_custom_save">Save</string>
+    <string name="m3_nudge_custom_clear">Clear</string>
+    <string name="m3_nudge_summary">Nudges on</string>
+    <string name="m3_nudge_notice_title">Nudge</string>
+</resources>

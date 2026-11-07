@@ -490,7 +490,19 @@ fun ConversationRuntimePanel(
                 headlineContent = { Text(stringResource(R.string.m1_runtime_efficient_title)) },
                 supportingContent = { Text(stringResource(R.string.m1_runtime_efficient_desc)) },
             )
+            switchItem(
+                checked = options.naturalRolePresence,
+                onCheckedChange = { commit(options.copy(naturalRolePresence = it)) },
+                enabled = !busy,
+                headlineContent = { Text("自然角色代入") },
+                supportingContent = { Text("保持角色语气，减少人设分析和无关免责声明；事实、身份与执行结果仍如实回答。") },
+            )
         }
+        ConversationRolePromptEditors(options = options, enabled = !busy, onChange = { commit(it) })
+        me.rerere.rikkahub.ui.components.ai.ConversationNudgeSettingsSection(
+            settings = options.nudge, enabled = !busy,
+            onChange = { commit(options.copy(nudge = it)) },
+        )
     }
 }
 

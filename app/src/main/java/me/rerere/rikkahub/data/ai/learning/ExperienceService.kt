@@ -225,13 +225,26 @@ class ExperienceService(
                 }
                 val line = lessonLine(candidate)
                 val result = runCatching {
-                    memoryRepository.appendToFile(assistantId, path, line, ifVersion = null)
+                    val current = memoryRepository.getFile(assistantId, path)
+                    if (current == null) {
+                        memoryRepository.writeFile(assistantId, path,
+                            "---\nname: workflow\ntitle: 任务经验\ndescription: 已完成任务中提炼的做法，区别于用户事实\n---\n\n$line\n",
+                            ifVersion = MemoryRepository.NEW_FILE_VERSION)
+                    } else {
+                        memoryRepository.appendToFile(assistantId, path, line, ifVersion = current.version)
+                    }
                 }.getOrElse { MemoryWriteResult.Rejected(it.message ?: "记忆写入失败") }
                 when (result) {
                     is MemoryWriteResult.Success ->
                         if (result.unchanged) dedupe = ExperienceDedupe.ALREADY_IN_MEMORY else memoryPath = path
-                    is MemoryWriteResult.Rejected -> memoryRejected = result.reason
-                    is MemoryWriteResult.Conflict -> memoryRejected = "记忆文件版本冲突，已跳过"
+                    is MemoryWriteResult.Rejected -> {
+                        memoryRejected = result.reason
+                        releaseFingerprint(assistantId, candidate.text, knowledge = false)
+                    }
+                    is MemoryWriteResult.Conflict -> {
+                        memoryRejected = "记忆文件版本冲突，已跳过"
+                        releaseFingerprint(assistantId, candidate.text, knowledge = false)
+                    }
                 }
             }
         } else {
@@ -260,7 +273,10 @@ class ExperienceService(
                     when (result) {
                         is KnowledgeImportResult.Imported -> knowledgeDocId = result.doc.id
                         is KnowledgeImportResult.Duplicate -> knowledgeDocId = result.doc.id
-                        is KnowledgeImportResult.Rejected -> knowledgeRejected = describeReject(result)
+                        is KnowledgeImportResult.Rejected -> {
+                            knowledgeRejected = describeReject(result)
+                            releaseFingerprint(assistantId, candidate.text, knowledge = true)
+                        }
                     }
                 }
             }
@@ -282,6 +298,15 @@ class ExperienceService(
      *
      * @return true 表示这条已经写过（指纹已在记录里）；false 表示这次抢到，可以写。
      */
+    private suspend fun releaseFingerprint(assistantId: String, text: String, knowledge: Boolean) {
+        val fingerprint = ExperienceSanitizer.fingerprint(text)
+        ledger.transact(assistantId) { file ->
+            val next = if (knowledge) file.copy(knowledgeFingerprints = file.knowledgeFingerprints - fingerprint)
+                else file.copy(memoryFingerprints = file.memoryFingerprints - fingerprint)
+            next to Unit
+        }
+    }
+
     private suspend fun claimFingerprint(assistantId: String, text: String, knowledge: Boolean): Boolean {
         val fingerprint = ExperienceSanitizer.fingerprint(text)
         return ledger.transact(assistantId) { file ->

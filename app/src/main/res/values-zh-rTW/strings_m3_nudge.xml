@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- m3: 會話鞭策 / 推進提醒 -->
+    <string name="m3_nudge_group">推進提醒</string>
+    <string name="m3_nudge_title">提示它真正動手</string>
+    <string name="m3_nudge_desc">預設關閉，只影響這個對話。當你的請求明確要求真正動手（修/建置/執行/部署/寫程式…），而回覆只給了計畫、沒有任何工具呼叫時，追加一條內部提醒，讓它挑最短的下一步現在就做。目標和你既有的授權不變：不插入新的\"繼續\"訊息、不另開會話、不重放工具，也不會放寬步數上限。</string>
+    <string name="m3_nudge_limits">這是啟發式判斷，不是讀心：可能誤判，所以閒聊、短答、創作正文、權限不足、要求補資料和明確拒絕都不會觸發。可能多用幾步模型，但只在原本的步數預算裡。不額外發審查請求。</string>
+    <string name="m3_nudge_attempts_title">每則回覆最多提醒次數</string>
+    <string name="m3_nudge_attempts_desc">1 到 3，預設 1。按回覆單獨計數，會話重新載入後不會歸零。</string>
+    <string name="m3_nudge_tone_title">語氣</string>
+    <string name="m3_nudge_tone_encouraging">鼓勵</string>
+    <string name="m3_nudge_tone_neutral">中性</string>
+    <string name="m3_nudge_tone_encouraging_desc">肯定已有的進展，要求挑最短的真實下一步。不會羞辱模型。</string>
+    <string name="m3_nudge_tone_neutral_desc">只陳述目前狀態和下一步，不帶鼓勵措辭。</string>
+    <string name="m3_nudge_custom_title">附加要求（可選）</string>
+    <string name="m3_nudge_custom_desc">追加在預設措辭後面，留空就用預設。</string>
+    <string name="m3_nudge_custom_save">儲存</string>
+    <string name="m3_nudge_custom_clear">清空</string>
+    <string name="m3_nudge_summary">已開推進提醒</string>
+    <string name="m3_nudge_notice_title">推進提醒</string>
+</resources>

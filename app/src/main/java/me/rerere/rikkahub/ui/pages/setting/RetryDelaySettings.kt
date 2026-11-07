@@ -41,6 +41,7 @@ import me.rerere.ai.agent.RetryScopeMode
 import me.rerere.rikkahub.R
 import me.rerere.rikkahub.data.datastore.NetworkSetting
 import me.rerere.rikkahub.data.datastore.RetryDelayMode
+import me.rerere.rikkahub.service.ChatAutoResume
 import me.rerere.rikkahub.ui.components.ui.CardGroupScope
 
 /**
@@ -383,6 +384,47 @@ internal fun CardGroupScope.retryDelaySettingItems(
                 },
             )
         }
+    }
+}
+
+/** m3「异常停止自动续接」：开关 + 有界次数（1..10，默认 3）。默认关闭。 */
+internal fun CardGroupScope.autoResumeSettingItems(
+    setting: NetworkSetting,
+    onChange: (NetworkSetting) -> Unit,
+) {
+    switchItem(
+        checked = setting.autoResumeEnabled,
+        onCheckedChange = { checked -> onChange(setting.copy(autoResumeEnabled = checked)) },
+        headlineContent = { Text(stringResource(R.string.m3_auto_resume_title)) },
+        supportingContent = { Text(stringResource(R.string.m3_auto_resume_desc)) },
+    )
+    if (!setting.autoResumeEnabled) return
+    formItem(
+        headlineContent = { Text(stringResource(R.string.m3_auto_resume_limit_title)) },
+        supportingContent = { Text(stringResource(R.string.m3_auto_resume_limit_desc)) },
+    ) {
+        // 输入非法/清空时不写库，避免把 0 或负数落成"看起来关掉了"的状态
+        var text by rememberSaveable(setting.autoResumeMaxAttempts) {
+            mutableStateOf(setting.autoResumeMaxAttempts.toString())
+        }
+        OutlinedTextField(
+            value = text,
+            onValueChange = { raw ->
+                val digits = raw.filter { it.isDigit() }.take(2)
+                text = digits
+                val value = digits.toIntOrNull() ?: return@OutlinedTextField
+                if (value in ChatAutoResume.MIN_ATTEMPTS..ChatAutoResume.MAX_ATTEMPTS) {
+                    onChange(setting.copy(autoResumeMaxAttempts = value))
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focus ->
+                    if (!focus.isFocused) text = setting.autoResumeMaxAttempts.toString()
+                },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        )
     }
 }
 

@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeFlexibleTopAppBar
@@ -51,6 +52,8 @@ import me.rerere.rikkahub.data.ai.channel.channelCandidatesFor
 import me.rerere.rikkahub.data.ai.channel.channelProtocolFamilyLabel
 import me.rerere.rikkahub.data.ai.channel.channelRouteFamily
 import me.rerere.rikkahub.data.ai.channel.channelTarget
+import me.rerere.rikkahub.data.ai.channel.channelTargetOfSlot
+import me.rerere.rikkahub.data.ai.channel.poolCandidates
 import me.rerere.rikkahub.data.datastore.ChannelFailoverSettings
 import me.rerere.rikkahub.data.datastore.ModelChannelRoute
 import me.rerere.rikkahub.data.datastore.ModelChannelSlot
@@ -80,6 +83,9 @@ fun SettingChannelFailoverPage(vm: SettingVM = koinViewModel()) {
     var pickerRoute by remember { mutableStateOf<String?>(null) }
     var newGroupOpen by remember { mutableStateOf(false) }
     var deleteRoute by remember { mutableStateOf<String?>(null) }
+    // 自建排序池的多选添加框 + 已勾选的模型实例 UUID
+    var poolPickerOpen by remember { mutableStateOf(false) }
+    var poolSelection by remember { mutableStateOf(emptySet<String>()) }
 
     fun update(fn: (ChannelFailoverSettings) -> ChannelFailoverSettings) {
         vm.updateSettings { latest ->
@@ -88,6 +94,13 @@ fun SettingChannelFailoverPage(vm: SettingVM = koinViewModel()) {
     }
 
     val groups = remember(providers) { channelCandidateGroups(providers) }
+
+    // 池的协议族由第一个能解析出来的成员决定，与 resolveCustomPoolPlan 的口径一致
+    val poolFamily = remember(providers, failover.orderedPool) {
+        failover.orderedPool.firstNotNullOfOrNull { slot ->
+            channelTargetOfSlot(providers, slot)?.protocolFamily
+        }.orEmpty()
+    }
 
     Scaffold(
         topBar = {
@@ -144,6 +157,111 @@ fun SettingChannelFailoverPage(vm: SettingVM = koinViewModel()) {
                                 "换渠道会用另一个提供商的凭据重新请求，可能额外计费。" +
                                     "不同协议族（例如 OpenAI 兼容与 Claude）的消息格式不一样，" +
                                     "跨协议切换无法保证请求正确，所以只在同一协议族里切换，添加渠道时也只列出同族的提供商。"
+                            )
+                        },
+                    )
+                }
+            }
+
+            item {
+                CardGroup(title = { Text("自建排序池（独立模式）") }) {
+                    switchItem(
+                        checked = failover.customPoolEnabled,
+                        onCheckedChange = { on -> update { it.copy(customPoolEnabled = on) } },
+                        headlineContent = { Text("按自建池顺序调用，不看会话当前模型") },
+                        supportingContent = {
+                            Text(
+                                "从所有提供商的聊天模型里自己挑成员、自己排序，可跨模型 ID、跨提供商。" +
+                                    "启用后池首项就是首选，会话里当前选中的聊天模型不参与排序（和上面的分类组是两种模式，同时配置时以自建池为准）。" +
+                                    "池为空或成员全部失效会直接报错，不会偷偷回退到池外渠道。"
+                            )
+                        },
+                    )
+                    formItem(
+                        headlineContent = { Text("会额外计费") },
+                        supportingContent = {
+                            Text(
+                                "切换成员会用那个提供商自己的凭据重新发这次请求，可能额外计费。" +
+                                    "已经输出正文、思考或工具草稿之后不会换模型重发；手动取消、请求格式错误也不会重试。"
+                            )
+                        },
+                    ) { }
+                    formItem(
+                        headlineContent = { Text("协议族限制") },
+                        supportingContent = {
+                            Text(
+                                "历史与工具会按池首项的协议准备，所以只有与池首项同族（例如都是 OpenAI 兼容接口）的成员会被调用；" +
+                                    "跨协议族的成员在下面标红，不会参与切换。这不影响你排任意模型 ID 和任意顺序。"
+                            )
+                        },
+                    ) { }
+                    failover.orderedPool.forEachIndexed { index, slot ->
+                        val target = channelTargetOfSlot(providers, slot)
+                        val crossFamily = target != null && poolFamily.isNotBlank() &&
+                            target.protocolFamily != poolFamily
+                        item(
+                            headlineContent = {
+                                Text(
+                                    target?.providerSetting?.name ?: "已失效的成员",
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = if (target == null || crossFamily) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurface,
+                                )
+                            },
+                            supportingContent = {
+                                Text(
+                                    when {
+                                        target == null -> "这个提供商或模型已被删除/禁用，调用时会被跳过"
+                                        crossFamily -> "跨协议族（${target.protocolFamilyLabel}），与池首项不互通，不会参与切换"
+                                        else -> "${target.model.displayName.ifBlank { target.model.modelId }} · 第 ${index + 1} 顺位"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                            },
+                            leadingContent = {
+                                CardGroupIcon(
+                                    HugeIcons.ServerStack01,
+                                    containerColor = if (index == 0) MaterialTheme.colorScheme.primaryContainer
+                                    else MaterialTheme.colorScheme.surfaceContainerHighest,
+                                    contentColor = if (index == 0) MaterialTheme.colorScheme.onPrimaryContainer
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            },
+                            trailingContent = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = { update { it.withPoolSlotMoved(index, index - 1) } },
+                                        enabled = index > 0,
+                                    ) { Icon(HugeIcons.ArrowUp01, contentDescription = "上移") }
+                                    IconButton(
+                                        onClick = { update { it.withPoolSlotMoved(index, index + 1) } },
+                                        enabled = index < failover.orderedPool.lastIndex,
+                                    ) { Icon(HugeIcons.ArrowDown01, contentDescription = "下移") }
+                                    IconButton(onClick = { update { it.withPoolSlotRemoved(slot) } }) {
+                                        Icon(HugeIcons.Cancel01, contentDescription = "移出排序池")
+                                    }
+                                }
+                            },
+                        )
+                    }
+                    item(
+                        onClick = {
+                            poolSelection = emptySet()
+                            poolPickerOpen = true
+                        },
+                        headlineContent = { Text("添加成员（可多选）") },
+                        supportingContent = {
+                            Text(
+                                if (failover.orderedPool.isEmpty()) "池子还是空的：不加成员并启用会直接报错"
+                                else "已排 ${failover.orderedPool.size} 个成员，顺序即优先级"
+                            )
+                        },
+                        leadingContent = {
+                            CardGroupIcon(
+                                HugeIcons.Add01,
+                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
                             )
                         },
                     )
@@ -268,6 +386,96 @@ fun SettingChannelFailoverPage(vm: SettingVM = koinViewModel()) {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+
+    if (poolPickerOpen) {
+        // 所有提供商的聊天模型都在这里，不按 modelId 拼组：用户自己挑
+        val taken = failover.orderedPool
+        fun alreadyInPool(target: ChannelTarget): Boolean = taken.any { slot ->
+            val uuid = slot.modelUuid.trim()
+            if (uuid.isNotBlank()) {
+                uuid.equals(target.model.id.toString(), ignoreCase = true)
+            } else {
+                slot.providerId.equals(target.providerId, ignoreCase = true) &&
+                    slot.modelId.equals(target.model.modelId, ignoreCase = true)
+            }
+        }
+        val candidates = poolCandidates(providers).filterNot { alreadyInPool(it) }
+        ModalBottomSheet(
+            onDismissRequest = { poolPickerOpen = false },
+            sheetState = rememberBottomSheetState(
+                initialValue = SheetValue.Hidden,
+                enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+            ),
+        ) {
+            Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp)) {
+                Text("添加排序池成员", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "从所有已启用的提供商里多选聊天模型，可以跨模型 ID、跨提供商。加入后按你排的顺序调用。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(8.dp))
+                if (candidates.isEmpty()) {
+                    Text(
+                        "没有可添加的聊天模型了。需要先在提供商里添加聊天模型。",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Column(
+                        Modifier
+                            .weight(1f, fill = false)
+                            .verticalScroll(rememberScrollState()),
+                    ) {
+                        candidates.forEach { candidate ->
+                            val uuid = candidate.model.id.toString()
+                            val checked = uuid in poolSelection
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(
+                                    checked = checked,
+                                    onCheckedChange = { on ->
+                                        poolSelection = if (on) poolSelection + uuid else poolSelection - uuid
+                                    },
+                                )
+                                Column(Modifier.weight(1f)) {
+                                    Text(candidate.providerSetting.name, style = MaterialTheme.typography.bodyLarge)
+                                    Text(
+                                        "${candidate.model.displayName.ifBlank { candidate.model.modelId }} · " +
+                                            candidate.protocolFamilyLabel,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        enabled = poolSelection.isNotEmpty(),
+                        onClick = {
+                            val picked = candidates.filter { it.model.id.toString() in poolSelection }
+                            update {
+                                it.withPoolSlotsAdded(
+                                    picked.map { candidate ->
+                                        ModelChannelSlot(
+                                            providerId = candidate.providerId,
+                                            modelId = candidate.model.modelId,
+                                            modelUuid = candidate.model.id.toString(),
+                                        )
+                                    },
+                                )
+                            }
+                            poolPickerOpen = false
+                            poolSelection = emptySet()
+                        },
+                    ) { Text("添加 ${poolSelection.size} 个成员") }
                 }
             }
         }

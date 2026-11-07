@@ -51,6 +51,7 @@ data class ChatReconnectTicket(
     val interruptedMessageId: Uuid? = null,
     val regenerateNodeId: Uuid? = null,
     val previousSelectIndex: Int? = null,
+    val autoContinuation: Boolean = false,
 ) {
     val retryRegenerateNodeId: Uuid? get() = regenerateNodeId.takeIf { checkpoint == null }
 

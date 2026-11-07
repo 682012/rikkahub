@@ -69,7 +69,36 @@ interface AgentHooks {
      * 默认空实现：既有调用方行为完全不变。
      */
     suspend fun pendingUserParts(): List<UIMessagePart> = emptyList()
+
+    /**
+     * m3「会话鞭策」：一次运行**正常结束之前**的最后一次机会，返回一句要追加给模型的推进语，
+     * 返回 null / 空 = 不干预，本轮照常结束。
+     *
+     * 只在真正的安全点调用（见 [me.rerere.ai.agent.AgentLoop]）：没有待执行的工具、没有在等审批、
+     * 也没有半截回复要续写。调用方给的是当前这条助手消息（含本步刚生成的内容），
+     * 判定必须是**基于可见证据的保守启发式**，不能声称能可靠识别"偷懒"。
+     *
+     * 返回内容时循环把它作为 [UIMessagePart.Notice] 追加到同一条助手消息末尾，然后**继续用同一个
+     * 正常步数预算**再走一步：不新增用户"继续"消息、不新建会话、不重放任何工具、不改权限，
+     * 也不会突破 [AgentRequest.maxSteps]。返回 null 时行为与没有这个钩子完全一致。
+     *
+     * 默认 null：既有调用方与既有测试的路径逐字节不变（不追加 part、不打额外模型请求）。
+     */
+    suspend fun completionNudge(message: UIMessage): NudgePrompt? = null
 }
+
+/**
+ * 一次「会话鞭策」要追加给模型的内容。
+ *
+ * [noticeText] 是**发给模型**的那句话（会被 [me.rerere.ai.ui.expandNotices] 拆成一条合成 user 消息）；
+ * [noticeTitle] 只用于界面展示；[marker] 写进 [UIMessagePart.Notice.metadata]，
+ * 用来在同一条回复里给已用次数计数（恢复/落库之后再读到也不会重置）。
+ */
+data class NudgePrompt(
+    val noticeTitle: String,
+    val noticeText: String,
+    val marker: String,
+)
 
 data class StepRequest(
     val messages: List<UIMessage>,

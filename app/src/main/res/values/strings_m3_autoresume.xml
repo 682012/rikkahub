@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="m3_auto_resume_title">Auto-resume after an abnormal stop</string>
+    <string name="m3_auto_resume_desc">Off by default. When a turn ends because the step limit was reached, keep writing the same reply from the conversation\'s existing checkpoint. No extra \"continue\" message is added, no new chat is created, and finished content is never regenerated. It follows the retry switch and wait time above, stops on Stop, never approves tools for you, and never replays a write whose result is unknown.</string>
+    <string name="m3_auto_resume_limit_title">Resume attempts per turn</string>
+    <string name="m3_auto_resume_limit_desc">1 to 10, default 3. When the budget is used up the turn stops with the normal error and waits for you.</string>
+</resources>

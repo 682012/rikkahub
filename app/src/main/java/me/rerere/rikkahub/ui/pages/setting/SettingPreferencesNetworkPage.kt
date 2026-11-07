@@ -353,6 +353,20 @@ fun SettingPreferencesNetworkPage(vm: SettingVM = koinViewModel()) {
                                 }
                             },
                         )
+                        // m3：异常停止自动续接（默认关闭，次数 1..10）
+                        autoResumeSettingItems(
+                            setting = settings.networkSetting,
+                            onChange = { updated ->
+                                vm.updateSettings { current ->
+                                    current.copy(
+                                        networkSetting = current.networkSetting.copy(
+                                            autoResumeEnabled = updated.autoResumeEnabled,
+                                            autoResumeMaxAttempts = updated.autoResumeMaxAttempts,
+                                        ),
+                                    )
+                                }
+                            },
+                        )
                         // 重试范围：默认老分类；可勾 401/403、402、格式、未知，或直接"任何错误"；
                         // 以及是否一直重试到停止
                         retryScopeSettingItems(

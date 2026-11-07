@@ -19,6 +19,7 @@ import me.rerere.ai.ui.UIMessagePart
 fun rewriteRequestMessages(
     messages: List<UIMessage>,
     state: InputAssistTurnState?,
+    reviewerRole: String = "",
 ): List<UIMessage> {
     if (state == null || !state.changesRequest) return messages
     var result = messages
@@ -33,7 +34,7 @@ fun rewriteRequestMessages(
         }
     }
     if (state.selfCheck) {
-        val tail = InputAssistRules.selfCheckTail()
+        val tail = AssistRolePrompts.compose(InputAssistRules.selfCheckTail(), reviewerRole)
         result = result.map { message ->
             if (message.id == state.messageId && message.role == MessageRole.USER) {
                 message.copy(parts = appendToLastText(message.parts, tail))
