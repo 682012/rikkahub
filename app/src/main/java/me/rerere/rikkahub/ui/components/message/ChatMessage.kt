@@ -573,7 +573,6 @@ private fun MessagePartsBlock(
                                         assistant = assistant,
                                         onToolApproval = onToolApproval,
                                         onToolAnswer = onToolAnswer,
-                                        onToolMembersApproval = onToolMembersApproval,
                                     )
                                 }
                             }

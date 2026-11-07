@@ -1029,7 +1029,7 @@ class ChatService(
                                     val target = session.state.value.currentMessages.flatMap { it.getTools() }
                                         .firstOrNull { it.toolCallId == toolCallId }
                                     require(target?.toolName == "tool_batch") { "Member approval requires tool_batch" }
-                                    val calls = target.inputAsJson()["calls"] as? kotlinx.serialization.json.JsonArray
+                                    val calls = (target.inputAsJson() as? kotlinx.serialization.json.JsonObject)?.get("calls") as? kotlinx.serialization.json.JsonArray
                                     require(calls != null && selected.all { it in calls.indices }) { "Invalid member selection" }
                                     ToolApprovalState.ApprovedMembers(selected)
                                 }
@@ -1107,7 +1107,7 @@ class ChatService(
 
             val nodes = conversation.messageNodes
             previousReplySelectIndex = regenerateNodeId?.let { id -> nodes.firstOrNull { it.id == id }?.selectIndex }
-            val history = if (regenerateNodeId != null) {
+            var history = if (regenerateNodeId != null) {
                 val index = nodes.indexOfFirst { it.id == regenerateNodeId }
                 check(index != -1) { "Message node $regenerateNodeId not found" }
                 conversation.currentMessages.take(index)
@@ -1149,6 +1149,24 @@ class ChatService(
                 context.getString(R.string.r21_assistant_changed)
             }
             val turn = requestFactory.createContext(settings, currentConversation, requestMessages = history)
+            val capturedHistory = me.rerere.rikkahub.data.ai.TurnPromptReferences.capture(
+                history, turn.learningPrompt, turn.knowledgeContext,
+            )
+            if (capturedHistory !== history) {
+                val snapshot = capturedHistory.zip(history).first { (after, before) -> after != before }.first
+                session.update { latest ->
+                    val node = latest.getMessageNodeByMessageId(snapshot.id) ?: return@update latest
+                    val original = node.messages.firstOrNull { it.id == snapshot.id } ?: return@update latest
+                    if (original.parts != snapshot.parts) return@update latest
+                    latest.upsertMessage(node.id, original.copy(
+                        promptReferences = snapshot.promptReferences,
+                        promptReferencesSource = snapshot.promptReferencesSource,
+                    ))
+                }
+                // Persist before the first request; restart/recovery reuses exactly this snapshot.
+                session.flush()
+            }
+            history = capturedHistory
             learningTurn = turn
             senderName = if (turn.assistant.useAssistantAvatar) {
                 turn.assistant.name.ifEmpty { context.getString(R.string.assistant_page_default_assistant) }

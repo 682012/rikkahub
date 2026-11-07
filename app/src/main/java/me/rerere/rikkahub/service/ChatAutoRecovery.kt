@@ -104,6 +104,7 @@ object ChatAutoRecovery {
             RetryErrorCategory.REQUEST_FORMAT -> ChatRecoveryBlocker.REQUEST_FORMAT
             RetryErrorCategory.NETWORK, RetryErrorCategory.SERVER,
             RetryErrorCategory.EMPTY_RESPONSE -> ChatRecoveryBlocker.OTHER
+            RetryErrorCategory.CUSTOM_MATCH,
             RetryErrorCategory.UNKNOWN -> ChatRecoveryBlocker.OTHER
         }
     }

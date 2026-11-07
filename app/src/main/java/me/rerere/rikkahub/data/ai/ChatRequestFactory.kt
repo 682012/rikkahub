@@ -220,6 +220,7 @@ class ChatRequestFactory(
         // 压缩/摘要这类旁路请求（modelOverride != null）只取文本历史：不带工具、不查知识库、不加执行指引，
         // 免得为了一份摘要多打一次 SQLite、多塞一套工具说明。
         val mainTurn = modelOverride == null
+        val referencesCaptured = mainTurn && TurnPromptReferences.captured(requestMessages)
         val runtimeOptions = conversation.runtime
         // 压缩这类旁路请求只需要文本，指定了单独模型时不带工具，
         // 避免不支持工具调用的上游直接拒绝请求
@@ -256,7 +257,7 @@ class ChatRequestFactory(
             conversationSystemPrompt = conversation.customSystemPrompt,
             workspaceCwd = conversation.workspaceCwd,
             memories = if (assistant.enableMemory) memoryRepository.getFiles(assistant.memoryId) else emptyList(),
-            learningPrompt = if (modelOverride != null) "" else try {
+            learningPrompt = if (!mainTurn || referencesCaptured) "" else try {
                 learningRepository.buildPrompt(learningRepository.snapshot(assistant.id.toString()), model.id.toString())
             } catch (e: CancellationException) {
                 throw e
@@ -277,7 +278,7 @@ class ChatRequestFactory(
             nudge = if (mainTurn) conversation.nudgeOptions() else null,
             naturalRolePresence = conversation.runtime.naturalRolePresence,
             // 一轮只查一次知识库，片段挂在用户请求尾部（不可信引用），工具步骤里原样复用
-            knowledgeContext = if (mainTurn && runtimeOptions.knowledgeEnabled) {
+            knowledgeContext = if (mainTurn && !referencesCaptured && runtimeOptions.knowledgeEnabled) {
                 knowledgeContextFor(assistant, requestMessages)
             } else "",
             // 高效模式：按实际拿到的工具生成短指引；关掉或没有代码类工具时为空，系统提示不变
@@ -296,7 +297,7 @@ class ChatRequestFactory(
      */
     private suspend fun knowledgeContextFor(assistant: Assistant, requestMessages: List<UIMessage>): String {
         val query = requestMessages
-            .lastOrNull { it.role == MessageRole.USER }
+            .lastOrNull { it.role == MessageRole.USER && !it.isSynthetic && !it.isContextCheckpoint }
             ?.toText()
             ?.trim()
             .orEmpty()
@@ -568,9 +569,10 @@ class ChatRequestFactory(
         }
         val requestMessages = buildList {
             buildSystemMessage(turn, tools, messages)?.let { add(it) }
-            // 知识库参考：不可信引用，只挂在最后一条用户消息尾部（不塞系统提示、不改历史）。
-            // 放在 transforms 之前，动态时钟（TimeReminder 追加在请求尾部）仍然是最后一条。
-            addAll(attachKnowledgeReference(preparedMessages, turn.knowledgeContext))
+            // 参考资料随原 user 轮次固定；追加下一轮、部分压缩、重启均不移除旧消息的引用。
+            addAll(TurnPromptReferences.expand(TurnPromptReferences.capture(
+                preparedMessages, turn.learningPrompt, turn.knowledgeContext,
+            )))
         }.transforms(
             transformers = if (allowSequentialVision) inputTransformers else compactionInputTransformers,
             context = context,
@@ -602,7 +604,7 @@ class ChatRequestFactory(
         // 系统提示同样要走输入转换：占位符、提示词注入和工作区规则在压缩请求里也要生效
         val transformed = buildList {
             buildSystemMessage(turn, tools, messages)?.let { add(it) }
-            addAll(messages.limitContext(turn.assistant.contextMessageLimit))
+            addAll(TurnPromptReferences.expand(messages.limitContext(turn.assistant.contextMessageLimit)))
         }.transforms(
             transformers = compactionInputTransformers,
             context = context,
@@ -635,7 +637,6 @@ class ChatRequestFactory(
             add("主提示词" to effective)
             if (turn.naturalRolePresence && effective.isNotBlank()) add("角色自然表达" to RolePresenceGuidance.TEXT)
             if (assistant.enableMemory) add("记忆" to turn.memoryPrompt)
-            if (turn.learningPrompt.isNotBlank()) add("经验学习" to turn.learningPrompt)
             tools.forEach { tool ->
                 val guidance = tool.systemPrompt(turn.model, messages)
                 if (guidance.isNotBlank()) add("工具 · ${tool.name}" to guidance)
@@ -712,21 +713,6 @@ class ChatRequestFactory(
         ).applyTo(channelParams)
     }
 
-    /**
-     * 把知识库参考片段挂到用户请求尾部。
-     *
-     * 只追加到**最后一条 USER 消息**的文本 part 后面：消息条数与角色顺序不变（各协议都接受），
-     * 前面的静态前缀也不受影响；同一轮每个工具步骤注入的都是同一份文本（[ChatTurnContext] 里固定）。
-     */
-    private fun attachKnowledgeReference(messages: List<UIMessage>, reference: String): List<UIMessage> {
-        if (reference.isBlank()) return messages
-        val index = messages.indexOfLast { it.role == MessageRole.USER }
-        if (index == -1) return messages
-        val target = messages[index]
-        return messages.toMutableList().also { list ->
-            list[index] = target.copy(parts = target.parts + UIMessagePart.Text("\n\n$reference"))
-        }
-    }
 }
 
 /**

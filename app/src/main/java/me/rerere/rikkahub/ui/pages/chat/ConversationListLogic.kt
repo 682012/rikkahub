@@ -10,7 +10,33 @@ import me.rerere.rikkahub.data.model.Conversation
  *
  * 全部是纯函数，不碰 Android、不碰 Compose 运行时，单测可以直接钉住；
  * 之前这些判断散在 Composable 里，一处写反就是用户看到的那几个 bug，而且没法回归。
+ *
+ * ── 接线现状（按 m3 只读复核 + 逐行验证，2026-11）─────────────
+ * 以下函数在 UI 层**无直接调用**，但其表达的功能由等效机制覆盖：
+ *
+ * - `visibleListRows` / `groupMemberIdsToHide`：
+ *   未归组查询（`getUnfiledConversationsOfAssistantPaging`）使用 `folder_id = ''` 过滤，
+ *   分组内的成员不会出现在主列表中，因此不需要在主列表内「让位」。等效逻辑在 DAO 层。
+ *
+ * - `listRowForCurrentConversation` / `pagingHasConversation`：
+ *   当前会话行自然出现在分页查询结果中（未归组家族根）。若当前会话有 folder_id（在组内），
+ *   则不应在未归组列表中补行，否则会把组内成员串出组外。等效表现为「不补行就是正确行为」。
+ *
+ * - `pagingListLoadingState` / `pagingListHasRealRows`：
+ *   Compose 内联使用 `loadState.refresh is NotLoading` 判断空态，不以分页刷新作为整表加载覆盖层。
+ *   等效逻辑在 ConversationList.kt 渲染中；实际滚动与刷新观感仍需真机检查。
+ *
+ * - `chatContentLoading`：
+ *   聊天内容加载态（非抽屉列表）由 service.stability.chatShowsContentLoading 控制，
+ *   该函数仅作为一层包装引用，UI 调用点在 ChatPage 侧，不在本文件接线范围内。
+ *
+ * - `conversationRowRunning`：
+ *   ConversationItem 内联使用 `conversation.id in conversationJobs`，
+ *   而 conversationJobs 仅包含有活跃生成 Job 的会话，与 `jobActive` 等价。
+ *
+ * 保留这些函数作为参考定义与单测锚点：若未来界面逻辑需要变化，在此修正并补上 UI 调用即可。
  */
+
 
 // ---- 1. 列表与当前会话的对应关系 ----
 
@@ -20,6 +46,9 @@ import me.rerere.rikkahub.data.model.Conversation
  * 只在该列表本来就该包含它时补：同一个助手、且没有被筛进某个组/某个家族。
  * 跨助手补行会把别的助手的会话塞进当前助手的列表（就是「在 A 助手的其它聊天区开的会话串到主会话区」）。
  * 当前列表已经自带这一行时，调用方不该再补（会变成两行）。
+ *
+ * ⚠ 当前 m3 UI 未调用此函数，因查询层 `folder_id = ''` filter 已保证：当前会话是未归组家族根
+ *   时自然出现在列表中；有 folder_id（在组内）时不应出现，不补行就是正确行为。
  */
 fun listRowForCurrentConversation(
     current: Conversation,

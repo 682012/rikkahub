@@ -16,7 +16,7 @@ import me.rerere.ai.ui.UIMessagePart
 @Composable
 fun BatchMemberApprovalList(tool: UIMessagePart.Tool, onApproveMember: (Int) -> Unit) {
     if (tool.toolName != "tool_batch") return
-    val calls = tool.inputAsJson()["calls"] as? JsonArray ?: return
+    val calls = (tool.inputAsJson() as? JsonObject)?.get("calls") as? JsonArray ?: return
     val required = tool.approvalRequiredMembers ?: calls.indices.toSet()
     calls.forEachIndexed { index, value ->
         if (index !in required) return@forEachIndexed

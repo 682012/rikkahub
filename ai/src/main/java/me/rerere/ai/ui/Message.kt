@@ -38,6 +38,10 @@ data class UIMessage(
     val translation: String? = null,
     // 压缩检查点：此消息是它之前全部历史的摘要，组装请求时从最后一个检查点开始取
     val isContextCheckpoint: Boolean = false,
+    // 每轮参考资料的持久快照；null=尚未捕获，空字符串=当轮没有参考资料。
+    // 不改用户正文，发请求时才展开；新消息追加后，旧消息仍使用最初发出的内容。
+    val promptReferences: String? = null,
+    val promptReferencesSource: String? = null,
     // 请求期间生成的内部消息；该标记仅在内存中使用
     @Transient
     val isSynthetic: Boolean = false,

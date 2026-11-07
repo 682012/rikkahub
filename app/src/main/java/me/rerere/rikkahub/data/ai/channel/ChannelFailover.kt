@@ -373,6 +373,7 @@ fun channelFailoverSwitchable(error: Throwable): Boolean {
         RetryErrorCategory.EMPTY_RESPONSE,
         -> true
         // 请求本身的格式/参数问题：同一个请求发到哪个渠道都一样，换渠道只会多打几次
+        RetryErrorCategory.CUSTOM_MATCH -> true
         RetryErrorCategory.REQUEST_FORMAT,
         RetryErrorCategory.UNKNOWN,
         -> false

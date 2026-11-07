@@ -16,6 +16,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -85,8 +86,9 @@ sealed class ConversationListItem {
     /**
      * 手动分组组头，插在**原列表**里组内第一条会话的位置上（不是另开一个区）。
      *
-     * 组内成员不复制一份：展开后由组自己渲染成员行，主列表里对应的那几行让位（见
-     * [visibleListRows]），所以「原列表折成组」和「关掉组回到原列表」是同一份顺序。
+     * 组内成员不复制一份：展开后由组自己渲染成员行，主列表里对应的那几行已由查询层的
+     * `folder_id = ''` 过滤（未归组查询不包含有 folder_id 的会话），所以「原列表折成组」
+     * 和「关掉组回到原列表」是同一份顺序。
      */
     data class GroupHeader(
         val summary: GroupSummary,
