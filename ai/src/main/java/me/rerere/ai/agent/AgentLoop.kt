@@ -151,9 +151,10 @@ internal class AgentLoop(
      * 计划在**执行时**重新计算（[createToolBatch] 的 memberApproval 回调），
      * 而不是在这里把结论缓存进消息：用户批准后编辑过工具表也不会用到旧结论。
      */
-    private fun planBatchApproval(part: UIMessagePart.Tool, args: JsonObject): BatchApprovalPlan? {
+    private fun planBatchApproval(part: UIMessagePart.Tool, args: kotlinx.serialization.json.JsonElement): BatchApprovalPlan? {
         if (part.toolName != TOOL_BATCH_NAME) return null
-        val calls = parseBatchCalls(part.toolName, args) ?: return null
+        val objectArgs = args as? JsonObject ?: return null
+        val calls = parseBatchCalls(part.toolName, objectArgs) ?: return null
         return approvalPlan(calls) { findTool(it) }
     }
 

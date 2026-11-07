@@ -18,6 +18,7 @@ import kotlinx.coroutines.supervisorScope
 import me.rerere.ai.ui.UIMessagePart
 import me.rerere.rikkahub.data.datastore.Settings
 import me.rerere.rikkahub.data.model.Conversation
+import me.rerere.rikkahub.data.model.runtime
 import me.rerere.rikkahub.data.model.ConversationReviewMode
 import me.rerere.rikkahub.data.model.ConversationRuntimeOptions
 import kotlin.uuid.Uuid
@@ -290,7 +291,7 @@ class InputAssistService(
             userMessageId = userMessageId,
             userText = userText,
             replyMessageId = replyMessageId,
-            replyText = replyText,
+            replyText = AssistRolePrompts.cacheInput(replyText, options.reviewerSystemPrompt, options.reviewerModelId?.toString()),
         )
         val cached = cachedReview(key)
         val token = Uuid.random()
@@ -490,7 +491,8 @@ class InputAssistService(
         return store.get(
             conversationId = conversation.id,
             messageId = messageId,
-            originalHash = InputAssistRules.inputHash(original),
+            originalHash = InputAssistRules.inputHash(AssistRolePrompts.cacheInput(original,
+                conversation.runtime.optimizerSystemPrompt, conversation.runtime.optimizerModelId?.toString())),
             assistantId = conversation.assistantId,
         )?.takeIf { it.status == OptimizationCacheKind.REWRITE }?.optimizedText
     }

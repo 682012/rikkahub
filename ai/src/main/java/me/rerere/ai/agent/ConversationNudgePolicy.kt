@@ -92,7 +92,7 @@ object ConversationNudge {
      */
     fun decide(request: NudgeRequest): NudgeDecision {
         val used = request.noticeMarkers.count { it.isNotBlank() }
-        val budget = clampAttempts(request.maxAttempts)
+        val budget = if (request.maxAttempts <= 0) 0 else clampAttempts(request.maxAttempts)
         if (used >= budget) return NudgeDecision(null, "attempts-exhausted", used)
         // 已经有真实工具进展：这一轮本来就动了手，不是"只说不做"
         if (request.toolCalls > 0 || request.executedToolCalls > 0) {
@@ -104,7 +104,7 @@ object ConversationNudge {
         }
         val repeatOnly = used > 0
         val reply = classifyReply(request.replyText)
-        if (reply is ReplySignal.NoPlan && !repeatOnly) {
+        if (reply is ReplySignal.NoPlan) {
             return NudgeDecision(null, "reply-is-not-plan-only:${reply.why}", used)
         }
         val repeated = reply is ReplySignal.RepeatedPlan
@@ -156,16 +156,15 @@ object ConversationNudge {
     fun classifyReply(raw: String): ReplySignal {
         val text = raw.trim()
         if (text.isEmpty()) return ReplySignal.NoPlan("empty-reply")
-        if (text.length < MIN_PLAN_LENGTH) return ReplySignal.NoPlan("too-short")
-        // 明确拒绝 / 需要用户补充资料 / 等确认 / 权限不足：有理由的停手，不推
         if (REASONED_STOP.any { it.containsMatchIn(text) }) return ReplySignal.NoPlan("reasoned-stop")
+        if (text.length < MIN_PLAN_LENGTH) return ReplySignal.NoPlan("too-short")
+        // Completed work and ordinary textual answers must not trigger another model step.
+        if (COMPLETION_EVIDENCE.any { it.containsMatchIn(text) }) return ReplySignal.NoPlan("completion-evidence")
         if (PLAN_HEADING.any { it.containsMatchIn(text) } || stepChainCount(text) >= STEP_CHAIN_THRESHOLD) {
             return ReplySignal.RepeatedPlan(text.normalizePlan())
         }
-        val future = FUTURE_PLAN.any { it.containsMatchIn(text) }
-        val done = COMPLETION_EVIDENCE.any { it.containsMatchIn(text) }
-        if (future && !done) return ReplySignal.FutureOnly
-        return ReplySignal.NoToolPlan
+        if (FUTURE_PLAN.any { it.containsMatchIn(text) }) return ReplySignal.FutureOnly
+        return ReplySignal.NoPlan("no-explicit-plan")
     }
 
     private fun instruction(
@@ -273,7 +272,7 @@ private val DISCUSSION = listOf(
 
 // 回复里出现这些说明是有理由地停手，不推
 private val REASONED_STOP = listOf(
-    Regex("(我没有|没有)(权限|授权|访问)|权限不足|需要你(先)?(提供|补充|确认|授权)|缺少(必要)?(信息|权限)"),
+    Regex("(我没有|没有)(权限|授权|访问)|权限不足|需要你(先)?(提供|补充|确认|授权)|需要你的授权|需要你确认|缺少(必要)?(信息|权限)"),
     Regex("(无法|不能)(执行|继续|完成|操作)|做不到|需要(你|用户)(补充|提供|确认)"),
     Regex(
         "\\b(need (more )?information|need your (input|approval|confirmation)|do not have (the )?permission|" +
@@ -307,10 +306,10 @@ private val PLAN_HEADING = listOf(
 private val STEP_CHAIN = Regex("(接下来|然后|下一步|其次|最后|next|then|finally)", RegexOption.IGNORE_CASE)
 
 /** 计划型回复最少要有这么长：太短的是正常短答，不打扰 */
-private const val MIN_PLAN_LENGTH = 40
+private const val MIN_PLAN_LENGTH = 12
 
 /** 命中多少个"步骤连接词"才算在列步骤链 */
-private const val STEP_CHAIN_THRESHOLD = 3
+private const val STEP_CHAIN_THRESHOLD = 2
 
 private fun stepChainCount(text: String): Int = STEP_CHAIN.findAll(text).take(STEP_CHAIN_THRESHOLD).count()
 

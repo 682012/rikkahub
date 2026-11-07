@@ -23,9 +23,9 @@ import me.rerere.rikkahub.data.model.Conversation
  */
 fun listRowForCurrentConversation(
     current: Conversation,
-    assistantId: java.util.UUID?,
-    selectedFolderId: java.util.UUID?,
-    selectedLineageId: java.util.UUID?,
+    assistantId: kotlin.uuid.Uuid?,
+    selectedFolderId: kotlin.uuid.Uuid?,
+    selectedLineageId: kotlin.uuid.Uuid?,
     alreadyListed: Boolean,
 ): Conversation? {
     if (alreadyListed) return null
@@ -63,7 +63,7 @@ fun pagingListHasRealRows(refresh: LoadState, hasRows: Boolean): Boolean =
 fun scrollTargetForKey(
     items: List<ConversationListItem>,
     headerCount: Int,
-    conversationId: java.util.UUID,
+    conversationId: kotlin.uuid.Uuid,
     listState: LazyListState,
 ): Int? {
     val itemIndex = items.indexOfFirst { (it as? ConversationListItem.Item)?.conversation?.id == conversationId }
@@ -74,7 +74,7 @@ fun scrollTargetForKey(
 }
 
 /** 分页列表里已经能看到的会话 id 判断。 */
-fun pagingHasConversation(items: LazyPagingItems<ConversationListItem>, id: java.util.UUID): Boolean {
+fun pagingHasConversation(items: LazyPagingItems<ConversationListItem>, id: kotlin.uuid.Uuid): Boolean {
     for (index in 0 until items.itemCount) {
         val item = items.peek(index) as? ConversationListItem.Item ?: continue
         if (item.conversation.id == id) return true
@@ -108,7 +108,7 @@ fun groupAnchorItem(
 }
 
 /** 组展开后，主列表里要让位（不再重复显示）的成员 id。 */
-fun groupMemberIdsToHide(members: List<Conversation>): Set<java.util.UUID> =
+fun groupMemberIdsToHide(members: List<Conversation>): Set<kotlin.uuid.Uuid> =
     members.mapTo(LinkedHashSet()) { it.id }
 
 /**
@@ -119,7 +119,7 @@ fun groupMemberIdsToHide(members: List<Conversation>): Set<java.util.UUID> =
  */
 fun visibleListRows(
     rows: List<ConversationListItem>,
-    hiddenIds: Set<java.util.UUID>,
+    hiddenIds: Set<kotlin.uuid.Uuid>,
 ): List<ConversationListItem> =
     if (hiddenIds.isEmpty()) rows
     else rows.filterNot { (it as? ConversationListItem.Item)?.conversation?.id in hiddenIds }
@@ -151,16 +151,18 @@ fun inlineGroupPlacement(
     sortKeyOf: (Conversation) -> Long = { it.updateAt.toEpochMilli() },
 ): Map<Int, List<ConversationListItem.GroupHeader>> {
     if (headers.isEmpty()) return emptyMap()
-    val items = rows.mapNotNull { it as? ConversationListItem.Item }
+    val items = rows.mapIndexedNotNull { index, row ->
+        (row as? ConversationListItem.Item)?.let { index to it }
+    }
     val result = LinkedHashMap<Int, MutableList<ConversationListItem.GroupHeader>>()
     headers
         .sortedWith(compareByDescending<ConversationListItem.GroupHeader> { it.pinned }.thenByDescending { it.anchorAt })
         .forEach { header ->
-            val index = items.indexOfFirst { row ->
+            val index = items.firstOrNull { (_, row) ->
                 val pinnedRow = row.conversation.isPinned
                 if (pinnedRow != header.pinned) !pinnedRow && header.pinned
                 else sortKeyOf(row.conversation) < header.anchorAt
-            }.let { if (it < 0) items.size else it }
+            }?.first ?: rows.size
             result.getOrPut(index) { mutableListOf() } += header
         }
     return result

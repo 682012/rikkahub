@@ -45,7 +45,7 @@ val appModule = module {
     }
     single {
         me.rerere.rikkahub.data.ai.learning.ExperienceService(
-            appScope = get(),
+            appScope = get<AppScope>(),
             settingsStore = get(),
             providerManager = get(),
             usageRecorder = get(),
