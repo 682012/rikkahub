@@ -214,7 +214,7 @@ fun ChainOfThoughtScope.ChatMessageToolStep(
         if (!tool.isPending) {
             ""
         } else {
-            val args: JsonObject = proxyTarget?.second ?: (tool.inputAsJson() as? JsonObject ?: JsonObject(emptyMap()))
+            val args = (proxyTarget?.second ?: tool.inputAsJson()) as? JsonObject ?: JsonObject(emptyMap())
             ToolApprovalDisplay.previewText(effectiveName, args)
         }
     }
